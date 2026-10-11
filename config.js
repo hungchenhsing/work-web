@@ -5,6 +5,6 @@
    Both are safe to publish: access is enforced by the row-level security rules in supabase/schema.sql.
    Leave them empty to run the site in demo mode (data stays in each browser). */
 window.WW_CONFIG = {
-  supabaseUrl: '',
-  supabaseKey: ''
+  supabaseUrl: 'https://sjxgwvfjhrebnwzekusy.supabase.co',
+  supabaseKey: 'b_publishable_HyCdzKumrbui1NzLauQHKw_0zGhwNj2'
 };
