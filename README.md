@@ -12,6 +12,8 @@
 
 ## 一、上線步驟（約 15 分鐘，只需做一次）
 
+> 完整圖文步驟見線上教程「work-web 上線教程」。
+
 ### 1. 建立 Supabase 專案
 1. 到 <https://supabase.com> 用 GitHub 帳號登入 → **New project**
 2. Name：`work-web`；Region：**Southeast Asia (Singapore)**（離菲律賓最近，大陸也相對較快）；設定一個資料庫密碼並妥善保存
@@ -22,21 +24,23 @@
 2. 把 `supabase/schema.sql` 全部內容貼上 → **Run**
 3. 看到 `Success` 即完成（可重複執行，不會破壞資料）
 
-### 3. 設定登入網址
+### 3. 設定登入
+**Authentication → Sign In / Providers → Email**：關閉 **Confirm email**（免費版內建郵件只寄給專案團隊成員，每小時 2 封；新帳號一律是「待審批」，安全性不受影響）
+
 **Authentication → URL Configuration**
 - Site URL：`https://hungchenhsing.github.io/work-web/`
 - Redirect URLs：加入同一網址
 
 ### 4. 連接網站
-**Project Settings → API**，複製：
-- Project URL（`https://xxxx.supabase.co`）
-- `anon` `public` key（或新版的 publishable key）
+**Project Settings → API Keys**，複製：
+- Project URL（`https://xxxx.supabase.co`，在頂部 **Connect** 或 **Data API** 可找到）
+- Publishable key（`sb_publishable_…`；舊版介面用 `anon` `public` key）
 
 填入 `config.js` 的 `supabaseUrl` 與 `supabaseKey`，推送到 GitHub 即生效。
 這兩個值本來就設計成可公開；真正的保護是資料庫裡的行級權限（RLS）。**不要**把 `service_role` / secret key 放進網站。
 
 ### 5. 第一次登入
-1. 打開網站 → **Create account 註冊** → 到郵箱點確認連結 → 登入
+1. 打開網站 → **Create account 註冊** → 直接進入
 2. **第一個註冊的帳號自動成為管理員**，請你自己先註冊
 
 ### 6. 導入數據
