@@ -434,7 +434,7 @@ function renderGate(){
   var tabs = '<div class="seg" role="tablist">' + [['in','Sign in','登录'],['up','Create account','注册'],['reset','Forgot password','忘记密码']].map(function(t){ return '<button type="button" data-act="authTab" data-v="' + t[0] + '" aria-pressed="' + (a.tab === t[0]) + '">' + L(t[1], t[2]) + '</button>'; }).join('') + '</div>';
   var body = '';
   if(a.tab === 'in') body = '<label class="fl">' + L('Email', '邮箱') + '<input class="in" type="email" id="aEmail" required autocomplete="email"></label><label class="fl">' + L('Password', '密码') + '<input class="in" type="password" id="aPw" required autocomplete="current-password"></label><button class="btn pri" type="submit"' + (a.busy ? ' disabled' : '') + '>' + L('Sign in', '登录') + '</button>';
-  else if(a.tab === 'up') body = '<label class="fl">' + L('Name', '姓名') + '<input class="in" id="aName" required autocomplete="name"></label><label class="fl">' + L('Email', '邮箱') + '<input class="in" type="email" id="aEmail" required autocomplete="email"></label><label class="fl">' + L('Password (8+ characters)', '密码（至少 8 位）') + '<input class="in" type="password" id="aPw" minlength="8" required autocomplete="new-password"></label><button class="btn pri" type="submit"' + (a.busy ? ' disabled' : '') + '>' + L('Create account', '注册') + '</button><p class="note">' + L('After you confirm your email, the project admin gives you access.', '确认邮箱后，由项目管理员授权。') + '</p>';
+  else if(a.tab === 'up') body = '<label class="fl">' + L('Name', '姓名') + '<input class="in" id="aName" required autocomplete="name"></label><label class="fl">' + L('Email', '邮箱') + '<input class="in" type="email" id="aEmail" required autocomplete="email"></label><label class="fl">' + L('Password (8+ characters)', '密码（至少 8 位）') + '<input class="in" type="password" id="aPw" minlength="8" required autocomplete="new-password"></label><button class="btn pri" type="submit"' + (a.busy ? ' disabled' : '') + '>' + L('Create account', '注册') + '</button><p class="note">' + L('After you register, the project admin gives you access.', '注册后，由项目管理员授权。') + '</p>';
   else body = '<label class="fl">' + L('Email', '邮箱') + '<input class="in" type="email" id="aEmail" required autocomplete="email"></label><button class="btn pri" type="submit"' + (a.busy ? ' disabled' : '') + '>' + L('Send reset link', '发送重置链接') + '</button>';
   v.innerHTML = '<form class="card auth" id="fAuth"><div><h1 class="vtitle">' + esc(cfg().projectEn) + '</h1><div class="muted">work-web · ' + L('Project register and schedule', '项目台账与计划') + '</div></div>' + tabs + body +
     (a.err ? '<div class="err">' + esc(a.err) + '</div>' : '') + (a.msg ? '<div class="ok-msg">' + esc(a.msg) + '</div>' : '') + '</form>';
@@ -1486,7 +1486,7 @@ document.addEventListener('submit', function(e){
     pr.then(function(r){
       a.busy = false;
       if(r && r.error){ a.err = r.error.message; }
-      else if(a.tab === 'up') a.msg = T('Check your email to confirm the account, then sign in.', '请到邮箱点击确认链接，然后登录。');
+      else if(a.tab === 'up') a.msg = (r && r.data && r.data.session) ? T('Account created. Opening…', '注册成功，正在进入…') : T('Account created. If you are not signed in automatically, check your email to confirm, then sign in.', '注册成功。如未自动登录，请到邮箱点击确认链接后再登录。');
       else if(a.tab === 'reset') a.msg = T('If that email has an account, a reset link is on its way.', '如该邮箱已注册，重置链接已发出。');
       renderGate();
     }).catch(function(err){ a.busy = false; a.err = String(err && err.message || err); renderGate(); });

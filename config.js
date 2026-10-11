@@ -6,5 +6,5 @@
    Leave them empty to run the site in demo mode (data stays in each browser). */
 window.WW_CONFIG = {
   supabaseUrl: 'https://sjxgwvfjhrebnwzekusy.supabase.co',
-  supabaseKey: 'b_publishable_HyCdzKumrbui1NzLauQHKw_0zGhwNj2'
+  supabaseKey: 'sb_publishable_HyCdzKumrbui1NzLauQHKw_0zGhwNj2'
 };
