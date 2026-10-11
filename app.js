@@ -50,15 +50,8 @@ function errText(e){
 /* ================= defaults ================= */
 var DEF = {
   projectEn: 'CEEC-TERRA I', projectZh: 'TERRA I 光伏项目',
-  asOf: '', ganttStart: '',
+  asOf: '', ganttStart: '', ganttEnd: '2027-12-31',
   areas: [{id:'B',en:'Block B',zh:'B区',color:'blue'},{id:'C',en:'Block C',zh:'C区',color:'green'},{id:'D',en:'Block D',zh:'D区',color:'amber'},{id:'E',en:'Block E',zh:'E区',color:'violet'}],
-  phases: [
-    {code:'PH-01',en:'Phase 1',zh:'第1阶段',start:'2026-08-17',end:'2026-08-30'},
-    {code:'PH-02',en:'Phase 2',zh:'第2阶段',start:'2026-09-01',end:'2026-09-15'},
-    {code:'PH-03',en:'Phase 3',zh:'第3阶段',start:'2026-09-16',end:'2026-09-30'},
-    {code:'PH-04',en:'Phase 4',zh:'第4阶段',start:'2026-10-01',end:'2026-10-15'},
-    {code:'PH-05',en:'Phase 5',zh:'第5阶段',start:'2026-10-16',end:'2026-10-31'}
-  ],
   depts: [{code:'ENG',en:'Engineering',zh:'工程'},{code:'COM',en:'Commissioning & O&M',zh:'调试&运维'},{code:'QA',en:'Quality',zh:'质量'},{code:'DES',en:'Design',zh:'设计'}],
   discs: [{code:'doc',en:'Documents',zh:'文件'},{code:'ele',en:'Electrical',zh:'电气'},{code:'civ',en:'Civil',zh:'土建'},{code:'inc',en:'Protection & control',zh:'继保控制'},{code:'equip',en:'Equipment',zh:'设备'},{code:'archi',en:'Architecture',zh:'建筑'},{code:'pip',en:'Water & drainage',zh:'给排水'},{code:'hvac',en:'HVAC',zh:'暖通'},{code:'str',en:'Structure',zh:'结构'},{code:'csa',en:'Civil/structural/arch.',zh:'结构'},{code:'dra',en:'Drainage',zh:'排水'}],
   statuses: [
@@ -81,7 +74,7 @@ var DEF = {
     {key:'revise',en:'Revise & resubmit',zh:'退回重交',color:'red'},
     {key:'rejected',en:'Rejected',zh:'拒绝',color:'red'}
   ],
-  ownerFields: ['docNo','title','class','disc','phase','window','actual','status','rev','extNote'],
+  ownerFields: ['docNo','title','class','disc','start','finish','actual','status','rev','extNote'],
   customFields: []
 };
 var DEF_TREE = [
@@ -94,6 +87,8 @@ var DEF_TREE = [
   {id:'pk7',parent:'',code:'P7',en:'Warranty & Commercial',zh:'质保与商务'},
   {id:'pk8',parent:'',code:'P8',en:'Final Handover & Close-out',zh:'最终移交与关闭'}
 ];
+/* Old half-month submission phases: only used to turn a 提交阶段 value (PH-01…) in an imported sheet into start/finish dates */
+var LEGACY_PH = {'PH-01':['2026-08-17','2026-08-30'],'PH-02':['2026-09-01','2026-09-15'],'PH-03':['2026-09-16','2026-09-30'],'PH-04':['2026-10-01','2026-10-15'],'PH-05':['2026-10-16','2026-10-31']};
 var COLORS = ['grey','blue','green','amber','red','violet'];
 var COLOR_NAMES = {grey:['Grey','灰'],blue:['Blue','蓝'],green:['Green','绿'],amber:['Amber','橙'],red:['Red','红'],violet:['Violet','紫']};
 var ROLES = [['admin','Admin','管理员'],['editor','Editor','编辑'],['viewer','Viewer','只读'],['owner','Owner (client)','业主'],['pending','Waiting for approval','待审批']];
@@ -101,11 +96,11 @@ var ROLES = [['admin','Admin','管理员'],['editor','Editor','编辑'],['viewer
 /* ================= state ================= */
 var S = {
   lang: LS.get('ww.lang', 'both'), view: LS.get('ww.view', 'dash'),
-  f: {q:'', node:'all', areas:[], type:'', status:'', phase:'', dept:'', disc:'', contact:'', overdue:false, comments:false, key:false},
+  f: {q:'', node:'all', areas:[], type:'', status:'', from:'', to:'', dept:'', disc:'', contact:'', overdue:false, comments:false, key:false},
   sort: LS.get('ww.sort2', {k:'class', d:1}), regGroup: LS.get('ww.rgroup', 'class'), compact: LS.get('ww.compact', false),
-  cols: LS.get('ww.cols2', ['regNo','docNo','class','title','disc','areas','phase','window','actual','status','explanation','remarks','contacts']),
+  cols: LS.get('ww.cols3', ['regNo','docNo','class','title','disc','areas','start','finish','actual','status','explanation','remarks','contacts']),
   exp: LS.get('ww.exp', {}), sel: {}, open: null, delAsk: false,
-  g: Object.assign({zoom:'week', group:'class', color:'pp', phases:true, left:'auto'}, LS.get('ww.g2', {})), gcol: {},
+  g: Object.assign({zoom:'week', group:'class', color:'pp', left:'auto'}, LS.get('ww.g2', {})), gcol: {},
   stab: 'tree', draft: {}, dirty: {}, saved: {},
   imp: null, snapView: null, snapDelAsk: null, clearAsk: false, bulkDelAsk: false, otab: 'live', fbFor: null, pubSel: null,
   auth: {tab:'in', msg:'', err:'', busy:false}, recovery: false, asOfLocal: null, _to: {}
@@ -263,19 +258,17 @@ function byKey(list, k, field){ return (list || []).filter(function(x){ return x
 function statusOf(k){ return byKey(cfg().statuses, k) || {key:k, en:k || '—', zh:'', color:'grey'}; }
 function typeOf(k){ return byKey(cfg().types, k) || {key:k, en:k || '—', zh:'', prefix:'ITM', shape:'bar'}; }
 function areaOf(id){ return byKey(cfg().areas, id, 'id') || {id:id, en:id, zh:'', color:'grey'}; }
-function phaseOf(c){ return byKey(cfg().phases, c, 'code'); }
 function deptOf(c){ return byKey(cfg().depts, c, 'code'); }
 function discOf(c){ return byKey(cfg().discs, c, 'code') || {code:c, en:c, zh:''}; }
 function orOf(k){ return byKey(cfg().ownerResults, k); }
 function isDone(it){ return !!statusOf(it.status).done; }
 function ASOFN(){ return d2n(S.asOfLocal || cfg().asOf) != null ? d2n(S.asOfLocal || cfg().asOf) : TODAY; }
 function planOf(it){
-  var s = d2n(it.start), f = d2n(it.finish), ph = phaseOf(it.phase), fromPhase = false;
-  if(s == null && f == null && ph){ s = d2n(ph.start); f = d2n(ph.end); fromPhase = true; }
+  var s = d2n(it.start), f = d2n(it.finish);
   if(s == null) s = f; if(f == null) f = s;
   if(s == null) return null;
   if(f < s){ var t = s; s = f; f = t; }
-  return {s:s, f:f, fromPhase:fromPhase};
+  return {s:s, f:f};
 }
 function isOverdue(it){ if(isDone(it)) return false; var p = planOf(it); return !!p && p.f < ASOFN(); }
 function openFb(id){ return ((STORE && STORE.fb) || []).filter(function(f){ return f.item_id === id && f.status === 'open'; }).length; }
@@ -286,7 +279,10 @@ function statusChip(k){ var s = statusOf(k); return chip(s.color, L(s.en, s.zh))
 function statusChipShort(k){ var s = statusOf(k); return chip(s.color, esc(S.lang === 'zh' ? (s.zh || s.en) : s.en)); }
 function areaChips(arr){ arr = arr || []; if(!arr.length) return '<span class="ar c-grey" title="' + esc(T('Site-wide', '全场')) + '">' + esc(S.lang === 'zh' ? '全场' : 'Site') + '</span>'; return arr.map(function(a){ var o = areaOf(a); return '<span class="ar c-' + esc(o.color) + '" title="' + esc(T(o.en, o.zh)) + '">' + esc(o.id) + '</span>'; }).join(''); }
 function discTags(arr){ return (arr || []).map(function(c){ var d = discOf(c); return '<span class="tag" title="' + esc(T(d.en, d.zh)) + '">' + esc(c) + (S.lang !== 'en' && d.zh ? esc(d.zh) : '') + '</span>'; }).join(''); }
-function phaseWindow(code){ var p = phaseOf(code); return p ? dmon(p.start) + '–' + dmon(p.end) : ''; }
+function monthKey(n){ var d = new Date(n * 864e5); return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1); }
+function monthLabel(k){ var y = +k.slice(0, 4), m = +k.slice(5, 7); return {en:MON[m - 1] + ' ' + y, zh:y + '年' + m + '月'}; }
+function monthRange(k){ var y = +k.slice(0, 4), m = +k.slice(5, 7), last = new Date(Date.UTC(y, m, 0)).getUTCDate(); return [k + '-01', k + '-' + pad(last)]; }
+function validOF(list){ return (list || []).filter(function(f){ return OF.some(function(o){ return o[0] === f; }); }); }
 function actualText(it){ if(!it.actualStart && !it.actualEnd) return ''; return (it.actualStart || '?') + ' → ' + (it.actualEnd || (it.ongoing ? T('ongoing', '进行中') : '…')); }
 function contactsText(it){ return (it.contacts || []).join(' / '); }
 function peopleList(){ var set = {}; items().forEach(function(i){ (i.contacts || []).forEach(function(p){ if(p) set[p] = 1; }); }); return Object.keys(set).sort(); }
@@ -308,7 +304,7 @@ function nodeLabel(n){ return n ? (n.code ? n.code + ' ' : '') + T(n.en, n.zh) :
 function treeOrder(){ var o = {}, i = 0; dfs(function(n){ o[n.id] = i++; }); return o; }
 
 /* filters */
-function emptyF(){ return {q:'', node:'all', areas:[], type:'', status:'', phase:'', dept:'', disc:'', contact:'', overdue:false, comments:false, key:false}; }
+function emptyF(){ return {q:'', node:'all', areas:[], type:'', status:'', from:'', to:'', dept:'', disc:'', contact:'', overdue:false, comments:false, key:false}; }
 function match(it, skipNode){
   var f = S.f;
   if(f.q){ var q = f.q.toLowerCase(); if(![it.regNo, it.en, it.zh, it.docNo, contactsText(it), it.explanation, it.remarks].some(function(v){ return String(v || '').toLowerCase().indexOf(q) >= 0; })) return false; }
@@ -316,7 +312,7 @@ function match(it, skipNode){
   if(f.areas.length){ var a = it.areas || []; var ok = a.length ? a.some(function(x){ return f.areas.indexOf(x) >= 0; }) : f.areas.indexOf('SW') >= 0; if(!ok) return false; }
   if(f.type && it.type !== f.type) return false;
   if(f.status && it.status !== f.status) return false;
-  if(f.phase && (it.phase || '') !== (f.phase === '_none' ? '' : f.phase)) return false;
+  if(f.from || f.to){ var pr = planOf(it); if(!pr) return false; if(f.from && pr.f < d2n(f.from)) return false; if(f.to && pr.s > d2n(f.to)) return false; }
   if(f.dept && it.dept !== f.dept) return false;
   if(f.disc && (it.disc || []).indexOf(f.disc) < 0) return false;
   if(f.contact && (it.contacts || []).indexOf(f.contact) < 0) return false;
@@ -326,11 +322,11 @@ function match(it, skipNode){
   return true;
 }
 function filtered(){ return items().filter(function(it){ return match(it); }); }
-var GROUPS = [['class','Package','文件包'],['phase','Phase','提交阶段'],['area','Block','区域'],['dept','Department','部门'],['disc','Discipline','专业'],['status','Status','状态'],['contact','Contact','对接人'],['type','Type','类型'],['none','None','不分组']];
+var GROUPS = [['class','Package','文件包'],['month','Finish month','完成月份'],['area','Block','区域'],['dept','Department','部门'],['disc','Discipline','专业'],['status','Status','状态'],['contact','Contact','对接人'],['type','Type','类型'],['none','None','不分组']];
 function groupOf(it, mode){
   var c = cfg();
   if(mode === 'class'){ var l1 = l1Of(it.node); return l1 ? {k:l1.id, code:l1.code || '', en:l1.en, zh:l1.zh, o:S._to[l1.id], node:l1.id} : {k:'_n', code:'', en:'Unclassified', zh:'未分类', o:1e9}; }
-  if(mode === 'phase'){ var p = phaseOf(it.phase); return p ? {k:p.code, code:p.code, en:p.en + ' · ' + dmon(p.start) + '–' + dmon(p.end), zh:p.zh, o:c.phases.indexOf(p), phase:p.code} : {k:'_n', code:'', en:'No phase', zh:'未排阶段', o:1e9, phase:''}; }
+  if(mode === 'month'){ var pm = planOf(it); if(!pm) return {k:'_n', code:'', en:'No dates', zh:'未设日期', o:1e9}; var mk = monthKey(pm.f), ml = monthLabel(mk); return {k:mk, code:'', en:ml.en, zh:ml.zh, o:+mk.replace('-', ''), month:mk}; }
   if(mode === 'area'){ var a = it.areas || []; if(!a.length) return {k:'SW', code:'', en:'Site-wide', zh:'全场', o:900, areas:[]}; if(a.length > 1) return {k:'MULTI', code:'', en:'Several blocks', zh:'多区域', o:800}; var o = areaOf(a[0]); return {k:o.id, code:o.id, en:o.en, zh:o.zh, o:c.areas.indexOf(o), areas:[o.id]}; }
   if(mode === 'dept'){ var d = deptOf(it.dept); return d ? {k:d.code, code:'', en:d.en, zh:d.zh, o:c.depts.indexOf(d), dept:d.code} : {k:'_n', code:'', en:'No department', zh:'未指定部门', o:1e9}; }
   if(mode === 'disc'){ var x = (it.disc || [])[0]; if(!x) return {k:'_n', code:'', en:'No discipline', zh:'未指定专业', o:1e9}; var dd = discOf(x); return {k:x, code:x, en:dd.en, zh:dd.zh, o:c.discs.indexOf(dd), disc:[x]}; }
@@ -374,7 +370,7 @@ function nextRegNo(typeKey){
 }
 function blankItem(typeKey, extra){
   var c = cfg(), t = typeOf(typeKey), A = ASOFN();
-  var o = {regNo: nextRegNo(typeKey), type: typeKey, en: '', zh: '', node: '', areas: [], dept:'', disc:[], phase:'', contacts:[],
+  var o = {regNo: nextRegNo(typeKey), type: typeKey, en: '', zh: '', node: '', areas: [], dept:'', disc:[], contacts:[],
     status: c.statuses[0] ? c.statuses[0].key : '', start: n2d(A), finish: t.shape === 'milestone' ? n2d(A) : n2d(A + 13), progress: 0,
     docNo: '', rev: '', actualStart:'', actualEnd:'', ongoing:false, explanation:'', remarks:'', commentsResolved:false, updates:[], key:false,
     ownerResult: '', ownerVisible: false, extNote: '', intNote: '', deps: [], custom: {}, attachments: [],
@@ -382,7 +378,6 @@ function blankItem(typeKey, extra){
   var f = S.f;
   if(f.node !== 'all' && f.node !== 'none' && TI.by[f.node]) o.node = f.node;
   o.areas = f.areas.filter(function(a){ return a !== 'SW'; });
-  if(f.phase && f.phase !== '_none') o.phase = f.phase;
   if(f.dept) o.dept = f.dept; if(f.disc) o.disc = [f.disc]; if(f.contact) o.contacts = [f.contact];
   return Object.assign(o, extra || {});
 }
@@ -469,13 +464,13 @@ function renderFilters(){
   var areas = c.areas.map(function(a){ return '<button type="button" class="fchip" data-act="farea" data-v="' + esc(a.id) + '" aria-pressed="' + (f.areas.indexOf(a.id) >= 0) + '" title="' + esc(T(a.en, a.zh)) + '">' + esc(S.lang === 'zh' ? (a.zh || a.id) : a.en) + '</button>'; }).join('') +
     '<button type="button" class="fchip" data-act="farea" data-v="SW" aria-pressed="' + (f.areas.indexOf('SW') >= 0) + '">' + esc(T('Site-wide', '全场')) + '</button>';
   function sel(id, val, first, opts){ return '<select class="in" id="' + id + '" aria-label="' + esc(first) + '" style="max-width:190px"><option value="">' + esc(first) + '</option>' + opts.map(function(o){ return '<option value="' + esc(o[0]) + '"' + (val === o[0] ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select>'; }
-  var active = ['type','status','phase','dept','disc','contact'].filter(function(k){ return f[k]; }).length + (f.node !== 'all' ? 1 : 0) + f.areas.length + (f.overdue ? 1 : 0) + (f.comments ? 1 : 0) + (f.key ? 1 : 0) + (f.q ? 1 : 0);
+  var active = ['type','status','dept','disc','contact'].filter(function(k){ return f[k]; }).length + (f.node !== 'all' ? 1 : 0) + f.areas.length + (f.overdue ? 1 : 0) + (f.comments ? 1 : 0) + (f.key ? 1 : 0) + (f.q ? 1 : 0) + (f.from || f.to ? 1 : 0);
   $('#filters').innerHTML = '<div class="card filters' + (S.fOpen ? ' open' : '') + '">' +
     '<label class="search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="fq" type="search" placeholder="' + esc(T('Search no., title, doc no., contact, remarks', '搜索编号、名称、文件号、对接人、备注')) + '" aria-label="Search" value="' + esc(f.q) + '"></label>' +
     '<button type="button" class="btn ftoggle" data-act="fToggle" aria-expanded="' + !!S.fOpen + '">' + L('Filters', '筛选') + (active ? ' (' + active + ')' : '') + '</button><div class="fmore">' +
     '<select class="in" id="fnode" aria-label="Package" style="max-width:250px">' + nodeOpts + '</select>' +
     '<div class="fchips" role="group" aria-label="Blocks">' + areas + '</div>' +
-    sel('fphase', f.phase, T('All phases', '全部阶段'), c.phases.map(function(p){ return [p.code, p.code + ' · ' + dmon(p.start) + '–' + dmon(p.end)]; }).concat([['_none', T('No phase', '未排阶段')]])) +
+    '<span class="drange" role="group" aria-label="' + esc(T('Plan dates between', '计划日期范围')) + '" title="' + esc(T('Show items whose plan overlaps these dates', '显示计划与此日期范围重叠的记录')) + '"><span class="muted">' + L('Dates', '日期') + '</span><input class="in" type="date" id="ffrom" value="' + esc(f.from) + '" aria-label="From">–<input class="in" type="date" id="fto" value="' + esc(f.to) + '" aria-label="To"></span>' +
     sel('fstatus', f.status, T('All statuses', '全部状态'), c.statuses.map(function(s){ return [s.key, T(s.en, s.zh)]; })) +
     sel('fdept', f.dept, T('All departments', '全部部门'), c.depts.map(function(d){ return [d.code, T(d.en, d.zh)]; })) +
     sel('fdisc', f.disc, T('All disciplines', '全部专业'), c.discs.map(function(d){ return [d.code, d.code + ' ' + T(d.en, d.zh)]; })) +
@@ -517,13 +512,15 @@ function viewDash(){
     kpi(L('Overdue', '已逾期'), od.length, L('Plan finish before status date', '计划结束早于状态日期'), od.length ? 'bad' : '', 'kOver') +
     kpi(L('Open comments', '未关闭意见'), com.length, L('Remarks or Owner feedback', '备注或业主反馈'), com.length ? 'bad' : '', 'kCom') +
     kpi(L('Due in 14 days', '14 天内到期'), due.length, L('Not completed', '未完成')) + '</div>';
-  // phases
-  if(c.phases.length){
-    h += '<section class="card" style="padding:14px;display:flex;flex-direction:column;gap:10px"><h2 style="font-size:15px">' + L('By submission phase', '按提交阶段') + '</h2><div class="phgrid">' + c.phases.map(function(p){
-      var its = all.filter(function(i){ return i.phase === p.code; }), n = its.length, cur = A >= d2n(p.start) && A <= d2n(p.end);
-      var segs = c.statuses.map(function(s){ var k = its.filter(function(i){ return i.status === s.key; }).length; return k ? '<span class="cb-' + esc(s.color) + '" style="width:' + (k / n * 100) + '%" title="' + esc(T(s.en, s.zh) + ': ' + k) + '"></span>' : ''; }).join('');
-      return '<button type="button" class="phrow lnk" data-act="goPhase" data-v="' + esc(p.code) + '" style="color:var(--ink)"><span><b class="mono">' + esc(p.code) + '</b> <span class="muted">' + esc(dmon(p.start) + '–' + dmon(p.end)) + '</span>' + (cur ? ' <span class="chip c-amber">' + L('current', '当前') + '</span>' : '') + '</span><span class="stack">' + (n ? segs : '') + '</span><span class="mono muted" style="text-align:right">' + its.filter(isDone).length + ' / ' + n + '</span></button>';
-    }).join('') + '</div><div class="legend">' + c.statuses.map(function(s){ return '<span><i class="cb-' + esc(s.color) + '"></i>' + L(s.en, s.zh) + '</span>'; }).join('') + '</div></section>';
+  // months
+  var mons = {}; all.forEach(function(i){ var p = planOf(i); if(p){ var k = monthKey(p.f); (mons[k] = mons[k] || []).push(i); } });
+  var mkeys = Object.keys(mons).sort(), curM = monthKey(A), noDate = all.filter(function(i){ return !planOf(i); }).length;
+  if(mkeys.length){
+    h += '<section class="card" style="padding:14px;display:flex;flex-direction:column;gap:10px"><h2 style="font-size:15px">' + L('By finish month', '按计划完成月份') + '</h2><div class="phgrid">' + mkeys.map(function(k){
+      var its = mons[k], n = its.length, ml = monthLabel(k);
+      var segs = c.statuses.map(function(s){ var q = its.filter(function(i){ return i.status === s.key; }).length; return q ? '<span class="cb-' + esc(s.color) + '" style="width:' + (q / n * 100) + '%" title="' + esc(T(s.en, s.zh) + ': ' + q) + '"></span>' : ''; }).join('');
+      return '<button type="button" class="phrow lnk" data-act="goMonth" data-v="' + esc(k) + '" style="color:var(--ink)"><span><b>' + esc(T(ml.en, ml.zh)) + '</b>' + (k === curM ? ' <span class="chip c-amber">' + L('this month', '本月') + '</span>' : '') + '</span><span class="stack">' + segs + '</span><span class="mono muted" style="text-align:right">' + its.filter(isDone).length + ' / ' + n + '</span></button>';
+    }).join('') + '</div><div class="legend">' + c.statuses.map(function(s){ return '<span><i class="cb-' + esc(s.color) + '"></i>' + L(s.en, s.zh) + '</span>'; }).join('') + (noDate ? '<span class="muted">· ' + L(noDate + ' without dates', noDate + ' 项未设日期') + '</span>' : '') + '</div></section>';
   }
   // blocks
   var al = c.areas.map(function(a){ return {id:a.id, en:a.en, zh:a.zh, items: all.filter(function(i){ return (i.areas || []).indexOf(a.id) >= 0; })}; });
@@ -549,7 +546,7 @@ function viewDash(){
 /* ===== Register ===== */
 var COLS = [
   ['regNo','No.','序号'],['docNo','Doc. No.','文件编号'],['rev','Rev.','版本'],['class','Package','文件包'],['dept','Dept.','部门'],['title','Title','名称'],['disc','Discipline','专业'],
-  ['areas','Block','区域'],['phase','Phase','提交阶段'],['window','Phase window','阶段窗口'],['start','Plan start','计划开始'],['finish','Plan finish','计划结束'],['actual','Actual submission','实际提交'],
+  ['areas','Block','区域'],['start','Plan start','计划开始'],['finish','Plan finish','计划结束'],['actual','Actual submission','实际提交'],
   ['progress','Progress','完成率'],['status','Status','状态'],['explanation','Explanation','解释说明'],['remarks','Remarks / comments','备注 / 意见'],['contacts','Contacts','对接人'],
   ['updating','Latest update','最新更新'],['type','Type','类型'],['key','Key','重点'],['ownerResult','Owner result','业主结果'],['ext','External','对外']
 ];
@@ -562,7 +559,6 @@ function sortVal(it, k){
   if(k === 'actual') return d2n(it.actualStart) || 1e9;
   if(k === 'progress') return +it.progress || 0;
   if(k === 'status') return cfg().statuses.map(function(s){ return s.key; }).indexOf(it.status);
-  if(k === 'phase' || k === 'window') return it.phase || 'zz';
   if(k === 'areas') return (it.areas || []).join(',') || 'zz';
   if(k === 'disc' || k === 'contacts') return (it[k] || []).join(',').toLowerCase() || 'zz';
   if(k === 'ext') return it.ownerVisible ? 0 : 1;
@@ -600,7 +596,7 @@ function viewRegister(){
     function bs(f, first, opts){ return '<select class="in" data-bulk="' + f + '"><option value="">' + esc(first) + '</option>' + opts.map(function(o){ return '<option value="' + esc(o[0]) + '">' + esc(o[1]) + '</option>'; }).join('') + '</select>'; }
     h += '<div class="bulk"><b>' + L(selIds.length + ' selected', '已选 ' + selIds.length) + '</b>' +
       bs('status', T('Set status…', '设定状态…'), c.statuses.map(function(s){ return [s.key, T(s.en, s.zh)]; })) +
-      bs('phase', T('Set phase…', '设定阶段…'), c.phases.map(function(p){ return [p.code, p.code]; }).concat([['__clear', T('(no phase)', '（清除阶段）')]])) +
+      '<label class="bdate">' + L('Start', '开始') + '<input class="in" type="date" data-bulk="start"></label><label class="bdate">' + L('Finish', '结束') + '<input class="in" type="date" data-bulk="finish"></label>' +
       bs('dept', T('Set department…', '设定部门…'), c.depts.map(function(x){ return [x.code, T(x.en, x.zh)]; })) +
       '<select class="in" data-bulk="node"><option value="">' + esc(T('Move to package…', '移动到文件包…')) + '</option>' + nodeOpts + '</select>' +
       bs('addArea', T('Add block…', '加入区域…'), c.areas.map(function(a){ return [a.id, T(a.en, a.zh)]; })) +
@@ -641,10 +637,8 @@ function rowHTML(it, cols){
     if(k === 'title') return E(S.lang === 'zh' ? 'zh' : 'en', bi(it.en, it.zh), 'w-title' + (it.key ? ' key' : ''));
     if(k === 'disc') return P(discTags(it.disc) || '<span class="muted">—</span>');
     if(k === 'areas') return P('<span style="white-space:nowrap">' + areaChips(it.areas) + '</span>');
-    if(k === 'phase') return E('phase', it.phase ? '<span class="mono" style="white-space:nowrap">' + esc(it.phase) + '</span>' : '<span class="muted">—</span>');
-    if(k === 'window') return P('<span class="mono" style="white-space:nowrap;font-size:12px">' + esc(phaseWindow(it.phase) || '—') + '</span>');
-    if(k === 'start'){ return E('start', '<span class="mono">' + (it.start ? md(it.start) : (planOf(it) && planOf(it).fromPhase ? '<span class="muted">' + md(n2d(planOf(it).s)) + '</span>' : '—')) + '</span>'); }
-    if(k === 'finish'){ var od = isOverdue(it); return E('finish', '<span class="mono">' + (it.finish ? md(it.finish) : (planOf(it) && planOf(it).fromPhase ? '<span class="muted">' + md(n2d(planOf(it).f)) + '</span>' : '—')) + (od ? ' !' : '') + '</span>', od ? 'od' : ''); }
+    if(k === 'start'){ return E('start', '<span class="mono">' + (it.start ? md(it.start) : '—') + '</span>'); }
+    if(k === 'finish'){ var od = isOverdue(it); return E('finish', '<span class="mono">' + (it.finish ? md(it.finish) : '—') + (od ? ' !' : '') + '</span>', od ? 'od' : ''); }
     if(k === 'actual') return P('<span class="mono" style="white-space:nowrap;font-size:12px">' + esc(actualText(it) || '—') + '</span>');
     if(k === 'progress'){ var p = clamp(+it.progress || 0, 0, 100); return E('progress', '<div class="prog"><i><b style="width:' + p + '%"></b></i><span class="mono">' + p + '</span></div>'); }
     if(k === 'status') return E('status', statusChip(it.status));
@@ -669,7 +663,6 @@ function editorHTML(f, it){
   if(f === 'type') return sel(c.types.map(function(t){ return [t.key, T(t.en, t.zh)]; }), it.type);
   if(f === 'ownerResult') return sel(c.ownerResults.map(function(o){ return [o.key, T(o.en, o.zh)]; }), it.ownerResult, true);
   if(f === 'dept') return sel(c.depts.map(function(o){ return [o.code, T(o.en, o.zh)]; }), it.dept, true);
-  if(f === 'phase') return sel(c.phases.map(function(o){ return [o.code, o.code + ' · ' + dmon(o.start) + '–' + dmon(o.end)]; }), it.phase, true);
   if(f === 'node'){ var o = []; dfs(function(n, d){ o.push([n.id, '  '.repeat(d) + nodeLabel(n)]); }); return sel(o, it.node, true); }
   if(f === 'start' || f === 'finish'){ var pl = planOf(it); return inp('date', it[f] || (pl ? n2d(f === 'start' ? pl.s : pl.f) : '')); }
   if(f === 'progress') return inp('number', it.progress || 0, ' min="0" max="100" step="5"');
@@ -719,7 +712,7 @@ function viewGantt(){
   list.forEach(function(it){ var p = planOf(it); if(p){ lo = Math.min(lo, p.s); hi = Math.max(hi, p.f); } [it.actualStart, it.actualEnd, it.baseStart, it.baseFinish].forEach(function(s){ var n = d2n(s); if(n != null){ lo = Math.min(lo, n); hi = Math.max(hi, n); } }); });
   if(!isFinite(lo)){ lo = A - 14; hi = A + 60; }
   var gs = d2n(c.ganttStart), mn = gs != null ? gs : Math.min(lo, A) - 7;
-  var mx = Math.max(hi, A) + 21, ncol = Math.ceil((mx - mn + 1) / 7); mx = mn + ncol * 7 - 1;
+  var ge = d2n(c.ganttEnd), mx = Math.max(hi + 21, A + 21, ge != null ? ge : 0), ncol = Math.ceil((mx - mn + 1) / 7); mx = mn + ncol * 7 - 1;
   var W = Math.ceil((mx - mn + 1) * px);
   S.gm = {px:px, mn:mn};
   var LC = gLeft(), LW = LC.reduce(function(s, x){ return s + x[3]; }, 0), tpl = LC.map(function(x){ return x[3] + 'px'; }).join(' ');
@@ -729,13 +722,14 @@ function viewGantt(){
   function sel(id, val, opts){ return '<select class="in" id="' + id + '">' + opts.map(function(o){ return '<option value="' + o[0] + '"' + (val === o[0] ? ' selected' : '') + '>' + esc(T(o[1], o[2])) + '</option>'; }).join('') + '</select>'; }
   var h = '<div class="bar-row"><div class="l"><h1 class="vtitle">' + L('Gantt', '甘特图') + '</h1><span class="muted">' + L(list.length + ' items', list.length + ' 项') + '</span></div><div class="r">' +
     '<label class="fl row">' + L('Timeline start', '时间轴起始') + '<input class="in" type="date" id="gStart" value="' + esc(c.ganttStart || '') + '"' + (ed ? '' : ' disabled') + ' title="' + esc(T('Blank = automatic', '留空 = 自动')) + '"></label>' +
+    '<label class="fl row">' + L('Timeline end', '时间轴结束') + '<input class="in" type="date" id="gEnd" value="' + esc(c.ganttEnd || '') + '"' + (ed ? '' : ' disabled') + ' title="' + esc(T('The timeline runs at least to this date', '时间轴至少显示到此日期')) + '"></label>' +
     '<label class="fl row" style="color:var(--asof)">' + L('Status date', '状态日期') + '<input class="in" type="date" id="gAsOf" value="' + esc(n2d(A)) + '"></label>' +
     seg('zoom', g.zoom, [['day','Day','日'],['week','Week','周'],['month','Month','月']]) + '</div></div>';
   h += '<div class="bar-row"><div class="l">' +
     '<label class="fl row">' + L('Group', '分组') + sel('ggroup', g.group, GROUPS) + '</label>' +
     '<label class="fl row">' + L('Colour', '颜色') + sel('gcolor', g.color, [['pp','Plan · progress · delay','计划 · 完成 · 延误'],['status','Status','状态'],['area','Block','区域']]) + '</label>' +
     '<label class="fl row">' + L('Left columns', '左侧列') + sel('gleftc', g.left, [['auto','Auto','自动'],['full','All','全部'],['compact','No. + task','序号 + 任务']]) + '</label>' +
-    '<label class="chk"><input type="checkbox" id="gph"' + (g.phases ? ' checked' : '') + '>' + L('Phase windows', '阶段窗口') + '</label></div><div class="r">' +
+    '</div><div class="r">' +
     '<button type="button" class="btn" data-act="gToAsOf">' + L('Go to status date', '跳到状态日期') + '</button>' +
     (ed ? '<button type="button" class="btn" data-act="baseline">' + L('Save baseline', '保存基线') + '</button>' : '') +
     '<button type="button" class="btn" data-act="exportReg">' + L('Export Excel', '导出 Excel') + '</button>' +
@@ -744,7 +738,7 @@ function viewGantt(){
   if(g.color === 'pp') leg = '<span><i class="g-b"></i>' + L('Plan', '计划') + '</span><span><i class="g-g"></i>' + L('Progress (completion converted)', '完成率换算') + '</span><span><i class="g-x"></i>' + L('Delay', '延误') + '</span><span><i style="box-shadow:0 0 0 2px var(--gp-red);background:transparent"></i>' + L('Has comments', '有意见') + '</span>';
   else if(g.color === 'status') leg = c.statuses.map(function(s){ return '<span><i class="cb-' + esc(s.color) + '"></i>' + L(s.en, s.zh) + '</span>'; }).join('');
   else leg = c.areas.map(function(a){ return '<span><i class="cb-' + esc(a.color) + '"></i>' + L(a.en, a.zh) + '</span>'; }).join('') + '<span><i class="cb-grey"></i>' + L('Several / site-wide', '多区域 / 全场') + '</span>';
-  leg += '<span><i style="background:var(--asof);width:3px"></i>' + L('Status date', '状态日期') + '</span><span><i style="border:1px dashed var(--muted);background:transparent"></i>' + L('Phase window', '阶段窗口') + '</span><span><i style="background:var(--ink2);height:3px"></i>' + L('Actual submission', '实际提交') + '</span><span><i style="background:var(--ms);border-radius:50%;width:10px;height:10px"></i>' + L('Milestone', '里程碑') + '</span>' + (ed ? '<span>· ' + L('Drag bars to move, drag ends to resize, or type dates in the left columns', '拖动条形移动，拖两端改起止，或在左侧直接改日期') + '</span>' : '');
+  leg += '<span><i style="background:var(--asof);width:3px"></i>' + L('Status date', '状态日期') + '</span><span><i style="background:var(--ink2);height:3px"></i>' + L('Actual submission', '实际提交') + '</span><span><i style="background:var(--ms);border-radius:50%;width:10px;height:10px"></i>' + L('Milestone', '里程碑') + '</span>' + (ed ? '<span>· ' + L('Drag bars to move, drag ends to resize, or type dates in the left columns', '拖动条形移动，拖两端改起止，或在左侧直接改日期') + '</span>' : '');
   h += '<div class="legend">' + leg + '</div>';
   if(!list.length){ h += '<div class="card empty">' + L('No items with these filters.', '没有符合筛选条件的记录。') + (ed ? '<button class="btn pri" data-act="new" data-v="activity">+ ' + L('Add an activity', '新增活动') + '</button>' : '') + '</div>'; return h; }
   // header
@@ -757,7 +751,6 @@ function viewGantt(){
     else if(col % 2 === 0) ticks += '<div class="tick w" style="left:' + x + 'px">' + pad(dt.getUTCDate()) + '</div>';
   }
   var hh = 40;
-  if(g.phases && c.phases.length){ hh = 60; c.phases.forEach(function(p){ var s = d2n(p.start), e = d2n(p.end); if(s == null || e == null || e < mn || s > mx) return; ticks += '<div class="phb" style="left:' + ((Math.max(s, mn) - mn) * px) + 'px;width:' + Math.max(16, (Math.min(e, mx) - Math.max(s, mn) + 1) * px - 2) + 'px" title="' + esc(p.code + ' ' + p.start + ' → ' + p.end) + '">' + esc(p.code) + '</div>'; }); }
   var asofX = (A - mn) * px, todayX = (TODAY - mn) * px;
   var lines = '<div class="asof" style="left:' + asofX + 'px"></div>' + (TODAY !== A ? '<div class="today" style="left:' + todayX + 'px"></div>' : '');
   var body = '<div class="grow ghead"><div class="gleft" style="width:' + LW + 'px;grid-template-columns:' + tpl + '">' + LC.map(function(x){ return '<div class="gc">' + (S.lang === 'zh' ? esc(x[2]) : esc(x[1]) + (S.lang === 'both' ? '<span>' + esc(x[2]) + '</span>' : '')) + '</div>'; }).join('') + '</div><div class="gt" style="' + grid + ';height:' + hh + 'px">' + ticks + lines + '</div></div>';
@@ -783,20 +776,18 @@ function ganttRow(it, mn, px, grid, lines, LC, LW, tpl, A){
     if(k === 'regNo') return '<div class="gc"><button type="button" class="glb mono" data-act="open" data-id="' + esc(it.id) + '">' + esc(it.regNo) + '</button>' + (cm ? '<span class="rdot"></span>' : '') + '</div>';
     if(k === 'title') return E(S.lang === 'zh' ? 'zh' : 'en', '<span style="min-width:0"><span class="tt">' + esc(title1(it)) + '</span>' + (S.lang === 'both' && it.zh && it.en ? '<span class="ts">' + esc(it.zh) + '</span>' : '') + '</span>', 't' + (it.key ? ' key' : ''));
     if(k === 'areas') return '<div class="gc" data-act="open" data-id="' + esc(it.id) + '" style="cursor:pointer">' + areaChips(it.areas) + '</div>';
-    if(k === 'start') return E('start', '<span class="mono">' + (it.start ? md(it.start) : p ? '<span class="muted" title="' + esc(T('From phase window', '取自阶段窗口')) + '">' + md(n2d(p.s)) + '</span>' : '—') + '</span>');
+    if(k === 'start') return E('start', '<span class="mono">' + (it.start ? md(it.start) : p ? '<span class="muted">' + md(n2d(p.s)) + '</span>' : '—') + '</span>');
     if(k === 'finish') return E('finish', '<span class="mono" style="' + (od ? 'color:var(--bad);font-weight:600' : '') + '">' + (it.finish ? md(it.finish) : p ? '<span class="muted">' + md(n2d(p.f)) + '</span>' : '—') + '</span>');
     if(k === 'progress') return E('progress', '<span class="mono">' + clamp(+it.progress || 0, 0, 100) + '%</span>');
     if(k === 'status') return E('status', statusChipShort(it.status));
     return '<div class="gc"></div>';
   }).join('');
   var tr = lines;
-  var ph = phaseOf(it.phase);
-  if(ph && S.g.phases){ var ps = d2n(ph.start), pe = d2n(ph.end); tr += '<div class="pw" style="left:' + ((ps - mn) * px) + 'px;width:' + Math.max(4, (pe - ps + 1) * px) + 'px" title="' + esc(ph.code + ' ' + ph.start + ' → ' + ph.end) + '"></div>'; }
   if(it.baseStart && it.baseFinish){ var bs = d2n(it.baseStart), bf = d2n(it.baseFinish); tr += '<div class="bsl" style="left:' + ((bs - mn) * px) + 'px;width:' + Math.max(3, (bf - bs + 1) * px) + 'px" title="' + esc(T('Baseline', '基线') + ' ' + it.baseStart + ' → ' + it.baseFinish) + '"></div>'; }
   if(it.actualStart){ var as = d2n(it.actualStart), ae = d2n(it.actualEnd) != null ? d2n(it.actualEnd) : (it.ongoing ? A : as); tr += '<div class="act" style="left:' + ((as - mn) * px) + 'px;width:' + Math.max(3, (ae - as + 1) * px) + 'px" title="' + esc(T('Actual submission', '实际提交') + ' ' + actualText(it)) + '"></div>'; }
-  if(!p) tr += '<span class="bl" style="left:8px">' + L('No dates — set start/finish or a phase', '未设日期，请填写起止或阶段') + '</span>';
+  if(!p) tr += '<span class="bl" style="left:8px">' + L('No dates — set start and finish', '未设日期，请填写开始和结束') + '</span>';
   else {
-    var tip = esc(it.regNo + ' · ' + title1(it) + ' · ' + n2d(p.s) + ' → ' + n2d(p.f) + (p.fromPhase ? ' (' + it.phase + ')' : '') + ' · ' + (+it.progress || 0) + '% · ' + T(statusOf(it.status).en, statusOf(it.status).zh) + (cm ? ' · ' + T('has comments', '有意见') : ''));
+    var tip = esc(it.regNo + ' · ' + title1(it) + ' · ' + n2d(p.s) + ' → ' + n2d(p.f) + ' · ' + (+it.progress || 0) + '% · ' + T(statusOf(it.status).en, statusOf(it.status).zh) + (cm ? ' · ' + T('has comments', '有意见') : ''));
     if(t.shape === 'milestone'){
       var x = (p.f - mn) * px + px / 2 - 7;
       tr += '<div class="ms' + (cm ? ' cm' : '') + '" data-id="' + esc(it.id) + '" data-ms="1" data-act="open" style="left:' + x + 'px" title="' + tip + '"></div><span class="bl" style="left:' + (x + 20) + 'px">' + esc(dmon(n2d(p.f))) + '</span>';
@@ -812,7 +803,7 @@ function ganttRow(it, mn, px, grid, lines, LC, LW, tpl, A){
           if(A > p.f + 1) extra = '<div class="ovr" style="left:' + (l + w) + 'px;width:' + ((A - p.f - 1) * px) + 'px"></div>';
         }
         inner = segs.map(function(sg){ return '<div class="sg g-' + sg[2] + '" style="left:' + ((sg[0] - p.s) * px) + 'px;width:' + Math.max(1, (sg[1] - sg[0]) * px) + 'px"></div>'; }).join('');
-        tr += '<div class="bw' + (cm ? ' cm' : '') + '" data-id="' + esc(it.id) + '" data-act="open" style="left:' + l + 'px;width:' + w + 'px;' + (p.fromPhase ? 'opacity:.75' : '') + '" title="' + tip + '">' + inner + (ed ? '<span class="h l"></span><span class="h r"></span>' : '') + '</div>' + extra;
+        tr += '<div class="bw' + (cm ? ' cm' : '') + '" data-id="' + esc(it.id) + '" data-act="open" style="left:' + l + 'px;width:' + w + 'px;" title="' + tip + '">' + inner + (ed ? '<span class="h l"></span><span class="h r"></span>' : '') + '</div>' + extra;
       } else {
         var colr = S.g.color === 'area' ? ((it.areas || []).length === 1 ? areaOf(it.areas[0]).color : 'grey') : statusOf(it.status).color;
         tr += '<div class="bw solid cb-' + esc(colr) + (cm ? ' cm' : '') + '" data-id="' + esc(it.id) + '" data-act="open" style="left:' + l + 'px;width:' + w + 'px" title="' + tip + '"><div class="pf" style="width:' + prog + '%"></div>' + (ed ? '<span class="h l"></span><span class="h r"></span>' : '') + '</div>';
@@ -852,14 +843,13 @@ document.addEventListener('pointerup', endDrag);
 document.addEventListener('pointercancel', endDrag);
 
 /* ===== Owner plan (internal) and owner portal ===== */
-var OF = [['docNo','Document No.','文件编号'],['regNo','No.','序号'],['rev','Revision','版本'],['title','Title','名称'],['class','Package','文件包'],['dept','Department','部门'],['disc','Discipline','专业'],['areas','Block','区域'],['phase','Submission phase','提交阶段'],['window','Phase window','阶段窗口'],['start','Planned start','计划开始'],['finish','Committed date','承诺日期'],['actual','Actual submission','实际提交'],['status','Status','状态'],['progress','Progress','完成率'],['explanation','Explanation','解释说明'],['ownerResult','Owner result','业主结果'],['extNote','Remarks','对外备注']];
+var OF = [['docNo','Document No.','文件编号'],['regNo','No.','序号'],['rev','Revision','版本'],['title','Title','名称'],['class','Package','文件包'],['dept','Department','部门'],['disc','Discipline','专业'],['areas','Block','区域'],['start','Planned start','计划开始'],['finish','Committed date','承诺日期'],['actual','Actual submission','实际提交'],['status','Status','状态'],['progress','Progress','完成率'],['explanation','Explanation','解释说明'],['ownerResult','Owner result','业主结果'],['extNote','Remarks','对外备注']];
 function ownerVal(it, k){
   if(k === 'title') return {en:it.en || '', zh:it.zh || ''};
   if(k === 'class'){ var n = TI.by[it.node]; return n ? {en:(n.code ? n.code + ' ' : '') + n.en, zh:n.zh || ''} : {en:'', zh:''}; }
   if(k === 'dept'){ var d = deptOf(it.dept); return d ? {en:d.en, zh:d.zh} : {en:'', zh:''}; }
   if(k === 'disc') return {en:(it.disc || []).map(function(x){ return discOf(x).en; }).join(', '), zh:(it.disc || []).map(function(x){ return discOf(x).zh; }).join('、')};
   if(k === 'areas'){ var a = it.areas || []; return a.length ? {en:a.map(function(x){ return areaOf(x).en; }).join(', '), zh:a.map(function(x){ return areaOf(x).zh; }).join('、')} : {en:'Site-wide', zh:'全场'}; }
-  if(k === 'window') return {en:phaseWindow(it.phase), zh:''};
   if(k === 'start'){ var p = planOf(it); return {en:p ? n2d(p.s) : '', zh:''}; }
   if(k === 'finish'){ var p2 = planOf(it); return {en:p2 ? n2d(p2.f) : '', zh:''}; }
   if(k === 'actual') return {en:it.actualStart ? (it.actualStart + ' → ' + (it.actualEnd || (it.ongoing ? 'ongoing' : ''))) : '', zh:it.ongoing && !it.actualEnd && it.actualStart ? '进行中' : ''};
@@ -876,7 +866,7 @@ function ownerGroups(list, fields){
 }
 function ownerTable(groups, fields, opts){
   opts = opts || {};
-  var monoK = {docNo:1, regNo:1, start:1, finish:1, rev:1, progress:1, phase:1, window:1, actual:1};
+  var monoK = {docNo:1, regNo:1, start:1, finish:1, rev:1, progress:1, actual:1};
   return groups.map(function(g){
     return '<section style="display:flex;flex-direction:column;gap:8px"><h3 style="font-size:15px"><span class="mono">' + esc(g.code) + '</span> ' + L(g.en, g.zh) + ' <span class="muted mono" style="font-weight:400;font-size:12px">' + g.rows.length + '</span></h3><div class="card tbl-wrap" style="max-height:none"><table class="tbl"><thead><tr>' + fields.map(function(f){ var d = OF.filter(function(o){ return o[0] === f; })[0] || [f, f, '']; return '<th>' + esc(S.lang === 'zh' ? d[2] : d[1]) + (S.lang === 'both' ? '<br><span style="font-weight:400">' + esc(d[2]) + '</span>' : '') + '</th>'; }).join('') + (opts.feedback ? '<th></th>' : '') + '</tr></thead><tbody>' +
       g.rows.map(function(r){
@@ -953,10 +943,9 @@ function viewFiles(){
 }
 
 /* ===== Settings ===== */
-var STABS = [['tree','Packages & classification','文件包与分类'],['areas','Blocks','区域'],['phases','Submission phases','提交阶段'],['depts','Departments','部门'],['discs','Disciplines','专业'],['statuses','Statuses','状态'],['types','Item types','记录类型'],['ownerResults','Owner results','业主结果'],['ownerf','Owner plan fields','对外字段'],['customFields','Custom fields','自定义字段'],['data','Project & data','项目与数据'],['users','Users & access','用户与权限']];
+var STABS = [['tree','Packages & classification','文件包与分类'],['areas','Blocks','区域'],['depts','Departments','部门'],['discs','Disciplines','专业'],['statuses','Statuses','状态'],['types','Item types','记录类型'],['ownerResults','Owner results','业主结果'],['ownerf','Owner plan fields','对外字段'],['customFields','Custom fields','自定义字段'],['data','Project & data','项目与数据'],['users','Users & access','用户与权限']];
 var LISTS = {
   areas: {key:'id', props:[['id','Code','代码','w60'],['en','Name (EN)','英文名'],['zh','Name (中)','中文名'],['color','Colour','颜色','color']], blank:function(){ return {id:'', en:'', zh:'', color:'grey'}; }, used:function(r){ return items().filter(function(i){ return (i.areas || []).indexOf(r.id) >= 0; }).length; }},
-  phases: {key:'code', props:[['code','Code','代码','w100'],['en','Name (EN)','英文名'],['zh','Name (中)','中文名'],['start','Window start','窗口开始','date'],['end','Window end','窗口结束','date']], blank:function(){ var last = (S.draft.phases || [])[S.draft.phases.length - 1]; var n = (S.draft.phases || []).length + 1; var st = last && last.end ? n2d(d2n(last.end) + 1) : TODAY_S; var stn = d2n(st), d = new Date(stn * 864e5); var en = d.getUTCDate() === 1 ? n2d(stn + 14) : n2d(Math.round(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0) / 864e5)); return {code:'PH-' + pad(n), en:'Phase ' + n, zh:'第' + n + '阶段', start:st, end:en}; }, used:function(r){ return items().filter(function(i){ return i.phase === r.code; }).length; }},
   depts: {key:'code', props:[['code','Code','代码','w60'],['en','Name (EN)','英文名'],['zh','Name (中)','中文名']], blank:function(){ return {code:'', en:'', zh:''}; }, used:function(r){ return items().filter(function(i){ return i.dept === r.code; }).length; }},
   discs: {key:'code', props:[['code','Code','代码','w60'],['en','Name (EN)','英文名'],['zh','Name (中)','中文名']], blank:function(){ return {code:'', en:'', zh:''}; }, used:function(r){ return items().filter(function(i){ return (i.disc || []).indexOf(r.code) >= 0; }).length; }},
   statuses: {props:[['en','Name (EN)','英文名'],['zh','Name (中)','中文名'],['color','Colour','颜色','color'],['done','Counts as complete','视为完成','bool']], blank:function(){ return {key:uid('s'), en:'New status', zh:'', color:'grey', done:false}; }, used:function(r){ return items().filter(function(i){ return i.status === r.key; }).length; }},
@@ -966,7 +955,6 @@ var LISTS = {
 };
 var LIST_NOTES = {
   areas: ['Blocks drive the block filter, Gantt grouping and colours.', '区域用于筛选、甘特分组与颜色。'],
-  phases: ['Half-month submission windows. Items with a phase but no dates use the phase window on the Gantt.', '半月提交窗口。有阶段但无日期的记录，在甘特图上按阶段窗口显示。'],
   depts: ['Departments responsible for items (工程, 设计, 质量…).', '负责部门（工程、设计、质量…）。'],
   discs: ['Discipline codes as used in your register (ele, civ, inc…). An item can have several.', '专业代码，与台账一致（ele、civ、inc…），一项可有多个专业。'],
   statuses: ['Order sets list order. “Counts as complete” items are never overdue and show fully green on the Gantt.', '顺序即列表顺序；「视为完成」不算逾期，甘特图显示全绿。'],
@@ -1046,8 +1034,8 @@ function settingsUsers(){
 function settingsData(){
   ensureDraft('proj'); var d = S.draft.proj, c = cfg();
   var h = '<div><h2 style="font-size:17px">' + L('Project', '项目') + '</h2></div><div class="fg" style="max-width:680px"><label>' + L('Project name (EN)', '项目名称（英文）') + '<input class="in" data-pd="projectEn" value="' + esc(d.projectEn) + '"></label><label>' + L('Project name (中)', '项目名称（中文）') + '<input class="in" data-pd="projectZh" value="' + esc(d.projectZh) + '"></label></div>' + saveBar('proj');
-  h += '<div class="fg" style="max-width:680px"><label>' + L('Status date (blank = today)', '状态日期（留空 = 今天）') + '<input class="in" type="date" id="cfgAsOf" value="' + esc(c.asOf || '') + '"' + (canEdit() ? '' : ' disabled') + '></label><label>' + L('Gantt timeline start (blank = automatic)', '甘特时间轴起始（留空 = 自动）') + '<input class="in" type="date" id="cfgGStart" value="' + esc(c.ganttStart || '') + '"' + (canEdit() ? '' : ' disabled') + '></label></div>';
-  h += '<div style="border-top:1px solid var(--line);padding-top:14px"><h2 style="font-size:17px">Excel</h2><p class="note" style="margin:4px 0 8px">' + L('Import reads your existing sheets directly (文件编号, 文件包类别, 部门, 文件名称, Document Title, 专业, 提交阶段, 实际提交日期, Status, 解释说明, 备注, 对接人, Updating…) as well as this site’s own export. Rows match by No. or Document No.; matched rows update, new rows are added, nothing is deleted, and empty cells leave fields unchanged. New packages, departments, disciplines, phases and blocks found in the file are added for you.', '导入可直接读取你现有的表（文件编号、文件包类别、部门、文件名称、Document Title、专业、提交阶段、实际提交日期、Status、解释说明、备注、对接人、Updating…）及本站导出格式。按序号或文件编号匹配：已有的更新、新的新增，不删除；空单元格不改原值；文件中出现的新文件包、部门、专业、阶段、区域会自动加入。') + '</p><div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn" data-act="exportAll">' + L('Export full register', '导出完整总台账') + '</button><button type="button" class="btn" data-act="template">' + L('Blank template', '空白模板') + '</button>' + (canEdit() ? '<label class="btn pri" style="cursor:pointer">' + L('Import Excel…', '导入 Excel…') + '<input type="file" id="impFile" accept=".xlsx,.xls,.xlsm,.csv" hidden></label>' : '') + '</div>';
+  h += '<div class="fg" style="max-width:680px"><label>' + L('Status date (blank = today)', '状态日期（留空 = 今天）') + '<input class="in" type="date" id="cfgAsOf" value="' + esc(c.asOf || '') + '"' + (canEdit() ? '' : ' disabled') + '></label><label>' + L('Gantt timeline start (blank = automatic)', '甘特时间轴起始（留空 = 自动）') + '<input class="in" type="date" id="cfgGStart" value="' + esc(c.ganttStart || '') + '"' + (canEdit() ? '' : ' disabled') + '></label><label>' + L('Gantt timeline end (at least)', '甘特时间轴结束（至少到）') + '<input class="in" type="date" id="cfgGEnd" value="' + esc(c.ganttEnd || '') + '"' + (canEdit() ? '' : ' disabled') + '></label></div>';
+  h += '<div style="border-top:1px solid var(--line);padding-top:14px"><h2 style="font-size:17px">Excel</h2><p class="note" style="margin:4px 0 8px">' + L('Import reads your existing sheets directly (文件编号, 文件包类别, 部门, 文件名称, Document Title, 专业, 提交阶段, 实际提交日期, Status, 解释说明, 备注, 对接人, Updating…) as well as this site’s own export. Rows match by No. or Document No.; matched rows update, new rows are added, nothing is deleted, and empty cells leave fields unchanged. New packages, departments, disciplines and blocks found in the file are added for you. A 提交阶段 value such as PH-02 (with no dates in the row) becomes that half-month as start and finish dates.', '导入可直接读取你现有的表（文件编号、文件包类别、部门、文件名称、Document Title、专业、提交阶段、实际提交日期、Status、解释说明、备注、对接人、Updating…）及本站导出格式。按序号或文件编号匹配：已有的更新、新的新增，不删除；空单元格不改原值；文件中出现的新文件包、部门、专业、区域会自动加入；若该行没有日期，提交阶段（如 PH-02）会换算成对应半月的开始和结束日期。') + '</p><div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn" data-act="exportAll">' + L('Export full register', '导出完整总台账') + '</button><button type="button" class="btn" data-act="template">' + L('Blank template', '空白模板') + '</button>' + (canEdit() ? '<label class="btn pri" style="cursor:pointer">' + L('Import Excel…', '导入 Excel…') + '<input type="file" id="impFile" accept=".xlsx,.xls,.xlsm,.csv" hidden></label>' : '') + '</div>';
   if(S.imp){
     var im = S.imp;
     h += '<div class="card" style="padding:12px;margin-top:10px;display:flex;flex-direction:column;gap:8px"><b>' + esc(im.name) + ' · ' + esc(im.sheet) + '</b><div>' + L(im.adds.length + ' new · ' + im.updates.length + ' to update · ' + im.errors.length + ' skipped', '新增 ' + im.adds.length + ' · 更新 ' + im.updates.length + ' · 跳过 ' + im.errors.length) + '</div>' +
@@ -1073,11 +1061,10 @@ function saveDraft(name){
   else {
     var arr = clone(S.draft[name]), k = LISTS[name].key;
     if(k){
-      arr.forEach(function(a){ a[k] = String(a[k] || '').trim(); if(name === 'areas') a[k] = a[k].toUpperCase(); if(name === 'phases') a[k] = a[k].toUpperCase(); });
+      arr.forEach(function(a){ a[k] = String(a[k] || '').trim(); if(name === 'areas') a[k] = a[k].toUpperCase(); });
       var ids = arr.map(function(a){ return a[k]; });
       if(ids.some(function(x){ return !x; }) || ids.some(function(x, i){ return ids.indexOf(x) !== i; }) || (name === 'areas' && ids.indexOf('SW') >= 0)){ toast(T('Each row needs a unique code', '每行需要唯一代码')); return; }
     }
-    if(name === 'phases' && arr.some(function(x){ return !x.start || !x.end || d2n(x.end) < d2n(x.start); })){ toast(T('Each phase needs a start and an end on or after it', '每个阶段需要开始和不早于开始的结束日期')); return; }
     var o = {}; o[name] = arr; p = STORE.saveCfg(o);
   }
   p.then(function(){ S.dirty[name] = false; S.draft[name] = null; S.saved[name] = true; setTimeout(function(){ S.saved[name] = false; renderView(); }, 2000); renderAll(); }).catch(function(e){ toast(errText(e)); });
@@ -1112,7 +1099,7 @@ function renderDrawer(){
   var h = '<div class="scrim" data-act="close"></div><aside class="drawer" role="dialog" aria-modal="true" aria-label="' + esc(it.regNo) + '">' +
     '<div class="dh"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span class="mono muted">' + esc(it.regNo) + (it.docNo ? ' · ' + esc(it.docNo) : '') + (it.rev ? ' · ' + esc(it.rev) : '') + '</span><span style="display:flex;gap:6px"><button type="button" class="btn sm" data-act="togkey" data-id="' + esc(it.id) + '"' + dis + ' aria-pressed="' + !!it.key + '">' + (it.key ? '<span class="star">★</span> ' + L('Key', '重点') : '☆ ' + L('Mark key', '标为重点')) + '</button><button type="button" class="btn sm" data-act="close" aria-label="Close">✕</button></span></div>' +
     '<div style="font-size:17px;font-weight:600">' + esc(title1(it) || '—') + '</div>' + (S.lang === 'both' && it.zh && it.en ? '<div class="muted">' + esc(it.zh) + '</div>' : '') +
-    '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">' + statusChip(it.status) + ' ' + areaChips(it.areas) + (it.phase ? ' <span class="chip c-violet">' + esc(it.phase + ' ' + phaseWindow(it.phase)) + '</span>' : '') + (isOverdue(it) ? ' <span class="chip c-red">' + L('Overdue', '逾期') + '</span>' : '') + (cm ? ' <span class="chip c-red">● ' + L('Has comments', '有意见') + '</span>' : '') + '</div>' +
+    '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">' + statusChip(it.status) + ' ' + areaChips(it.areas) + (isOverdue(it) ? ' <span class="chip c-red">' + L('Overdue', '逾期') + '</span>' : '') + (cm ? ' <span class="chip c-red">● ' + L('Has comments', '有意见') + '</span>' : '') + '</div>' +
     (pth.length ? '<div class="note">' + pth.map(function(n){ return '<span class="mono">' + esc(n.code || '') + '</span> ' + esc(T(n.en, n.zh)); }).join(' › ') + '</div>' : '') + '</div><div class="dbody">';
   h += '<div class="sec"><h3>' + L('Document', '文件信息') + '</h3><div class="fg">' +
     f(L('No.', '序号'), inp('regNo')) + f(L('Type', '类型'), sel('type', c.types.map(function(x){ return [x.key, T(x.en, x.zh)]; }))) +
@@ -1124,15 +1111,14 @@ function renderDrawer(){
     '<div class="fl full">' + L('Discipline', '专业') + chips('dDisc', c.discs, it.disc, function(x){ return x.code + ' ' + (S.lang === 'en' ? x.en : x.zh || x.en); }) + '</div>' +
     '<div class="fl full">' + L('Blocks', '区域') + ' <span class="note">' + L('none = site-wide', '不选 = 全场') + '</span>' + chips('dArea', c.areas, it.areas, function(x){ return T(x.en, x.zh); }) + '</div></div></div>';
   h += '<div class="sec"><h3>' + L('Schedule & submission', '计划与提交') + '</h3><div class="fg">' +
-    f(L('Submission phase', '提交阶段'), sel('phase', c.phases.map(function(p){ return [p.code, p.code + ' · ' + dmon(p.start) + '–' + dmon(p.end)]; }), true)) +
     f(L('Status', '状态'), sel('status', c.statuses.map(function(x){ return [x.key, T(x.en, x.zh)]; }))) +
-    (ms ? f(L('Date', '日期'), inp('finish', 'date')) : f(L('Plan start', '计划开始'), inp('start', 'date', pl && pl.fromPhase ? ' placeholder="' + n2d(pl.s) + '"' : '')) + f(L('Plan finish', '计划结束'), inp('finish', 'date'))) +
+    (ms ? f(L('Date', '日期'), inp('finish', 'date')) : f(L('Plan start', '计划开始'), inp('start', 'date')) + f(L('Plan finish', '计划结束'), inp('finish', 'date'))) +
     f(L('Progress %', '完成率 %'), inp('progress', 'number', ' min="0" max="100" step="5"')) +
     f(L('Actual submission from', '实际提交开始'), inp('actualStart', 'date')) + f(L('Actual submission to', '实际提交结束'), inp('actualEnd', 'date')) +
     '<label class="chk" style="align-self:end;padding-bottom:6px"><input type="checkbox" data-df="ongoing"' + (it.ongoing ? ' checked' : '') + dis + '>' + L('Submission ongoing', '提交进行中') + '</label>' +
     f(L('Predecessors (No.)', '前置项（序号）'), '<input class="in" data-df="deps" value="' + esc((it.deps || []).join(', ')) + '" placeholder="ACT-005, DOC-012"' + dis + '>') +
     '<div class="fl full">' + L('Baseline', '基线') + '<span style="color:var(--ink)" class="mono">' + (it.baseStart ? esc(it.baseStart + ' → ' + it.baseFinish) : '—') + '</span>' + (ed ? '<span><button type="button" class="btn sm" data-act="baseOne">' + L('Set baseline to current plan', '以当前计划为基线') + '</button></span>' : '') + '</div>' +
-    (pl && pl.fromPhase ? '<div class="note full">' + L('No own dates yet — the Gantt uses the phase window.', '尚未填日期，甘特图按阶段窗口显示。') + '</div>' : '') + '</div></div>';
+    '</div></div>';
   var fbs = ((STORE && STORE.fb) || []).filter(function(x){ return x.item_id === it.id; });
   h += '<div class="sec"><h3>' + L('Explanation, remarks & updates', '说明、备注与更新') + '</h3><div class="fg">' +
     f(L('Explanation', '解释说明'), '<textarea class="in" data-df="explanation"' + dis + '>' + esc(it.explanation || '') + '</textarea>', true) +
@@ -1167,7 +1153,7 @@ function renderDrawer(){
 /* ===== Excel ===== */
 var XH = [
   ['regNo','No. 序号'],['docNo','Document No. 文件编号'],['rev','Rev 版本'],['package','Package 文件包类别'],['classCode','Class Code 分类编号'],['dept','Department 部门'],
-  ['zh','文件名称'],['en','Document Title'],['disc','Discipline 专业'],['areas','Block 区域'],['phase','Submission Phase 提交阶段'],['window','Phase Window 阶段窗口'],
+  ['zh','文件名称'],['en','Document Title'],['disc','Discipline 专业'],['areas','Block 区域'],
   ['start','Plan Start 计划开始'],['finish','Plan Finish 计划结束'],['actual','Actual Submission 实际提交日期'],['progress','Progress 完成率'],['status','Status 状态'],
   ['explanation','Explanation 解释说明'],['remarks','Remarks 备注'],['contacts','Contacts 对接人'],['updating','Updating'],['type','Type 类型'],['key','Key 重点'],
   ['ownerVisible','External 对外'],['extNote','External Note 对外备注'],['intNote','Internal Note 内部备注'],['deps','Predecessors 前置项'],['ownerResult','Owner Result 业主结果']
@@ -1192,7 +1178,7 @@ function mapHeader(h){
 function itemRow(it){
   var n = TI.by[it.node] || {}, l1 = l1Of(it.node) || {}, t = typeOf(it.type), s = statusOf(it.status), o = orOf(it.ownerResult), dp = deptOf(it.dept);
   var vals = {regNo:it.regNo || '', docNo:it.docNo || '', rev:it.rev || '', package:l1.code ? l1.code + (l1.zh || l1.en || '') : '', classCode:n.code || '', dept:dp ? dp.zh || dp.en : '',
-    zh:it.zh || '', en:it.en || '', disc:(it.disc || []).map(function(c){ return c + (discOf(c).zh || ''); }).join(', '), areas:(it.areas || []).join(', '), phase:it.phase || '', window:phaseWindow(it.phase),
+    zh:it.zh || '', en:it.en || '', disc:(it.disc || []).map(function(c){ return c + (discOf(c).zh || ''); }).join(', '), areas:(it.areas || []).join(', '),
     start:it.start || '', finish:it.finish || '', actual:it.actualStart ? it.actualStart.replace(/-/g, '.') + '-' + (it.actualEnd ? it.actualEnd.replace(/-/g, '.') : (it.ongoing ? 'on going' : '')) : '',
     progress:+it.progress || 0, status:s.en, explanation:it.explanation || '', remarks:it.remarks || '', contacts:contactsText(it), updating:(it.updates || []).map(function(u){ return '>_' + (u.d || '').replace(/-/g, '.') + ': ' + (u.text || ''); }).join('\n'),
     type:t.en, key:it.key ? 'Yes' : '', ownerVisible:it.ownerVisible ? 'Yes' : 'No', extNote:it.extNote || '', intNote:it.intNote || '', deps:(it.deps || []).join(', '), ownerResult:o ? o.en : ''};
@@ -1268,9 +1254,14 @@ function planImport(best, name){
     if((v = String(get(row, 'dept') || '').trim())){ var dp = findL(c.depts, v, ['zh','en','code']); if(!dp){ dp = {code:v.replace(/[^\w]/g, '').toUpperCase().slice(0, 6) || uid('D').slice(0, 6), en:/[一-鿿]/.test(v) ? '' : v, zh:/[一-鿿]/.test(v) ? v : ''}; if(!dp.en) dp.en = v; c.depts.push(dp); newLists.push(T('department ', '部门 ') + v); } o.dept = dp.code; }
     if((v = String(get(row, 'disc') || '').trim())){ o.disc = splitList(v, /\s*[,，;；、\/\n]\s*/).map(function(p){ var m = /^([a-zA-Z]+)\s*(.*)$/.exec(p.trim()), code = m ? m[1].toLowerCase() : p.trim(), zz = m ? m[2].trim() : ''; if(!c.discs.some(function(x){ return x.code === code; })){ c.discs.push({code:code, en:code, zh:zz}); newLists.push(T('discipline ', '专业 ') + code); } return code; }); }
     if((v = String(get(row, 'areas') || '').trim())){ o.areas = splitList(v.replace(/block|区/ig, ' '), /[\s,，;、\/&+]+/).map(function(a){ var id = a.toUpperCase().trim(); if(!c.areas.some(function(x){ return x.id === id; })){ c.areas.push({id:id, en:'Block ' + id, zh:id + '区', color:'grey'}); newLists.push(T('block ', '区域 ') + id); } return id; }); }
-    if((v = String(get(row, 'phase') || '').trim())){ var pm = /PH\s*-?\s*(\d+)/i.exec(v) || /phase\s*(\d+)/i.exec(v); if(pm){ var code = 'PH-' + pad(+pm[1]); if(!c.phases.some(function(x){ return x.code === code; })){ var w = String(get(row, 'window') || ''), wm = /(\d{1,2})\s*([A-Za-z]{3})\w*\s*[–\-~至]\s*(\d{1,2})\s*([A-Za-z]{3})\w*\s*(\d{4})/.exec(w); var mi = function(s){ return MON.map(function(x){ return x.toLowerCase(); }).indexOf(s.toLowerCase().slice(0, 3)); }; c.phases.push({code:code, en:'Phase ' + (+pm[1]), zh:'第' + (+pm[1]) + '阶段', start: wm ? wm[5] + '-' + pad(mi(wm[2]) + 1) + '-' + pad(wm[1]) : '', end: wm ? wm[5] + '-' + pad(mi(wm[4]) + 1) + '-' + pad(wm[3]) : ''}); newLists.push(T('phase ', '阶段 ') + code); } o.phase = code; } }
+    var phD = null;
+    if((v = String(get(row, 'phase') || '').trim())){ var pm = /PH\s*-?\s*(\d+)/i.exec(v) || /phase\s*(\d+)/i.exec(v); var w = String(get(row, 'window') || ''), wm = /(\d{1,2})\s*([A-Za-z]{3})\w*\s*[–\-~至]\s*(\d{1,2})\s*([A-Za-z]{3})\w*\s*(\d{4})/.exec(w); var mi = function(x){ return MON.map(function(y){ return y.toLowerCase(); }).indexOf(x.toLowerCase().slice(0, 3)); };
+      if(wm) phD = [wm[5] + '-' + pad(mi(wm[2]) + 1) + '-' + pad(wm[1]), wm[5] + '-' + pad(mi(wm[4]) + 1) + '-' + pad(wm[3])];
+      else if(pm && LEGACY_PH['PH-' + pad(+pm[1])]) phD = LEGACY_PH['PH-' + pad(+pm[1])];
+      else if(pm) errors.push('Row ' + line + ': ' + v + T(' has no known dates — set start/finish by hand', ' 无对应日期，请手动填写起止')); }
     if((v = get(row, 'start')) !== ''){ var sd = parseDate(v); if(sd) o.start = sd; }
     if((v = get(row, 'finish')) !== ''){ var fd = parseDate(v); if(fd) o.finish = fd; }
+    if(phD && !o.start && !o.finish){ o.start = phD[0]; o.finish = phD[1]; }
     if((v = String(get(row, 'actual') || '').trim())){ var am = /(\d{4}[.\-\/]\d{1,2}[.\-\/]\d{1,2})(?:\s*[-–~至]\s*(\d{4}[.\-\/]\d{1,2}[.\-\/]\d{1,2}|on\s*going|ongoing|进行中))?/i.exec(v); if(am){ o.actualStart = parseDate(am[1]); if(am[2] && /\d/.test(am[2])){ o.actualEnd = parseDate(am[2]); o.ongoing = false; } else if(am[2]){ o.ongoing = true; o.actualEnd = ''; } } else if(get(row, 'actual') instanceof Date){ o.actualStart = parseDate(get(row, 'actual')); } }
     if((v = get(row, 'progress')) !== '' && v != null){ var pv = parseFloat(String(v).replace('%', '')); if(!isNaN(pv)) o.progress = clamp(Math.round(pv > 0 && pv <= 1 && String(v).indexOf('%') < 0 ? pv * 100 : pv), 0, 100); }
     if((v = String(get(row, 'status') || '').trim())){ var low = v.toLowerCase(), st = c.statuses.filter(function(s){ return [s.key, s.en, s.zh].some(function(y){ y = String(y || '').toLowerCase(); return y && (low === y || low.indexOf(y) >= 0); }); })[0]; if(!st && /complete|完成|done/.test(low)) st = c.statuses.filter(function(s){ return s.done; })[0]; if(st) o.status = st.key; else errors.push('Row ' + line + ': status “' + v + '” not recognised (kept empty)'); }
@@ -1297,7 +1288,7 @@ async function runImport(){
   var im = S.imp; if(!im || !canEdit()) return; S.imp = null; renderView();
   try{
     var base = cfg(), cp = {};
-    ['depts','discs','areas','phases'].forEach(function(k){ if(JSON.stringify(im.cfg[k]) !== JSON.stringify(base[k])) cp[k] = im.cfg[k]; });
+    ['depts','discs','areas'].forEach(function(k){ if(JSON.stringify(im.cfg[k]) !== JSON.stringify(base[k])) cp[k] = im.cfg[k]; });
     if(Object.keys(cp).length) await STORE.saveCfg(cp);
     if(JSON.stringify(im.tree) !== JSON.stringify((STORE && STORE.tree) || [])) await STORE.saveTree(im.tree);
   }catch(e){ toast(errText(e)); return; }
@@ -1310,7 +1301,7 @@ async function runImport(){
     var reg = a.reg && !used[a.reg] ? a.reg : null;
     if(!reg){ var pre = String(typeOf(type).prefix || 'ITM').toUpperCase(), n = 1; while(used[pre + '-' + String(n).padStart(3, '0')]) n++; reg = pre + '-' + String(n).padStart(3, '0'); }
     used[reg] = 1;
-    var doc = Object.assign(blankItem(type), {regNo:reg, start:'', finish:'', areas:[], node:'', phase:'', dept:'', disc:[], contacts:[], history:[{t:new Date().toISOString(), by:who, f:'imported', from:'', to:im.name}]}, a.o, {type:type});
+    var doc = Object.assign(blankItem(type), {regNo:reg, start:'', finish:'', areas:[], node:'', dept:'', disc:[], contacts:[], history:[{t:new Date().toISOString(), by:who, f:'imported', from:'', to:im.name}]}, a.o, {type:type});
     if(typeOf(type).shape === 'milestone' && doc.finish) doc.start = doc.finish;
     if(statusOf(doc.status).done && !a.o.progress) doc.progress = 100;
     jobs.push(function(){ return STORE.createItem(uid('i'), doc); });
@@ -1360,7 +1351,7 @@ document.addEventListener('click', function(e){
     case 'gotoOwnerFields': S.view = 'settings'; S.stab = 'ownerf'; LS.set('ww.view', 'settings'); renderAll(); break;
     case 'goArea': S.f = emptyF(); S.f.areas = [v]; S.view = 'register'; LS.set('ww.view', 'register'); renderAll(); break;
     case 'goNode': S.f = emptyF(); S.f.node = v; S.exp[v] = true; S.view = 'register'; LS.set('ww.view', 'register'); renderAll(); break;
-    case 'goPhase': S.f = emptyF(); S.f.phase = v; S.view = 'register'; LS.set('ww.view', 'register'); renderAll(); break;
+    case 'goMonth': S.f = emptyF(); var mr = monthRange(v); S.f.from = mr[0]; S.f.to = mr[1]; S.view = 'register'; LS.set('ww.view', 'register'); renderAll(); break;
     case 'kOver': S.f = emptyF(); S.f.overdue = true; S.view = 'register'; renderAll(); break;
     case 'kCom': S.f = emptyF(); S.f.comments = true; S.view = 'register'; renderAll(); break;
     case 'gzoom': S.g.zoom = v; LS.set('ww.g2', S.g); S.gScroll = true; renderView(); break;
@@ -1392,7 +1383,7 @@ document.addEventListener('click', function(e){
     case 'clearYes': S.clearAsk = false; STORE.clearItems().then(function(){ toast(T('All items deleted', '已删除全部记录')); }).catch(function(er){ toast(errText(er)); }); break;
     case 'resetDemo': STORE.resetDemo(); break;
     case 'otab': S.otab = v; S.snapView = null; renderView(); break;
-    case 'exportOwner': var fl = cfg().ownerFields || []; exportOwner(ownerGroups(items().filter(function(x){ return x.ownerVisible && match(x); }), fl), fl, fname('owner_plan')); break;
+    case 'exportOwner': var fl = validOF(cfg().ownerFields); exportOwner(ownerGroups(items().filter(function(x){ return x.ownerVisible && match(x); }), fl), fl, fname('owner_plan')); break;
     case 'snapSave': saveSnapshot(); break;
     case 'snapView': S.snapView = v; renderView(); break;
     case 'snapBack': S.snapView = null; renderView(); break;
@@ -1411,12 +1402,12 @@ document.addEventListener('click', function(e){
 function gAdd(k){
   var mode = S.view === 'gantt' ? S.g.group : S.regGroup, extra = {};
   var sample = filtered().filter(function(it){ return groupOf(it, mode).k === k; })[0];
-  if(sample){ var g = groupOf(sample, mode); if(g.node) extra.node = g.node; if(g.phase) extra.phase = g.phase; if(g.areas) extra.areas = g.areas; if(g.dept) extra.dept = g.dept; if(g.disc) extra.disc = g.disc; if(g.status) extra.status = g.status; if(g.contacts) extra.contacts = g.contacts; if(g.type) extra.type = g.type; }
+  if(sample){ var g = groupOf(sample, mode); if(g.node) extra.node = g.node; if(g.month){ var gm = monthRange(g.month); extra.finish = gm[1]; extra.start = n2d(Math.max(d2n(gm[0]), d2n(gm[1]) - 13)); } if(g.areas) extra.areas = g.areas; if(g.dept) extra.dept = g.dept; if(g.disc) extra.disc = g.disc; if(g.status) extra.status = g.status; if(g.contacts) extra.contacts = g.contacts; if(g.type) extra.type = g.type; }
   newItem(extra.type || (S.view === 'gantt' ? 'activity' : 'deliverable'), extra);
 }
 function saveSnapshot(){
   if(!canEdit()) return;
-  var fields = (cfg().ownerFields || []).slice(), list = items().filter(function(x){ return x.ownerVisible && match(x); });
+  var fields = validOF(cfg().ownerFields), list = items().filter(function(x){ return x.ownerVisible && match(x); });
   var max = 0; ((STORE && STORE.pubs) || []).forEach(function(s){ var m = /PUB-(\d+)/.exec(s.no || ''); if(m) max = Math.max(max, +m[1]); });
   var no = 'PUB-' + String(max + 1).padStart(3, '0'), note = ($('#snapNote') || {}).value || '';
   var data = {no:no, at:new Date().toISOString(), by:(STORE.me && (STORE.me.name || STORE.me.email)) || '', note:note, fields:fields, groups:ownerGroups(list, fields), count:list.length};
@@ -1424,8 +1415,9 @@ function saveSnapshot(){
 }
 document.addEventListener('change', function(e){
   var el = e.target;
-  var fmap = {fnode:'node', ftype:'type', fstatus:'status', fphase:'phase', fdept:'dept', fdisc:'disc', fcontact:'contact'};
+  var fmap = {fnode:'node', ftype:'type', fstatus:'status', fdept:'dept', fdisc:'disc', fcontact:'contact'};
   if(fmap[el.id]){ S.f[fmap[el.id]] = el.value || (el.id === 'fnode' ? 'all' : ''); renderFilters(); renderView(); return; }
+  if(el.id === 'ffrom' || el.id === 'fto'){ S.f[el.id === 'ffrom' ? 'from' : 'to'] = el.value || ''; renderFilters(); renderView(); return; }
   if(el.id === 'fover'){ S.f.overdue = el.checked; renderFilters(); renderView(); return; }
   if(el.id === 'fcom'){ S.f.comments = el.checked; renderFilters(); renderView(); return; }
   if(el.id === 'fkey'){ S.f.key = el.checked; renderFilters(); renderView(); return; }
@@ -1433,14 +1425,14 @@ document.addEventListener('change', function(e){
   if(el.id === 'ggroup'){ S.g.group = el.value; LS.set('ww.g2', S.g); renderView(); return; }
   if(el.id === 'gcolor'){ S.g.color = el.value; LS.set('ww.g2', S.g); renderView(); return; }
   if(el.id === 'gleftc'){ S.g.left = el.value; LS.set('ww.g2', S.g); renderView(); return; }
-  if(el.id === 'gph'){ S.g.phases = el.checked; LS.set('ww.g2', S.g); renderView(); return; }
+  if(el.id === 'gEnd' || el.id === 'cfgGEnd'){ if(canEdit()) STORE.saveCfg({ganttEnd: el.value || ''}).catch(function(er){ toast(errText(er)); }); return; }
   if(el.id === 'gStart' || el.id === 'cfgGStart'){ if(canEdit()) STORE.saveCfg({ganttStart: el.value || ''}).catch(function(er){ toast(errText(er)); }); return; }
   if(el.id === 'gAsOf' || el.id === 'cfgAsOf'){ if(canEdit()) STORE.saveCfg({asOf: el.value || ''}).catch(function(er){ toast(errText(er)); }); else { S.asOfLocal = el.value || null; renderView(); } return; }
   if(el.id === 'pubSel'){ S.pubSel = el.value; S.fbFor = null; renderView(); return; }
   if(el.dataset.inline && el.tagName === 'SELECT'){ commitInline(el); return; }
   if(el.classList.contains('rowsel')){ S.sel[el.dataset.id] = el.checked; S.bulkDelAsk = false; renderView(); return; }
   if(el.id === 'selall'){ var on = el.checked; S.sel = {}; if(on) filtered().forEach(function(it){ S.sel[it.id] = true; }); renderView(); return; }
-  if(el.dataset.col){ var k = el.dataset.col, i = S.cols.indexOf(k); if(el.checked && i < 0) S.cols.push(k); if(!el.checked && i >= 0) S.cols.splice(i, 1); var ordr = allCols().map(function(x){ return x[0]; }); S.cols.sort(function(a, b){ return ordr.indexOf(a) - ordr.indexOf(b); }); LS.set('ww.cols2', S.cols); renderView(); return; }
+  if(el.dataset.col){ var k = el.dataset.col, i = S.cols.indexOf(k); if(el.checked && i < 0) S.cols.push(k); if(!el.checked && i >= 0) S.cols.splice(i, 1); var ordr = allCols().map(function(x){ return x[0]; }); S.cols.sort(function(a, b){ return ordr.indexOf(a) - ordr.indexOf(b); }); LS.set('ww.cols3', S.cols); renderView(); return; }
   if(el.dataset.role){ STORE.setRole(el.dataset.role, el.value).then(function(){ toast(T('Role updated', '角色已更新')); }).catch(function(er){ toast(errText(er)); }); return; }
   if(el.dataset.bulk){ var f = el.dataset.bulk, val = el.value; if(!val) return; var ids = Object.keys(S.sel).filter(function(x){ return S.sel[x] && getItem(x); });
     Promise.all(ids.map(function(x){ var it = getItem(x);
@@ -1448,7 +1440,7 @@ document.addEventListener('change', function(e){
       if(f === 'addContact'){ var cs = (it.contacts || []).slice(); if(cs.indexOf(val) < 0) cs.push(val); return setField(x, 'contacts', cs); }
       if(f === 'ext') return setField(x, 'ownerVisible', val === '1');
       if(f === 'key') return setField(x, 'key', val === '1');
-      if(f === 'phase') return setField(x, 'phase', val === '__clear' ? '' : val);
+      if(f === 'start' || f === 'finish') return setFields(x, dateFix(it, f, val));
       if(f === 'status'){ var o = {status:val}; if(statusOf(val).done) o.progress = 100; return setFields(x, o); }
       return setField(x, f, val); })).then(function(){ toast(T('Updated ', '已更新 ') + ids.length); });
     return; }
