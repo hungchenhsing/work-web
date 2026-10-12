@@ -40,8 +40,8 @@ document.addEventListener('click', function(e){
     case 'dupRec': (function(){ var d = clone(rec.d); var ro = rolesOf(drReg); if(ro.no) d[ro.no] = nextNo(drReg); dataFields(drReg).forEach(function(f){ if(f.type === 'files') delete d[f.key]; }); var id = uid('r'); STORE.createRec({id:id, reg:drReg.id, d:d}).then(function(){ openRec(id); toast(T('Duplicated', '已复制')); }).catch(function(er){ toast(errText(er)); }); })(); break;
     case 'delAsk': S.delAsk = true; renderDrawer(); break;
     case 'delNo': S.delAsk = false; renderDrawer(); break;
-    case 'delYes': (function(){ var id = rec.id, lab = recLabel(rec); S.open = null; S.delAsk = false; STORE.deleteRec(id).then(function(){ toast(T('Deleted ', '已删除 ') + lab + ' — ' + T('restore it from the Change log', '可在修改记录中恢复')); }).catch(function(er){ toast(errText(er)); }); renderAll(); })(); break;
-    case 'pick': openPick('opts', {reg:rec.reg, rec:rec.id, key:el.dataset.k}, el); break;
+    case 'delYes': (function(){ var id = rec.id, lab = recLabel(rec), desc = descendantsOf(rec); S.open = null; S.delAsk = false; desc.reverse().forEach(function(k){ STORE.deleteRec(k.id).catch(function(){}); }); STORE.deleteRec(id).then(function(){ toast(T('Deleted ', '已删除 ') + lab + ' — ' + T('restore it from the Change log', '可在修改记录中恢复')); }).catch(function(er){ toast(errText(er)); }); renderAll(); })(); break;
+    case 'pick': (function(){ var pr = (el.dataset.id && getRec(el.dataset.id)) || rec; openPick('opts', {reg:pr.reg, rec:pr.id, key:el.dataset.k}, el); })(); break;
     case 'pickTree': openPick('tree', {reg:rec.reg, rec:rec.id, key:el.dataset.k}, el); break;
     case 'pickLink': openPick('link', {reg:rec.reg, rec:rec.id, key:el.dataset.k, w:420}, el); break;
     case 'unlink': setRec(rec, mk(el.dataset.k, asArr(rec.d[el.dataset.k]).filter(function(x){ return x !== v; })), {silent:true}); break;
@@ -74,7 +74,7 @@ document.addEventListener('click', function(e){
     case 'actMore': (function(){ var a = S.act, last = a.rows && a.rows[a.rows.length - 1]; if(!last) return; STORE.loadAudit({reg:a.reg || undefined, action:a.type || undefined, before:last.id, limit:150}).then(function(rows){ a.rows = a.rows.concat(rows); a.more = rows.length >= 150; renderMain(); }); })(); break;
     // register page
     case 'rview': S.rv[S.reg] = v; S.gKeep = false; saveUI(); renderMain(); break;
-    case 'newRec': createRec(reg); break;
+    case 'newRec': createRec(reg, nodeExtra(reg)); break;
     case 'boardAdd': (function(){ var bf = boardField(reg); createRec(reg, mk(bf.key, v)); })(); break;
     case 'grpAdd': (function(){ var rg = el.dataset.reg ? getReg(el.dataset.reg) : reg; createRec(rg, JSON.parse(v)); })(); break;
     case 'impOpen': impOpen(getReg(v)); break;
@@ -86,6 +86,25 @@ document.addEventListener('click', function(e){
     case 'fxPick': fxPick(reg, el.dataset.k, el); break;
     case 'fClear': (function(){ var n = rfil(S.reg).node; S.rf[S.reg] = null; rfil(S.reg).node = n; renderMain(); })(); break;
     case 'tnode': rfil(S.reg).node = v; renderMain(); break;
+    case 'treeEdit': S.treeEdit = S.treeEdit || {}; S.treeEdit[S.reg] = !S.treeEdit[S.reg]; renderMain(); break;
+    case 'tnAdd': tnEditor(reg, rf(reg, 'tree'), null, v || '', el); break;
+    case 'tnRen': tnEditor(reg, rf(reg, 'tree'), v, null, el); break;
+    case 'tnSave': (function(){ var tf = rf(reg, 'tree'), nodes = clone(treeNodes(tf)), code = ($('#tnCode') || {}).value || '', en = ($('#tnEn') || {}).value || '', zh = ($('#tnZh') || {}).value || '';
+      if(!en.trim() && !zh.trim()){ toast(T('Give it a name', '请填写名称')); return; }
+      if(el.dataset.node){ nodes.forEach(function(x){ if(x.id === el.dataset.node){ x.code = code.trim(); x.en = en.trim() || zh.trim(); x.zh = zh.trim(); } }); }
+      else nodes.push({id:uid('n'), parent:el.dataset.parent || '', code:code.trim(), en:en.trim() || zh.trim(), zh:zh.trim()});
+      closePop(); treeSave(reg, tf, nodes).then(function(){ toast(T('Saved', '已保存')); }); })(); break;
+    case 'tnMove': (function(){ var tf = rf(reg, 'tree'), nodes = clone(treeNodes(tf)), n = nodes.filter(function(x){ return x.id === v; })[0]; var sib = nodes.filter(function(x){ return (x.parent || '') === (n.parent || ''); }), i = sib.indexOf(n), j = i + (+el.dataset.d); if(j < 0 || j >= sib.length) return; var a = nodes.indexOf(sib[i]), b = nodes.indexOf(sib[j]); nodes[a] = sib[j]; nodes[b] = sib[i]; treeSave(reg, tf, nodes); })(); break;
+    case 'tnDel': (function(){ var tf = rf(reg, 'tree'), nodes = clone(treeNodes(tf)), n = nodes.filter(function(x){ return x.id === v; })[0]; if(!n) return;
+      var set = treeDesc(tf, v), recs = recsOf(reg.id).filter(function(r){ return r.d[tf.key] === v; }), sub = nodes.filter(function(x){ return x.parent === v; }).length, par = n.parent || '';
+      if(!confirm(T('Delete category “' + treeLabel(n) + '”?', '删除分类「' + treeLabel(n) + '」？') + '\n' + (sub ? T(sub + ' sub-levels move up one level. ', sub + ' 个下级会上移一层。') : '') + (recs.length ? T(recs.length + ' records move to the level above.', recs.length + ' 条记录会移到上一级。') : ''))) return;
+      nodes = nodes.filter(function(x){ return x.id !== v; }); nodes.forEach(function(x){ if(x.parent === v) x.parent = par; });
+      treeSave(reg, tf, nodes).then(function(){ recs.forEach(function(r){ setRec(r, mk(tf.key, par), {silent:true}); }); if(rfil(reg.id).node === v) rfil(reg.id).node = 'all'; toast(T('Category deleted — undo from the Change log', '分类已删除，可在修改记录中撤销')); }); })(); break;
+    case 'rexp': S.rexp = S.rexp || {}; S.rexp[v] = !S.rexp[v]; renderMain(); break;
+    case 'pickParent': openPick('parent', {reg:rec.reg, rec:rec.id, w:380}, el); break;
+    case 'setParent': (function(){ var r = (S.pop && S.pop.kind === 'parent') ? getRec(S.pop.rec) : rec; if(!r) return; closePop(); setRec(r, {parent:v || null}); })(); break;
+    case 'subQuick': (function(){ var i = $('#subQuick'), t = i && i.value.trim(); if(!t) return; addChildren(drReg, rec, [t]).then(function(n){ if(n){ toast(T('Added', '已新增')); var j = $('#subQuick'); if(j){ j.value = ''; j.focus(); } } }); })(); break;
+    case 'subBulk': (function(){ var t = ($('#subBulk') || {}).value || '', lines = t.split(/\r?\n/).filter(function(x){ return x.trim(); }); if(!lines.length) return; addChildren(drReg, rec, lines).then(function(n){ toast(T('Added ' + n + ' sub-items', '已新增 ' + n + ' 个子项')); S.rexp = S.rexp || {}; S.rexp[rec.id] = true; renderAll(); }); })(); break;
     case 'sort': (function(){ var s = S.rs[S.reg] || {}; S.rs[S.reg] = {k:v, d: s.k === v ? -s.d || -1 : 1}; saveUI(); renderMain(); })(); break;
     case 'gcol': S.gcol[v] = !S.gcol[v]; renderMain(); break;
     case 'colsPick': colsPick(reg, el); break;
@@ -154,6 +173,17 @@ document.addEventListener('click', function(e){
     case 'fileBlk': S.files.blk = S.files.blk === v ? '' : v; renderMain(); break;
   }
 });
+function nodeExtra(reg){ var tf = rf(reg, 'tree'), n = rfil(reg.id).node, o = {}; if(tf && n && n !== 'all' && n !== 'none' && treeNode(tf, n)) o[tf.key] = n; return o; }
+function treeSave(reg, tf, nodes){ var fs = clone(fieldsOf(reg)); fs.forEach(function(f){ if(f.key === tf.key) f.tree = nodes; }); return STORE.patchReg(reg.id, {fields:fs}).catch(function(er){ toast(errText(er)); }); }
+function tnEditor(reg, tf, nodeId, parentId, anchor){
+  var n = nodeId ? treeNode(tf, nodeId) : null, par = parentId ? treeNode(tf, parentId) : null;
+  var sugg = ''; if(!n){ var sib = treeKids(tf, parentId || ''); sugg = par && par.code ? par.code + '.' + (sib.length + 1) : 'P' + (sib.length + 1); }
+  var html = '<div class="tned"><b>' + (n ? L('Rename category', '修改分类') : par ? L('New sub-level under ', '在此下新增：') + esc(treeLabel(par)) : L('New top-level category', '新增顶层分类')) + '</b>' +
+    '<label class="fl">' + L('Code', '编号') + '<input class="in" id="tnCode" value="' + esc(n ? n.code || '' : sugg) + '"></label><label class="fl">' + L('Name (EN)', '英文名') + '<input class="in" id="tnEn" value="' + esc(n ? n.en || '' : '') + '"></label><label class="fl">' + L('Name (中)', '中文名') + '<input class="in" id="tnZh" value="' + esc(n ? n.zh || '' : '') + '"></label>' +
+    '<div class="row"><button type="button" class="btn pri sm" data-act="tnSave" data-node="' + esc(nodeId || '') + '" data-parent="' + esc(parentId || '') + '">' + L('Save', '保存') + '</button><button type="button" class="btn sm" data-act="popClose">' + L('Cancel', '取消') + '</button></div></div>';
+  openPick('menu', {reg:reg.id, html:html, w:280}, anchor);
+  setTimeout(function(){ var i = $(n ? '#tnEn' : '#tnEn'); if(i) i.focus(); }, 20);
+}
 function cleanOpts(opts){ var seen = {}; for(var i = 0; i < opts.length; i++){ var o = opts[i]; o.v = String(o.v || '').trim(); if(!o.v) o.v = String(o.en || o.zh || '').trim(); if(!o.v) return T('Each option needs a code or a name', '每个选项需要代码或名称'); if(!o.en) o.en = o.zh || o.v; if(seen[o.v]) return T('Duplicate option code: ', '选项代码重复：') + o.v; seen[o.v] = 1; } return null; }
 function selIds(reg){ return Object.keys(S.sel).filter(function(id){ var r = S.sel[id] && getRec(id); return r && r.reg === reg.id; }); }
 function bulkApply(reg, f, value){
@@ -220,11 +250,13 @@ document.addEventListener('keydown', function(e){
   }
   if(el.id === 'qadd' && e.key === 'Enter'){
     e.preventDefault(); var t = el.value.trim(); if(!t) return; var reg = curReg(); if(!reg) return; var ro = rolesOf(reg), d = {};
-    var zh = /[一-鿿]/.test(t) && !/[A-Za-z]{3,}/.test(t); if(zh && ro.title2) d[ro.title2] = t; else if(ro.title) d[ro.title] = t;
+    var zh = /[一-鿿]/.test(t) && !/[A-Za-z]{3,}/.test(t); if(zh && ro.title2) d[ro.title2] = t; else if(ro.title) d[ro.title] = t; Object.assign(d, nodeExtra(reg));
     if(el.dataset.gantt && ro.start && ro.finish){ d[ro.start] = n2d(asOfN()); d[ro.finish] = n2d(asOfN() + 13); }
     el.value = ''; createRec(reg, d, false).then(function(){ var q = $('#qadd'); if(q) q.focus(); });
     return;
   }
+  if(el.dataset && el.dataset.kadd && e.key === 'Enter'){ e.preventDefault(); var pr = getRec(el.dataset.kadd), prg = pr && getReg(pr.reg), tx = el.value.trim(); if(!pr || !tx) return; el.value = ''; addChildren(prg, pr, [tx]).then(function(){ var q = $('[data-kadd="' + pr.id + '"]'); if(q) q.focus(); }); return; }
+  if(el.id === 'subQuick' && e.key === 'Enter'){ e.preventDefault(); var b0 = $('[data-act="subQuick"]'); if(b0) b0.click(); return; }
   if(el.id === 'popq' && e.key === 'Enter'){ e.preventDefault(); var b = $('.popover [data-act="popAdd"]') || $('.popover [data-act="popPick"]'); if(b) b.click(); return; }
   if(e.key === 'Escape'){
     if(S.pop){ closePop(); return; } if(S.modal){ closeModal(); return; } if(S.open){ S.open = null; renderDrawer(); return; } if(S.q){ S.q = ''; renderTop(); return; } if(S.sideOpen){ S.sideOpen = false; renderSide(); }

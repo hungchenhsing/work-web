@@ -85,9 +85,14 @@ function treePanel(reg, tf){
   var f = rfil(reg.id), base = recsOf(reg.id).filter(function(r){ return matchRec(reg, r, f, true); }), cnt = {};
   base.forEach(function(r){ treePath(tf, r.d[tf.key]).forEach(function(n){ cnt[n.id] = (cnt[n.id] || 0) + 1; }); });
   var none = base.filter(function(r){ return !treeNode(tf, r.d[tf.key]); }).length;
-  var h = '<aside class="tree card"><div class="th"><b>' + L(tf.en, tf.zh) + '</b>' + (canSchemaEdit(reg) ? '<button type="button" class="btn sm" data-act="editOpts" data-reg="' + esc(reg.id) + '" data-v="' + esc(tf.key) + '">' + L('Edit', '编辑') + '</button>' : '') + '</div>';
+  var te = !!(S.treeEdit && S.treeEdit[reg.id]) && canSchemaEdit(reg);
+  var h = '<aside class="tree card' + (te ? ' editing' : '') + '"><div class="th"><b>' + L(tf.en, tf.zh) + '</b>' + (canSchemaEdit(reg) ? '<button type="button" class="btn sm' + (te ? ' on' : '') + '" data-act="treeEdit">' + (te ? L('Done', '完成') : L('Edit', '编辑')) + '</button>' : '') + '</div>';
+  if(te) h += '<p class="note" style="margin:0 6px 6px">' + L('＋ adds a sub-level, ✎ renames, ↑↓ reorders, × deletes. Changes save at once and are in the change log.', '＋ 添加下级，✎ 改名，↑↓ 排序，× 删除。修改即时保存并记入修改记录。') + '</p>';
   h += '<button type="button" class="tnode' + (f.node === 'all' || !f.node ? ' on' : '') + '" data-act="tnode" data-v="all"><span>' + L('All', '全部') + '</span><span class="mono muted">' + base.length + '</span></button>';
-  treeDfs(tf, function(n, d){ h += '<button type="button" class="tnode' + (f.node === n.id ? ' on' : '') + '" data-act="tnode" data-v="' + esc(n.id) + '" style="padding-left:' + (10 + d * 14) + 'px"><span><span class="mono muted">' + esc(n.code || '') + '</span> ' + esc(nm(n)) + '</span><span class="mono muted">' + (cnt[n.id] || 0) + '</span></button>'; });
+  treeDfs(tf, function(n, d){
+    if(te){ h += '<div class="tnode te" style="padding-left:' + (10 + d * 14) + 'px"><span class="tlab"><span class="mono muted">' + esc(n.code || '') + '</span> ' + esc(nm(n)) + ' <span class="mono muted">' + (cnt[n.id] || 0) + '</span></span><span class="tacts"><button type="button" class="ib" data-act="tnAdd" data-v="' + esc(n.id) + '" title="' + esc(T('Add sub-level', '添加下级')) + '">＋</button><button type="button" class="ib" data-act="tnRen" data-v="' + esc(n.id) + '" title="' + esc(T('Rename', '改名')) + '">✎</button><button type="button" class="ib" data-act="tnMove" data-v="' + esc(n.id) + '" data-d="-1" title="' + esc(T('Up', '上移')) + '">↑</button><button type="button" class="ib" data-act="tnMove" data-v="' + esc(n.id) + '" data-d="1" title="' + esc(T('Down', '下移')) + '">↓</button><button type="button" class="ib" data-act="tnDel" data-v="' + esc(n.id) + '" title="' + esc(T('Delete', '删除')) + '">×</button></span></div>'; return; }
+    h += '<button type="button" class="tnode' + (f.node === n.id ? ' on' : '') + '" data-act="tnode" data-v="' + esc(n.id) + '" style="padding-left:' + (10 + d * 14) + 'px"><span><span class="mono muted">' + esc(n.code || '') + '</span> ' + esc(nm(n)) + '</span><span class="mono muted">' + (cnt[n.id] || 0) + '</span></button>'; });
+  if(te) h += '<button type="button" class="btn sm" data-act="tnAdd" data-v="" style="margin:8px 6px">＋ ' + L('Add top-level category', '新增顶层分类') + '</button>';
   if(none) h += '<button type="button" class="tnode' + (f.node === 'none' ? ' on' : '') + '" data-act="tnode" data-v="none"><span class="muted">' + L('Unclassified', '未分类') + '</span><span class="mono muted">' + none + '</span></button>';
   return h + '</aside>';
 }
@@ -136,15 +141,27 @@ function viewTable(reg, list){
     if(gk !== 'none'){ var colp = !!S.gcol[reg.id + g.k], dn = g.items.filter(function(x){ return isDone(reg, x); }).length;
       body += '<tr class="grp"><td colspan="' + span + '"><button type="button" class="glb" data-act="gcol" data-v="' + esc(reg.id + g.k) + '">' + (colp ? '▸' : '▾') + ' ' + (g.color ? '<span class="sw c-' + esc(g.color) + '"></span>' : '') + '<b>' + esc(g.label) + '</b> <span class="muted mono">' + (rf(reg, 'status') ? dn + '/' : '') + g.items.length + '</span></button>' + (ed && g.set ? ' <button type="button" class="btn sm" data-act="grpAdd" data-v="' + esc(JSON.stringify(g.set)) + '">+ ' + L('Add here', '在此新增') + '</button>' : '') + '</td></tr>';
       if(colp) return; }
-    g.items.forEach(function(r){ body += tableRow(reg, r, cols, ed); });
+    body += hierRows(reg, g.items, cols, ed);
   });
   if(!list.length) body += '<tr><td colspan="' + span + '" class="empty">' + (recsOf(reg.id).length ? L('No items match the filters.', '没有符合筛选条件的记录。') : L('No items yet.', '还没有记录。')) + '</td></tr>';
   if(ed) body += '<tr class="qadd"><td colspan="' + span + '"><input class="in" id="qadd" data-fk="qadd:' + esc(reg.id) + '" placeholder="' + esc(T('+ Type a title and press Enter to add', '+ 输入标题后按 Enter 新增')) + '"></td></tr>';
   return h + '<div class="card tbl-wrap"><table class="tbl"><thead>' + th + '</thead><tbody>' + body + '</tbody></table></div>';
 }
-function tableRow(reg, r, cols, ed){
-  var ro = rolesOf(reg), od = isOverdue(reg, r), cm = openFb(r.id) > 0 || (r.d.remarks && !isDone(reg, r) && false);
-  return '<tr class="' + (r.d.star ? 'star ' : '') + (od ? 'odr' : '') + '">' + (ed ? '<td class="sel"><input type="checkbox" class="rowsel" data-id="' + esc(r.id) + '"' + (S.sel[r.id] ? ' checked' : '') + ' aria-label="Select"></td>' : '') + cols.map(function(f){
+function hierRows(reg, items, cols, ed){
+  var ids = {}, kids = {}, roots = [], all = kidsIndex(reg.id), out = '';
+  items.forEach(function(r){ ids[r.id] = 1; });
+  items.forEach(function(r){ var p = r.d.parent; if(p && p !== r.id && ids[p]) (kids[p] = kids[p] || []).push(r); else roots.push(r); });
+  (function w(list, depth){ list.forEach(function(r){
+    var k = kids[r.id] || [], tot = all[r.id] || [], open = !!S.rexp[r.id];
+    out += tableRow(reg, r, cols, ed, {depth:depth, kids:tot, open:open, orphan: depth === 0 && r.d.parent && !ids[r.d.parent] ? getRec(r.d.parent) : null});
+    if(open && depth < 6){ if(k.length) w(k, depth + 1); if(ed) out += '<tr class="kadd"><td colspan="' + (cols.length + (ed ? 1 : 0) + (canSchemaEdit(reg) ? 1 : 0)) + '"><input class="in" data-kadd="' + esc(r.id) + '" data-fk="kadd:' + esc(r.id) + '" placeholder="' + esc(T('+ Add a sub-item under ', '+ 在此项下新增子项：') + recNo(reg, r) + T(' (Enter)', '（按 Enter）')) + '" style="margin-left:' + (28 + (depth + 1) * 22) + 'px"></td></tr>'; }
+  }); })(roots, 0);
+  return out;
+}
+function tableRow(reg, r, cols, ed, h){
+  h = h || {depth:0, kids:[]};
+  var ro = rolesOf(reg), od = isOverdue(reg, r), cm = openFb(r.id) > 0, ru = h.kids.length ? rollup(reg, r, h.kids) : null;
+  return '<tr class="' + (r.d.star ? 'star ' : '') + (od ? 'odr ' : '') + (h.depth ? 'kid' : '') + '">' + (ed ? '<td class="sel"><input type="checkbox" class="rowsel" data-id="' + esc(r.id) + '"' + (S.sel[r.id] ? ' checked' : '') + ' aria-label="Select"></td>' : '') + cols.map(function(f){
     var ce = ed && f.type !== 'calc' && !(f.type === 'percent' && isAutoNow(r, f)), inner;
     if(S.edit && S.edit.id === r.id && S.edit.k === f.key){
       var v = r.d[f.key] == null ? '' : r.d[f.key];
@@ -152,7 +169,9 @@ function tableRow(reg, r, cols, ed){
       return '<td class="editing">' + inner + '</td>';
     }
     if(f.key === ro.no) return '<td class="no"><button type="button" class="lnk mono" data-act="openRec" data-id="' + esc(r.id) + '">' + esc(r.d[f.key] || '—') + '</button>' + (r.d.star ? ' <span class="kst">★</span>' : '') + (cm ? '<span class="rdot"></span>' : '') + '</td>';
-    if(f.key === ro.title){ return '<td class="tt' + (ce ? ' ce' : '') + '"' + (ce ? ' data-ce="1" data-id="' + esc(r.id) + '" data-k="' + esc(f.key) + '"' : '') + '><span class="tt1">' + esc(r.d[f.key] || recTitle(reg, r) || '—') + '</span>' + (recTitle2(reg, r) && !tableCols(reg).some(function(c){ return c.key === ro.title2; }) ? '<span class="tt2">' + esc(recTitle2(reg, r)) + '</span>' : '') + '</td>'; }
+    if(f.key === ro.title){ var lead = '<span class="ind" style="width:' + (h.depth * 22) + 'px"></span>' + (h.kids.length ? '<button type="button" class="cx" data-act="rexp" data-v="' + esc(r.id) + '" aria-expanded="' + !!h.open + '" title="' + esc(T('Show sub-items', '展开子项')) + '">' + (h.open ? '▾' : '▸') + '</button>' : (h.depth ? '<span class="cx0">└</span>' : ''));
+      return '<td class="tt' + (ce ? ' ce' : '') + '"' + (ce ? ' data-ce="1" data-id="' + esc(r.id) + '" data-k="' + esc(f.key) + '"' : '') + '><div class="ttw">' + lead + '<div class="ttx">' + (h.orphan ? '<span class="pp">↳ ' + esc(recNo(reg, h.orphan) || recTitle(reg, h.orphan)) + '</span>' : '') + '<span class="tt1">' + esc(r.d[f.key] || recTitle(reg, r) || '—') + '</span>' + (recTitle2(reg, r) && !tableCols(reg).some(function(c){ return c.key === ro.title2; }) ? '<span class="tt2">' + esc(recTitle2(reg, r)) + '</span>' : '') + (ru ? '<button type="button" class="kc" data-act="rexp" data-v="' + esc(r.id) + '">' + L(ru.done + '/' + ru.n + ' sub-items done', ru.n + ' 个子项，已完成 ' + ru.done) + '</button>' : '') + '</div></div></td>'; }
+    if(f.key === ro.progress && ru && (r.d[f.key] == null || r.d[f.key] === '') && !isAutoNow(r, f)) return '<td class="t-percent">' + pbar(ru.pct, '<span class="auto" title="' + esc(T('Rolled up from sub-items', '由子项汇总')) + '">Σ</span>') + '</td>';
     return '<td class="t-' + f.type + (ce ? ' ce' : '') + '"' + (ce ? ' data-ce="1" data-id="' + esc(r.id) + '" data-k="' + esc(f.key) + '"' : ' data-act="openRec" data-id="' + esc(r.id) + '"') + '>' + cellHtml(reg, f, r) + '</td>';
   }).join('') + (canSchemaEdit(reg) ? '<td></td>' : '') + '</tr>';
 }
@@ -294,7 +313,7 @@ function ganttRow(reg, rec, mn, px, grid, lines, LC, LW, tpl, A){
   var left = LC.map(function(c){
     var k = c[0];
     if(k === 'no') return '<div class="gc"><button type="button" class="glb mono" data-act="openRec" data-id="' + esc(rec.id) + '">' + esc(recNo(reg, rec) || '—') + '</button>' + (fb ? '<span class="rdot"></span>' : '') + '</div>';
-    if(k === 'title') return '<div class="gc t' + (rec.d.star ? ' key' : '') + '" data-act="openRec" data-id="' + esc(rec.id) + '"><span style="min-width:0"><span class="tt">' + esc(recTitle(reg, rec) || '—') + '</span>' + (recTitle2(reg, rec) ? '<span class="ts">' + esc(recTitle2(reg, rec)) + '</span>' : '') + '</span></div>';
+    if(k === 'title') return '<div class="gc t' + (rec.d.star ? ' key' : '') + '" data-act="openRec" data-id="' + esc(rec.id) + '"' + (rec.d.parent ? ' style="padding-left:' + (6 + depthOf(rec) * 16) + 'px"' : '') + '>' + (rec.d.parent ? '<span class="cx0">└</span>' : '') + '<span style="min-width:0"><span class="tt">' + esc(recTitle(reg, rec) || '—') + '</span>' + (recTitle2(reg, rec) ? '<span class="ts">' + esc(recTitle2(reg, rec)) + '</span>' : '') + '</span></div>';
     if(k === 'blk'){ var bf = rf(reg, 'block'); return '<div class="gc">' + (bf ? blockChips(rec.d[bf.key], bf) : '') + '</div>'; }
     if(k === 's' || k === 'f'){ var dk = k === 's' ? ro.start : ro.finish, dv = p ? md(n2d(k === 's' ? p.s : p.f)) : '';
       if(ed && dk && S.edit && S.edit.id === rec.id && S.edit.k === dk) return '<div class="gc"><input class="gdi mono" type="date" data-ie="1" data-fk="ie" value="' + esc(rec.d[dk] || '') + '"></div>';

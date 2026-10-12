@@ -87,12 +87,55 @@ function planOf(reg, rec){
 }
 function statusOpt(reg, rec){ var f = rf(reg, 'status'); return f ? optOf(f, rec.d[f.key]) : null; }
 function isDone(reg, rec){ var o = statusOpt(reg, rec); return !!(o && o.done); }
-function progressOf(reg, rec){ var f = rf(reg, 'progress'); var v = f ? num(val(rec, f)) : null; if(v == null) return isDone(reg, rec) ? 100 : (statusOpt(reg, rec) ? 0 : null); return clamp(v, 0, 100); }
+function progressOf(reg, rec, noRoll){ var f = rf(reg, 'progress'); var v = f ? num(val(rec, f)) : null; if(v == null){ if(isDone(reg, rec)) return 100; if(!noRoll){ var ru = rollup(reg, rec); if(ru) return ru.pct; } return statusOpt(reg, rec) ? 0 : null; } return clamp(v, 0, 100); }
 function asOfN(){ var a = S.asOfLocal || cfg().asOf; return d2n(a) != null ? d2n(a) : TODAY; }
 function isOverdue(reg, rec){ if(isDone(reg, rec)) return false; var p = planOf(reg, rec); return !!p && p.f < asOfN(); }
 function isMilestone(reg, rec){ var f = rf(reg, 'kind'); if(!f) return false; var o = optOf(f, rec.d[f.key]); return !!(o && o.ms); }
 function blocksOf(reg, rec){ var f = rf(reg, 'block'); return f ? asArr(rec.d[f.key]) : []; }
 function openFb(id){ return ((STORE && STORE.fb) || []).filter(function(f){ return f.item_id === id && f.status === 'open'; }).length; }
+
+/* sub-items (a record can hold child records, e.g. a drawing list under one as-built package) */
+function kidsIndex(regId){ var m = {}; recsOf(regId).forEach(function(r){ var p = r.d.parent; if(p && p !== r.id) (m[p] = m[p] || []).push(r); }); return m; }
+function childrenOf(rec){ return recsOf(rec.reg).filter(function(r){ return r.d.parent === rec.id && r.id !== rec.id; }); }
+function parentRec(rec){ return rec && rec.d.parent && rec.d.parent !== rec.id ? getRec(rec.d.parent) : null; }
+function depthOf(rec){ var d = 0, p = parentRec(rec), g = 0; while(p && g++ < 10){ d++; p = parentRec(p); } return d; }
+function descendantsOf(rec){ var out = [], idx = kidsIndex(rec.reg); (function w(id, g){ if(g > 10) return; (idx[id] || []).forEach(function(k){ out.push(k); w(k.id, g + 1); }); })(rec.id, 0); return out; }
+function rollup(reg, rec, kids){
+  kids = kids || childrenOf(rec); if(!kids.length) return null;
+  var done = kids.filter(function(k){ return isDone(reg, k); }).length, ps = kids.map(function(k){ return progressOf(reg, k); }).filter(function(x){ return x != null; });
+  var pctv = ps.length ? Math.round(ps.reduce(function(s, x){ return s + x; }, 0) / ps.length) : Math.round(done / kids.length * 100);
+  return {n:kids.length, done:done, pct:pctv};
+}
+function nextChildNo(reg, parent){
+  var k = rolesOf(reg).no; if(!k) return ''; var base = parent.d[k]; if(!base) return nextNo(reg);
+  var max = 0, re = new RegExp('^' + String(base).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '-(\\d+)$');
+  recsOf(reg.id).forEach(function(r){ var m = re.exec(r.d[k] || ''); if(m) max = Math.max(max, +m[1]); });
+  return base + '-' + String(max + 1).padStart(2, '0');
+}
+function childData(reg, parent, extra){
+  var d = {parent:parent.id}, ro = rolesOf(reg);
+  if(ro.no) d[ro.no] = nextChildNo(reg, parent);
+  [ro.tree, ro.block, 'dept', 'disc', 'contacts', 'resp', 'subcon', 'type', 'wbs', 'cat'].forEach(function(k){ if(k && parent.d[k] !== undefined && fieldOf(reg, k)) d[k] = clone(parent.d[k]); });
+  var sf = rf(reg, 'status'); if(sf && optsOf(sf)[0]) d[sf.key] = optsOf(sf)[0].v;
+  return Object.assign(d, extra || {});
+}
+function splitLine(line, reg){
+  var ro = rolesOf(reg), parts = line.split(/\t| {2,}| \| /).map(function(s){ return s.trim(); }).filter(Boolean), o = {};
+  var codeKey = fieldOf(reg, 'docNo') ? 'docNo' : null;
+  if(parts.length === 1 && codeKey){ var mm = /^([A-Za-z0-9]+[-_.\/][\w.\-\/]*\d[\w.\-\/]*)\s+(.+)$/.exec(parts[0]); if(mm) parts = [mm[1], mm[2]]; }
+  if(parts.length >= 2 && codeKey && /^[A-Za-z0-9][\w.\-\/]*$/.test(parts[0]) && /\d/.test(parts[0])){ o[codeKey] = parts.shift(); }
+  parts = [].concat.apply([], parts.map(function(p){ var mm = /^(.*?[A-Za-z0-9)\]])\s+([一-鿿].*)$/.exec(p); return mm && /[A-Za-z]{3,}/.test(mm[1]) && !/[A-Za-z]{3,}/.test(mm[2]) ? [mm[1], mm[2]] : [p]; }));
+  parts.forEach(function(p){ var zh = /[一-鿿]/.test(p) && !/[A-Za-z]{3,}/.test(p); if(zh && ro.title2 && !o[ro.title2]) o[ro.title2] = p; else if(ro.title && !o[ro.title]) o[ro.title] = p; else if(ro.title) o[ro.title] += ' / ' + p; });
+  return o;
+}
+function addChildren(reg, parent, lines){
+  var arr = [], used = {}, k = rolesOf(reg).no;
+  lines.forEach(function(line){ line = String(line || '').trim(); if(!line) return; var d = childData(reg, parent, splitLine(line, reg));
+    if(k){ while(used[d[k]] || recsOf(reg.id).some(function(r){ return r.d[k] === d[k]; })){ var m = /-(\d+)$/.exec(d[k]); d[k] = d[k].replace(/-(\d+)$/, '-' + String((m ? +m[1] : 0) + 1).padStart(2, '0')); } used[d[k]] = 1; }
+    arr.push({id:uid('r'), reg:reg.id, d:d}); });
+  if(!arr.length) return Promise.resolve(0);
+  return STORE.createRecs(arr).then(function(res){ return res.ok; });
+}
 
 /* numbering */
 function nextNo(reg){
@@ -305,6 +348,10 @@ function buildDemo(){
   add('reg_site', {regNo:'SW-022', en:'Performance ratio test', zh:'PR 性能测试', wbs:'w10', areas:['B','C','D','E'], start:dd(25), finish:dd(70), status:'not_started', progress:0, resp:['Li Na 李娜']});
   var docs = [['Formal handover notification','正式移交通知','pk1',[],'not_started',0,dd(10),dd(25)],['Commissioning completion report','调试完成报告','pk1',[],'in_progress',40,dd(-30),dd(-15)],['Punch list status / defect register','整改项状态 / 缺陷登记册','pk1',['B','C','D','E'],'in_progress',70,dd(-45),dd(-20)],['As-built single line diagram','电气竣工单线图','pk2',[],'in_progress',60,dd(-30),dd(5)],['Pile drawings','桩图','pk2',['B','C','D','E'],'completed',100,dd(-40),dd(-25)],['PV string / array layout','光伏组串','pk2',['B','C','D','E'],'in_progress',30,dd(-20),dd(12)],['Earthing & lightning protection drawings','接地与防雷','pk2',[],'not_started',0,dd(-5),dd(20)],['SCADA architecture & point list','SCADA 架构图与点表','pk2',[],'pending',0,dd(15),dd(40)],['O&M manual','运维手册','pk4',[],'not_started',0,dd(20),dd(60)],['O&M training','运维培训','pk5',[],'not_started',0,dd(40),dd(80)],['Spare parts list','备品备件清单','pk6',[],'not_started',0,dd(40),dd(80)],['Take-over package submitted','TOP 移交包提交','pk8',['B','C','D','E'],'not_started',0,dd(80),dd(80)]];
   docs.forEach(function(x, i){ add('reg_turnover', {regNo:'DOC-' + String(i + 1).padStart(3, '0'), en:x[0], zh:x[1], node:x[2], areas:x[3], status:x[4], progress:x[5], start:x[6], finish:x[7], type: i === 11 ? 'milestone' : 'deliverable', dept: i < 3 ? 'ENG' : i < 8 ? 'DES' : 'COM', disc:[i >= 3 && i < 8 ? 'ele' : 'doc'], contacts:[i % 2 ? 'Li Na 李娜' : 'Wang Lei 王磊'], ext: i < 7, star: i === 3 || i === 5, links: i === 4 ? ['r1','r2','r3','r4'] : undefined}); });
+  add('reg_turnover', {regNo:'DOC-013', en:'As-built drawing set – Electrical', zh:'电气竣工图', node:'pk2a', areas:['B','C','D','E'], status:'in_progress', start:dd(-25), finish:dd(20), type:'deliverable', dept:'DES', disc:['ele'], contacts:['Li Na 李娜'], ext:true});
+  var parentId = 'r' + n;
+  [['E-ASB-001','Single line diagram','单线图','completed'],['E-ASB-002','Inverter station layout','逆变站布置图','completed'],['E-ASB-003','Earthing & lightning protection layout','接地防雷布置图','in_progress'],['E-ASB-004','DC cable routing – Block B','B区直流电缆路由','in_progress'],['E-ASB-005','MV cable routing','中压电缆路由','not_started'],['E-ASB-006','Lighting & small power','照明及小动力','not_started']].forEach(function(x, i){
+    add('reg_turnover', {regNo:'DOC-013-' + String(i + 1).padStart(2, '0'), docNo:x[0], en:x[1], zh:x[2], parent:parentId, node:'pk2a', areas:['B','C','D','E'], status:x[3], type:'deliverable', dept:'DES', disc:['ele'], contacts:['Li Na 李娜']}); });
   var pl = [['Loose module clamps on tracker row 12','12 排支架组件压块松动','B','T12-R3','mech','A','ready'],['Missing cable tags in combiner box CB-C07','汇流箱 CB-C07 缺少电缆标牌','C','CB-C07','elec','B','open'],['Erosion at drainage culvert near gate 2','2 号门附近涵洞冲刷','D','Culvert DC-4','civil','A','wip'],['Fence gap at north boundary','北侧围栏缺口','E','Fence N-14','hse','A','open'],['Inverter INV-B03 door seal damaged','逆变器 INV-B03 柜门密封损坏','B','INV-B03','elec','C','closed'],['As-built markups not returned for Block C DC routing','C区直流路由竣工标注未返回','C','—','doc','B','open']];
   pl.forEach(function(x, i){ add('reg_punch', {regNo:'PL-' + String(i + 1).padStart(3, '0'), en:x[0], zh:x[1], areas:[x[2]], loc:x[3], cat:x[4], prio:x[5], status:x[6], raised:dd(-20 + i * 2), due:dd(-3 + i * 4), raisedBy:'Maria Santos', resp:[['Zhang Wei 张伟','Chen Jie 陈杰'][i % 2]], subcon:['sc1','sc2','sc3'][i % 3], closed: x[6] === 'closed' ? dd(-2) : undefined}); });
   add('reg_meetings', {regNo:'MOM-001', en:'Weekly coordination meeting #38', zh:'第38周协调会', date:dd(-7), time:'09:00', mtype:'weekly', loc:'Site office', chair:'Wang Lei 王磊', attendees:['Wang Lei 王磊','Li Na 李娜','Zhang Wei 张伟','Maria Santos'], status:'issued',
@@ -316,5 +363,5 @@ function buildDemo(){
   add('reg_tds', {regNo:'TDS-001', en:'Bifacial PV module 580 W', zh:'双面光伏组件 580W', cat:'module', mfr:'—', model:'—', rev:'A', status:'approved', submitted:dd(-90), approved:dd(-70)});
   add('reg_tds', {regNo:'TDS-002', en:'String inverter 320 kW', zh:'组串式逆变器 320kW', cat:'inverter', mfr:'—', model:'—', rev:'B', status:'submitted', submitted:dd(-10)});
   add('reg_tds', {regNo:'TDS-003', en:'MV cable 33 kV 1×300 mm²', zh:'33kV 中压电缆', cat:'cable', mfr:'—', model:'—', rev:'A', status:'draft'});
-  return {v2:true, cfg:Object.assign(clone(DEF_CFG), {lists:lists0, regOrder:regs.map(function(r){ return r.id; }), v2:true, asOf:asOf}), regs:regs, recs:recs, audit:[], pubs:[], fb:[]};
+  return {v2:true, v:3, cfg:Object.assign(clone(DEF_CFG), {lists:lists0, regOrder:regs.map(function(r){ return r.id; }), v2:true, asOf:asOf}), regs:regs, recs:recs, audit:[], pubs:[], fb:[]};
 }

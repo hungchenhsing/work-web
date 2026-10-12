@@ -148,6 +148,10 @@ function renderPop(){
     var lf = fieldOf(reg, p.key), rec = getRec(p.rec), have = asArr(rec && rec.d[p.key]), lq = p.q.toLowerCase(), allowed = (lf && lf.link && lf.link.length) ? lf.link : null, found = [];
     allRegs().forEach(function(rg){ if(allowed && allowed.indexOf(rg.id) < 0) return; recsOf(rg.id).forEach(function(r){ if(r.id === p.rec || found.length > 60) return; var t = (recNo(rg, r) + ' ' + recTitle(rg, r) + ' ' + (r.d[rolesOf(rg).title2] || '')).toLowerCase(); if(!lq || t.indexOf(lq) >= 0) found.push({rg:rg, r:r}); }); });
     h = '<input class="in" id="popq" data-fk="popq" placeholder="' + esc(T('Search records in any register', '搜索任意台账的记录')) + '" value="' + esc(p.q) + '" autocomplete="off"><div class="plist">' + found.map(function(x){ var on = have.indexOf(x.r.id) >= 0; return '<button type="button" class="popt' + (on ? ' on' : '') + '" data-act="popPick" data-v="' + esc(x.r.id) + '"><span class="cbx">' + (on ? '✓' : '') + '</span>' + icon(x.rg.d.icon, 13) + ' <span class="mono muted">' + esc(recNo(x.rg, x.r)) + '</span> ' + esc(recTitle(x.rg, x.r) || '—') + '</button>'; }).join('') + '</div><div class="pfoot"><span></span><button type="button" class="btn sm" data-act="popClose">' + L('Done', '完成') + '</button></div>';
+  } else if(p.kind === 'parent'){
+    var pr = getRec(p.rec), bad = {}; bad[p.rec] = 1; descendantsOf(pr).forEach(function(x){ bad[x.id] = 1; });
+    var pq = p.q.toLowerCase(), cands = sortRecs(reg, recsOf(reg.id).filter(function(r){ if(bad[r.id]) return false; var t = (recNo(reg, r) + ' ' + recTitle(reg, r) + ' ' + (r.d[rolesOf(reg).title2] || '')).toLowerCase(); return !pq || t.indexOf(pq) >= 0; })).slice(0, 80);
+    h = '<input class="in" id="popq" data-fk="popq" placeholder="' + esc(T('Search the parent item', '搜索上级项')) + '" value="' + esc(p.q) + '" autocomplete="off"><div class="plist">' + cands.map(function(r){ return '<button type="button" class="popt' + (pr.d.parent === r.id ? ' on' : '') + '" data-act="setParent" data-v="' + esc(r.id) + '" style="padding-left:' + (8 + depthOf(r) * 14) + 'px"><span class="mono muted">' + esc(recNo(reg, r)) + '</span> ' + esc(recTitle(reg, r) || '—') + '</button>'; }).join('') + '</div>';
   } else if(p.kind === 'menu'){
     h = p.html;
   }
@@ -206,10 +210,11 @@ function renderDrawer(){
   var ed = canWrite(reg), fk = focusKey(document.activeElement), ds = $('.dbody') ? $('.dbody').scrollTop : 0;
   var fl = dataFields(reg).filter(function(f){ return f.type === 'files'; }).reduce(function(n, f){ return n + asArr(rec.d[f.key]).length; }, 0);
   var lk = dataFields(reg).filter(function(f){ return f.type === 'link'; }).reduce(function(n, f){ return n + asArr(rec.d[f.key]).length; }, 0) + backlinks(rec).length;
-  var tabs = [['details','Details','详情'],['files','Files','文件', fl],['links','Links','关联', lk],['history','History','修改记录']];
+  var kids = childrenOf(rec);
+  var tabs = [['details','Details','详情'],['subs','Sub-items','子项', kids.length],['files','Files','文件', fl],['links','Links','关联', lk],['history','History','修改记录']];
   if(((STORE && STORE.fb) || []).some(function(x){ return x.item_id === rec.id; })) tabs.push(['comments','Owner comments','业主意见', openFb(rec.id)]);
   var h = '<div class="scrim" data-act="close"></div><aside class="drawer" role="dialog" aria-modal="true" aria-label="' + esc(recLabel(rec)) + '">' +
-    '<div class="dh"><div class="dhr"><span class="crumb">' + icon(reg.d.icon, 14) + ' ' + esc(regName(reg)) + (isPrivate(reg) ? ' ' + uic('lock', 12) : '') + ' · <span class="mono">' + esc(recNo(reg, rec)) + '</span></span><span class="dha">' +
+    '<div class="dh"><div class="dhr"><span class="crumb">' + icon(reg.d.icon, 14) + ' ' + esc(regName(reg)) + (isPrivate(reg) ? ' ' + uic('lock', 12) : '') + ' · ' + (parentRec(rec) ? '<button type="button" class="lnk mono" data-act="openRec" data-id="' + esc(parentRec(rec).id) + '">' + esc(recNo(reg, parentRec(rec)) || '↑') + '</button> › ' : '') + '<span class="mono">' + esc(recNo(reg, rec)) + '</span></span><span class="dha">' +
     (ed ? '<button type="button" class="ib' + (rec.d.star ? ' on' : '') + '" data-act="star" title="' + esc(T('Key item', '重点')) + '">' + uic('star', 16) + '</button>' : '') +
     (reg.d.meeting ? '<button type="button" class="ib" data-act="printMom" title="' + esc(T('Print minutes', '打印纪要')) + '">' + uic('print', 16) + '</button>' : '') +
     '<button type="button" class="ib" data-act="close" aria-label="Close">' + uic('x', 18) + '</button></span></div>' +
@@ -218,11 +223,12 @@ function renderDrawer(){
     '<div class="dtabs" role="tablist">' + tabs.map(function(t){ return '<button type="button" role="tab" data-act="dtab" data-v="' + t[0] + '" aria-selected="' + (S.dtab === t[0]) + '">' + L(t[1], t[2]) + (t[3] ? ' <span class="cnt">' + t[3] + '</span>' : '') + '</button>'; }).join('') + '</div></div><div class="dbody">';
   if(S.dtab === 'files') h += drawerFiles(reg, rec, ed);
   else if(S.dtab === 'links') h += drawerLinks(reg, rec, ed);
+  else if(S.dtab === 'subs') h += drawerSubs(reg, rec, ed, kids);
   else if(S.dtab === 'history') h += drawerHistory(reg, rec);
   else if(S.dtab === 'comments') h += drawerComments(reg, rec);
   else h += drawerForm(reg, rec, ed);
   h += '</div><div class="dfoot">' + (ed ? '<button type="button" class="btn sm" data-act="dupRec">' + uic('copy', 14) + ' ' + L('Duplicate', '复制') + '</button>' + (reg.d.ownerPublish && !isPrivate(reg) ? '<label class="chk"><input type="checkbox" data-act="extTog"' + (rec.d.ext ? ' checked' : '') + '>' + L('Show in Owner plan', '显示于业主计划') + '</label>' : '') +
-    (S.delAsk ? '<span class="dl"><button type="button" class="btn sm danger" data-act="delYes">' + L('Confirm delete', '确认删除') + '</button><button type="button" class="btn sm" data-act="delNo">' + L('Cancel', '取消') + '</button></span>' : '<button type="button" class="btn sm danger-o" data-act="delAsk">' + uic('trash', 14) + ' ' + L('Delete', '删除') + '</button>') : '<span class="note">' + L('Read only', '只读') + '</span>') + '</div></aside>';
+    (S.delAsk ? '<span class="dl"><button type="button" class="btn sm danger" data-act="delYes">' + (descendantsOf(rec).length ? L('Delete with ' + descendantsOf(rec).length + ' sub-items', '连同 ' + descendantsOf(rec).length + ' 个子项一起删除') : L('Confirm delete', '确认删除')) + '</button><button type="button" class="btn sm" data-act="delNo">' + L('Cancel', '取消') + '</button></span>' : '<button type="button" class="btn sm danger-o" data-act="delAsk">' + uic('trash', 14) + ' ' + L('Delete', '删除') + '</button>') : '<span class="note">' + L('Read only', '只读') + '</span>') + '</div></aside>';
   root.innerHTML = h; document.body.classList.add('dopen');
   var b = $('.dbody'); if(b) b.scrollTop = ds;
   restoreFocus(fk);
@@ -276,6 +282,25 @@ function linkList(reg, f, rec, ed){
   return '<div class="links">' + ls.map(function(id){ var r = getRec(id); return r ? recRow(r, ed ? '<button type="button" class="ib" data-act="unlink" data-k="' + esc(f.key) + '" data-v="' + esc(id) + '">' + uic('x', 13) + '</button>' : '') : '<div class="lrow note">' + L('A record you cannot see (private or deleted)', '无法查看的记录（私有或已删除）') + '</div>'; }).join('') + (!ls.length ? '<div class="note">' + L('None', '无') + '</div>' : '') + '</div>' +
     (ed ? '<button type="button" class="btn sm" data-act="pickLink" data-id="' + esc(rec.id) + '" data-k="' + esc(f.key) + '">' + uic('link', 13) + ' ' + L('Link a record', '关联记录') + '</button>' : '');
 }
+function drawerSubs(reg, rec, ed, kids){
+  var par = parentRec(rec), ru = rollup(reg, rec, kids), sf = rf(reg, 'status'), pf = rf(reg, 'progress');
+  var h = '<div class="fl"><span class="flab">' + L('Belongs to', '上级') + '</span><div class="row">' + (par ? recRow(par) : '<span class="note">' + L('Top level', '顶层') + '</span>') +
+    (ed ? '<button type="button" class="btn sm" data-act="pickParent" data-id="' + esc(rec.id) + '">' + (par ? L('Change…', '更改…') : L('Put under another item…', '归到其他项下…')) + '</button>' + (par ? '<button type="button" class="btn sm" data-act="setParent" data-v="">' + L('Make top level', '设为顶层') + '</button>' : '') : '') + '</div></div>';
+  h += '<h3 class="fsec">' + L('Sub-items', '子项') + (ru ? ' <span class="note">' + L(ru.done + ' of ' + ru.n + ' done · ' + ru.pct + '%', ru.n + ' 项中已完成 ' + ru.done + ' · ' + ru.pct + '%') + '</span>' : '') + '</h3>';
+  h += '<p class="note" style="margin:0 0 8px">' + L('Use sub-items for the individual drawings or documents inside one package (e.g. the sheets of an as-built set). Each sub-item has its own status, dates, files and history; the parent’s progress rolls up from them.', '子项用于一个文件包里的各张图纸或文件（如一套竣工图的每一张）。每个子项有自己的状态、日期、文件与修改记录；上级的进度由子项自动汇总。') + '</p>';
+  if(kids.length){
+    h += '<div class="card tbl-wrap" style="max-height:none"><table class="tbl subl"><thead><tr><th>' + L('No.', '编号') + '</th>' + (fieldOf(reg, 'docNo') ? '<th>' + L('Doc. No.', '文件编号') + '</th>' : '') + '<th>' + L('Title', '名称') + '</th>' + (sf ? '<th>' + L(sf.en, sf.zh) + '</th>' : '') + (pf ? '<th>%</th>' : '') + '<th></th></tr></thead><tbody>' +
+      sortRecs(reg, kids).map(function(k){ var st = statusOpt(reg, k), gk = childrenOf(k).length;
+        return '<tr><td class="mono">' + esc(recNo(reg, k)) + '</td>' + (fieldOf(reg, 'docNo') ? '<td class="mono">' + esc(k.d.docNo || '') + '</td>' : '') + '<td>' + esc(recTitle(reg, k) || '—') + (gk ? ' <span class="chip c-grey">' + gk + '</span>' : '') + '</td>' +
+          (sf ? '<td>' + (ed ? '<button type="button" class="pickbtn" style="width:auto;min-height:26px" data-act="pick" data-id="' + esc(k.id) + '" data-k="' + esc(sf.key) + '">' + (st ? optChip(st) : '<span class="muted">—</span>') + '</button>' : (st ? optChip(st) : '')) + '</td>' : '') +
+          (pf ? '<td class="mono">' + (progressOf(reg, k) != null ? progressOf(reg, k) + '%' : '') + '</td>' : '') + '<td><button type="button" class="btn sm" data-act="openRec" data-id="' + esc(k.id) + '">' + L('Open', '打开') + '</button></td></tr>'; }).join('') + '</tbody></table></div>';
+  } else h += '<div class="note">' + L('No sub-items yet.', '还没有子项。') + '</div>';
+  if(ed){
+    h += '<div class="row" style="margin-top:10px"><input class="in" id="subQuick" data-fk="subQuick" placeholder="' + esc(T('Add one: e.g. E-ASB-001 Single line diagram', '新增一项：如 E-ASB-001 单线图')) + '" style="flex:1 1 280px"><button type="button" class="btn" data-act="subQuick">' + uic('plus', 13) + ' ' + L('Add', '新增') + '</button></div>' +
+      '<details class="paste"><summary class="lnk">' + L('Paste a whole list (one per line)…', '粘贴整份清单（每行一项）…') + '</summary><textarea class="in" id="subBulk" rows="7" data-fk="subBulk" placeholder="E-ASB-001    Single line diagram 单线图&#10;E-ASB-002    Earthing layout 接地布置图&#10;…"></textarea><p class="note">' + L('Copy rows from Excel (drawing no. + title, tab-separated) or type one title per line. A drawing no. goes into Document No.; Chinese text goes into the Chinese name. Sub-items inherit the package, block and discipline.', '可直接从 Excel 复制（图号 + 名称，Tab 分隔），或每行一个名称。图号写入「文件编号」，中文写入中文名称。子项自动继承文件包、区域和专业。') + '</p><button type="button" class="btn pri" data-act="subBulk">' + L('Add all lines', '全部新增') + '</button></details>';
+  }
+  return h;
+}
 function drawerLinks(reg, rec, ed){
   var lf = dataFields(reg).filter(function(f){ return f.type === 'link'; }), bl = backlinks(rec);
   var h = lf.map(function(f){ return '<h3 class="fsec">' + L(f.en, f.zh) + '</h3>' + linkList(reg, f, rec, ed); }).join('');
@@ -291,7 +316,7 @@ function auditRowHtml(a, opts){
   if(!a.record_id){ var nmx = (a.new || a.old || {}); recName = '<b>' + esc(T1(nmx.en, nmx.zh)) + '</b>'; }
   var diff = '';
   if(a.action === 'update' && reg){
-    diff = '<div class="diff">' + (a.keys || []).map(function(k){ var f = fieldOf(reg, k) || {key:k, en:k === 'star' ? 'Key' : k === 'ext' ? 'External' : k, zh:k === 'star' ? '重点' : k === 'ext' ? '对外' : '', type: k === 'star' || k === 'ext' ? 'check' : 'text'};
+    diff = '<div class="diff">' + (a.keys || []).map(function(k){ var f = fieldOf(reg, k) || (k === 'parent' ? {key:k, en:'Belongs to', zh:'上级', type:'link'} : {key:k, en:k === 'star' ? 'Key' : k === 'ext' ? 'External' : k, zh:k === 'star' ? '重点' : k === 'ext' ? '对外' : '', type: k === 'star' || k === 'ext' ? 'check' : 'text'});
       var ov = textOf(reg, f, null, (a.old || {})[k]), nv = textOf(reg, f, null, (a.new || {})[k]);
       if(f.type === 'sub' || f.type === 'files' || f.type === 'link'){ ov = textOf(reg, f, null, (a.old || {})[k]) || '—'; nv = textOf(reg, f, null, (a.new || {})[k]) || '—'; }
       if(f.type === 'long'){ ov = String(ov).slice(0, 80); nv = String(nv).slice(0, 80); }

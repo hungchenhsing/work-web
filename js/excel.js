@@ -9,13 +9,14 @@ var IMP_SYN = {
   actualStart:['actualsubmission','实际提交日期','submissiondate','actualstart','实际开始'], progress:['progress','完成率','%'], status:['status','状态'], explanation:['explanation','解释说明'],
   remarks:['remarks','备注','comments','意见'], contacts:['contacts','对接人','contact','owner','主责人','responsible','负责人'], type:['type','类型'], ownerResult:['ownerresult','业主结果'], extNote:['externalnote','对外备注']
 };
-var SPECIAL = [['','— ignore —','— 忽略 —'],['__phase','提交阶段 → start/finish dates','提交阶段 → 开始/结束日期'],['__task','Task / Document (EN / 中 together)','任务/文件（中英合并）'],['__actual','Actual dates range (a – b)','实际日期区间（a – b）'],['__ext','External (Yes/No)','对外（是/否）'],['__star','Key ★ (Yes/No)','重点（是/否）']];
+var SPECIAL = [['','— ignore —','— 忽略 —'],['__phase','提交阶段 → start/finish dates','提交阶段 → 开始/结束日期'],['__task','Task / Document (EN / 中 together)','任务/文件（中英合并）'],['__actual','Actual dates range (a – b)','实际日期区间（a – b）'],['__ext','External (Yes/No)','对外（是/否）'],['__parent','Parent No. (makes it a sub-item)','上级编号（设为子项）'],['__star','Key ★ (Yes/No)','重点（是/否）']];
 function guessField(reg, header){
   var n = normH(header); if(!n) return '';
   if(/提交阶段|submissionphase|^phase$/.test(n)) return '__phase';
   if(/任务文件|taskdocument/.test(n)) return '__task';
   if(/^对外$|^external$|^external对外$|^对外external$/.test(n)) return '__ext';
   if(/^重点$|^key$|^key重点$|^重点key$|^★/.test(n)) return '__star';
+  if(/parent|上级|父项/.test(n)) return '__parent';
   var best = '', bl = 0;
   dataFields(reg).forEach(function(f){ [f.key, f.en, f.zh].concat(IMP_SYN[f.key] || []).forEach(function(s){ s = normH(s); if(!s) return; if((n === s || (s.length >= 2 && n.indexOf(s) >= 0)) && s.length > bl){ best = f.key; bl = s.length; } }); });
   if(/实际提交|actualsubmission/.test(n) && fieldOf(reg, 'actualStart') && fieldOf(reg, 'actualEnd')) return '__actual';
@@ -113,6 +114,7 @@ function impPlan(m, reg, apply){
       if(k === '__task'){ String(raw || '').split(/\s*\/\s*/).forEach(function(p){ p = p.trim(); if(!p) return; if(/[一-鿿]/.test(p)){ if(ro.title2 && !d[ro.title2]) d[ro.title2] = p; else if(!d[ro.title]) d[ro.title] = p; } else if(ro.title) d[ro.title] = d[ro.title] ? d[ro.title] + ' / ' + p : p; }); return; }
       if(k === '__actual'){ var a = String(raw instanceof Date ? parseDate(raw) : raw || ''), am = /(\d{4}[.\-\/]\d{1,2}[.\-\/]\d{1,2})(?:\s*[-–~至]\s*(\d{4}[.\-\/]\d{1,2}[.\-\/]\d{1,2}))?/.exec(a); if(am){ d.actualStart = parseDate(am[1]); if(am[2]) d.actualEnd = parseDate(am[2]); } return; }
       if(k === '__ext'){ var e = String(raw || '').trim(); if(e) d.ext = /^(y|yes|true|1|是|对外)/i.test(e); return; }
+      if(k === '__parent'){ var pv = String(raw == null ? '' : raw).trim(); if(pv) d.__parentNo = pv; return; }
       if(k === '__star'){ var st = String(raw || '').trim(); if(st) d.star = /^(y|yes|true|1|是|★|重点)/i.test(st); return; }
       var f = fieldOf(reg, k); if(!f) return;
       var v = impConvert(reg, f, raw, ctx); if(v !== undefined) d[k] = v;
@@ -144,6 +146,9 @@ async function impRun(){
       var sf = rf(reg, 'status'); if(sf && !d[sf.key] && optsOf(sf)[0]) d[sf.key] = optsOf(sf)[0].v;
       return {id:uid('r'), reg:reg.id, d:d};
     });
+    var noMap = {}; recsOf(reg.id).forEach(function(r){ if(ro.no && r.d[ro.no]) noMap[String(r.d[ro.no]).toUpperCase()] = r.id; }); newRecs.forEach(function(r){ if(ro.no && r.d[ro.no]) noMap[String(r.d[ro.no]).toUpperCase()] = r.id; });
+    newRecs.forEach(function(r){ if(r.d.__parentNo){ var pid = noMap[String(r.d.__parentNo).toUpperCase()]; if(pid && pid !== r.id) r.d.parent = pid; } delete r.d.__parentNo; });
+    plan.updates.forEach(function(u){ if(u.d.__parentNo){ var pid2 = noMap[String(u.d.__parentNo).toUpperCase()]; if(pid2 && pid2 !== u.rec.id) u.d.parent = pid2; } delete u.d.__parentNo; });
     m.progress = T('Adding ' + newRecs.length + ' records…', '正在新增 ' + newRecs.length + ' 条记录…'); renderModal();
     var res = newRecs.length ? await STORE.createRecs(newRecs, function(a, b){ m.progress = T('Adding records… ', '正在新增记录… ') + a + ' / ' + b; renderModal(); }) : {ok:0, failed:0};
     var uok = 0, ufail = 0;
@@ -161,7 +166,7 @@ async function impRun(){
 function regSheet(reg, list){
   var fs = dataFields(reg).filter(function(f){ return f.type !== 'section'; });
   var head = fs.map(function(f){ return f.en + (f.zh && f.zh !== f.en ? ' ' + f.zh : ''); });
-  if(reg.d.ownerPublish) head.push('External 对外'); head.push('Key 重点');
+  if(reg.d.ownerPublish) head.push('External 对外'); head.push('Key 重点'); head.push('Parent No. 上级编号');
   var rows = list.map(function(r){
     var row = fs.map(function(f){
       var v = val(r, f);
@@ -172,7 +177,7 @@ function regSheet(reg, list){
       if(f.type === 'select' && f.list === 'blocks') return asArr(v).join(', ');
       return textOf(reg, f, r);
     });
-    if(reg.d.ownerPublish) row.push(r.d.ext ? 'Yes' : 'No'); row.push(r.d.star ? 'Yes' : '');
+    if(reg.d.ownerPublish) row.push(r.d.ext ? 'Yes' : 'No'); row.push(r.d.star ? 'Yes' : ''); var pr = parentRec(r); row.push(pr ? recNo(reg, pr) : '');
     return row;
   });
   var ws = XLSX.utils.aoa_to_sheet([head].concat(rows));

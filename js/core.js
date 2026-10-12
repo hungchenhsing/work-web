@@ -69,7 +69,7 @@ var S = {
   lang: LS.get('ww.lang', 'both'),
   page: UI.page || 'home', reg: UI.reg || null,
   rv: UI.rv || {}, rf: {}, rs: UI.rs || {}, rg: UI.rg || {}, rcols: UI.rcols || {}, rmx: UI.rmx || {}, rboard: UI.rboard || {},
-  sel: {}, open: null, dtab: 'details', pop: null, modal: null,
+  sel: {}, open: null, dtab: 'details', pop: null, modal: null, rexp: {}, treeEdit: {},
   stab: UI.stab || 'project', sreg: null, sched: UI.sched || null, gz: UI.gz || 'week', gcol: {},
   act: {reg:'', who:'', type:''}, files: {reg:'', q:''}, otab: 'live', oreg: null, pubSel: null, fbFor: null,
   q: '', auth: {tab:'in'}, sideOpen: false, imp: null, asOfLocal: null
@@ -123,7 +123,7 @@ var DEF_CFG = {projectEn:'CEEC-TERRA I', projectZh:'TERRA I 光伏项目', asOf:
 var ST_DOC = [O('not_started','Not started','未开始','amber'),O('in_progress','In progress','进行中','blue'),O('submitted','Submitted','已提交','violet'),O('pending','Pending','暂缓 / 待定','red'),O('completed','Completed','已完成','green',{done:true})];
 var ST_WORK = [O('not_started','Not started','未开始','amber'),O('in_progress','In progress','进行中','blue'),O('on_hold','On hold','暂停','red'),O('completed','Completed','已完成','green',{done:true})];
 var DEF_TREE = [
-  {id:'pk1',parent:'',code:'P1',en:'Turnover Preparation',zh:'移交准备'},{id:'pk2',parent:'',code:'P2',en:'As-built Drawings & Design',zh:'竣工图及设计资料'},
+  {id:'pk1',parent:'',code:'P1',en:'Turnover Preparation',zh:'移交准备'},{id:'pk2',parent:'',code:'P2',en:'As-built Drawings & Design',zh:'竣工图及设计资料'},{id:'pk2a',parent:'pk2',code:'P2.1',en:'Electrical',zh:'电气'},{id:'pk2b',parent:'pk2',code:'P2.2',en:'Civil & structural',zh:'土建与结构'},{id:'pk2c',parent:'pk2',code:'P2.3',en:'Protection, control & communication',zh:'继保、控制与通信'},{id:'pk2d',parent:'pk2',code:'P2.4',en:'Buildings & services',zh:'建筑与水暖'},
   {id:'pk3',parent:'',code:'P3',en:'Testing, Commissioning & Performance',zh:'测试、调试与性能'},{id:'pk4',parent:'',code:'P4',en:'OEM & O&M Documents',zh:'OEM 与运维资料'},
   {id:'pk5',parent:'',code:'P5',en:'Training & Readiness',zh:'培训与运行准备'},{id:'pk6',parent:'',code:'P6',en:'Spare Parts & Tools',zh:'备件与工具'},
   {id:'pk7',parent:'',code:'P7',en:'Warranty & Commercial',zh:'质保与商务'},{id:'pk8',parent:'',code:'P8',en:'Final Handover & Close-out',zh:'最终移交与关闭'}

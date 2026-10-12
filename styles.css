@@ -463,3 +463,29 @@ table.subt{border-collapse:collapse;width:100%;font-size:13px;margin-bottom:6px}
 .sec>.btn,.sec>.row{align-self:flex-start}
 body.dopen #toast{bottom:calc(76px + env(safe-area-inset-bottom,0px))}
 .tbl td.t-tree{min-width:170px}
+
+/* sub-items & editable tree */
+.ttw{display:flex;align-items:flex-start;gap:4px}
+.ttx{min-width:0;flex:1}
+.ind{flex:none;display:inline-block}
+.cx{flex:none;width:22px;height:22px;border:1px solid var(--line);border-radius:5px;background:var(--surface);cursor:pointer;font-size:11px;color:var(--ink2);display:inline-flex;align-items:center;justify-content:center;margin-top:-1px}
+.cx:hover{border-color:var(--accent);color:var(--accent)}
+.cx0{flex:none;width:22px;text-align:center;color:var(--line);font-size:12px}
+.kc{display:inline-block;margin-top:3px;border:0;background:var(--grey-soft);color:var(--grey-ink);border-radius:9px;padding:0 8px;font-size:11px;line-height:18px;cursor:pointer}
+.kc:hover{background:var(--accent-soft);color:var(--accent-ink)}
+.pp{display:block;font-size:11px;color:var(--muted)}
+.tbl tr.kid td{background:color-mix(in srgb,var(--surface2) 55%,var(--surface))}
+.tbl tr.kadd td{background:var(--surface2);padding:3px 8px}
+.tbl tr.kadd .in{width:min(420px,70%);min-height:28px;font-size:12px}
+.tnode.te{cursor:default;align-items:center}
+.tnode.te .tlab{flex:1;min-width:0}
+.tacts{display:flex;gap:0;flex:none}
+.tacts .ib{width:24px;height:24px;font-size:13px}
+.tree.editing{width:300px}
+.tned{display:flex;flex-direction:column;gap:8px;padding:4px}
+.tned .in{width:100%}
+details.paste{margin-top:10px}
+details.paste summary{cursor:pointer;margin-bottom:6px}
+details.paste .in{width:100%;font-family:var(--f-mono);font-size:12px}
+table.subl td{vertical-align:middle}
+table.subl td.mono{white-space:nowrap}

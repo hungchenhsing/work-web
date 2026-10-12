@@ -15,7 +15,7 @@ function pick(o, keys){ var r = {}; keys.forEach(function(k){ r[k] = o && o[k] !
 function DemoStore(){
   var KEY = 'ww2.demo';
   var st = LS.get(KEY, null);
-  if(!st || !st.v2){ st = buildDemo(); LS.set(KEY, st); }
+  if(!st || !st.v2 || (st.v || 0) < 3){ st = buildDemo(); LS.set(KEY, st); }
   var blobs = {}, aid = st.audit.length ? st.audit[0].id : 0;
   function me(){ return api.me; }
   function log(row){ row.id = ++aid; row.at = new Date().toISOString(); row.actor = 'demo'; row.actor_name = 'Demo'; st.audit.unshift(row); if(st.audit.length > 1500) st.audit.length = 1500; }
