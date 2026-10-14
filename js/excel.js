@@ -77,7 +77,7 @@ function impConvert(reg, f, raw, ctx){
     case 'check': return /^(y|yes|true|1|是|✓|√|x)$/i.test(s);
     case 'tree':
       var nodes = ctx.tree(f), low = s.toLowerCase(), m = /^([A-Za-z]?\d+(?:\.\d+)*)\s*(.*)$/.exec(s);
-      var hit = nodes.filter(function(n){ return [n.code, n.en, n.zh, (n.code || '') + (n.zh || ''), (n.code || '') + ' ' + (n.en || '')].some(function(x){ return x && String(x).toLowerCase() === low; }); })[0];
+      var hit = nodes.filter(function(n){ return [n.code, n.en, n.zh, (n.code || '') + (n.zh || ''), (n.code || '') + ' ' + (n.zh || ''), (n.code || '') + ' ' + (n.en || '')].concat(n.aka || []).some(function(x){ return x && String(x).toLowerCase() === low; }); })[0];
       if(!hit && m) hit = nodes.filter(function(n){ return String(n.code || '').toLowerCase() === m[1].toLowerCase(); })[0];
       if(!hit && m && m[2]) hit = nodes.filter(function(n){ return n.zh === m[2] || n.en === m[2]; })[0];
       if(!hit){ hit = {id:uid('n'), parent:'', code: m ? m[1] : '', en: m ? (/[一-鿿]/.test(m[2]) ? '' : m[2]) : (/[一-鿿]/.test(s) ? '' : s), zh: m ? (/[一-鿿]/.test(m[2]) ? m[2] : '') : (/[一-鿿]/.test(s) ? s : '')}; if(!hit.en) hit.en = hit.zh || s; nodes.push(hit); ctx.newOpt(T1(f.en, f.zh) + ': ' + s); }

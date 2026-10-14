@@ -123,12 +123,32 @@ var DEF_CFG = {projectEn:'CEEC-TERRA I', projectZh:'TERRA I 光伏项目', asOf:
 /* ================= register templates ================= */
 var ST_DOC = [O('not_started','Not started','未开始','amber'),O('in_progress','In progress','进行中','blue'),O('submitted','Submitted','已提交','violet'),O('pending','Pending','暂缓 / 待定','red'),O('completed','Completed','已完成','green',{done:true})];
 var ST_WORK = [O('not_started','Not started','未开始','amber'),O('in_progress','In progress','进行中','blue'),O('on_hold','On hold','暂停','red'),O('completed','Completed','已完成','green',{done:true})];
+/* Turnover package tree, aligned with the contract handover requirements (handover process + submission list 1–12).
+   Ids pk1–pk8 are kept from the first version so existing records stay attached; aka = earlier labels, matched on Excel import. */
 var DEF_TREE = [
-  {id:'pk1',parent:'',code:'P1',en:'Turnover Preparation',zh:'移交准备'},{id:'pk2',parent:'',code:'P2',en:'As-built Drawings & Design',zh:'竣工图及设计资料'},{id:'pk2a',parent:'pk2',code:'P2.1',en:'Electrical',zh:'电气'},{id:'pk2b',parent:'pk2',code:'P2.2',en:'Civil & structural',zh:'土建与结构'},{id:'pk2c',parent:'pk2',code:'P2.3',en:'Protection, control & communication',zh:'继保、控制与通信'},{id:'pk2d',parent:'pk2',code:'P2.4',en:'Buildings & services',zh:'建筑与水暖'},
-  {id:'pk3',parent:'',code:'P3',en:'Testing, Commissioning & Performance',zh:'测试、调试与性能'},{id:'pk4',parent:'',code:'P4',en:'OEM & O&M Documents',zh:'OEM 与运维资料'},
-  {id:'pk5',parent:'',code:'P5',en:'Training & Readiness',zh:'培训与运行准备'},{id:'pk6',parent:'',code:'P6',en:'Spare Parts & Tools',zh:'备件与工具'},
-  {id:'pk7',parent:'',code:'P7',en:'Warranty & Commercial',zh:'质保与商务'},{id:'pk8',parent:'',code:'P8',en:'Final Handover & Close-out',zh:'最终移交与关闭'}
+  {id:'pk1',parent:'',code:'P0',en:'Handover process & milestones',zh:'移交流程与节点',aka:['P1移交准备','P1 移交准备','P1 Turnover Preparation','Turnover Preparation','移交准备']},
+  {id:'ct1',parent:'',code:'P1',en:'Contractor general documents (MDL)',zh:'承包商总体文件（主文件清单 MDL）'},
+  {id:'ct2',parent:'',code:'P2',en:'As-built records & O&M manuals',zh:'竣工记录与运维手册'},
+  {id:'pk2',parent:'ct2',code:'P2.1',en:'As-built records',zh:'竣工资料',aka:['P2竣工图及设计资料','P2 竣工图及设计资料','P2 As-built Drawings & Design','As-built Drawings & Design','竣工图及设计资料']},
+  {id:'pk2a',parent:'pk2',code:'P2.1.1',en:'Electrical',zh:'电气',aka:['P2.1电气','P2.1 电气','P2.1 Electrical']},
+  {id:'pk2b',parent:'pk2',code:'P2.1.2',en:'Civil & structural',zh:'土建与结构',aka:['P2.2土建与结构','P2.2 土建与结构','P2.2 Civil & structural']},
+  {id:'pk2c',parent:'pk2',code:'P2.1.3',en:'Protection, control & communication',zh:'继保、控制与通信',aka:['P2.3继保、控制与通信','P2.3 继保、控制与通信','P2.3 Protection, control & communication']},
+  {id:'pk2d',parent:'pk2',code:'P2.1.4',en:'Buildings & services',zh:'建筑与水暖',aka:['P2.4建筑与水暖','P2.4 建筑与水暖','P2.4 Buildings & services']},
+  {id:'pk4',parent:'ct2',code:'P2.2',en:'O&M manuals (interim & final)',zh:'运维手册（临时版与终版）',aka:['P4OEM与运维资料','P4 OEM与运维资料','P4OEM 与运维资料','P4 OEM 与运维资料','P4 OEM & O&M Documents','OEM & O&M Documents','OEM 与运维资料']},
+  {id:'pk3',parent:'',code:'P3',en:'Commissioning documents',zh:'调试类文档',aka:['P3测试、调试与性能','P3 测试、调试与性能','P3 Testing, Commissioning & Performance','Testing, Commissioning & Performance','测试、调试与性能']},
+  {id:'ct4',parent:'',code:'P4',en:'Testing & performance',zh:'测试与性能'},
+  {id:'ct5',parent:'',code:'P5',en:'Warranty & spare parts',zh:'质保与备件'},
+  {id:'pk7',parent:'ct5',code:'P5.1',en:'Warranty transfer & service agreements',zh:'质保转让与服务协议',aka:['P7质保与商务','P7 质保与商务','P7 Warranty & Commercial','Warranty & Commercial','质保与商务']},
+  {id:'pk6',parent:'ct5',code:'P5.2',en:'Initial spare parts & tools',zh:'初始备件与工具',aka:['P6备件与工具','P6 备件与工具','P6 Spare Parts & Tools','Spare Parts & Tools','备件与工具']},
+  {id:'pk5',parent:'',code:'P6',en:'Training records',zh:'培训文档',aka:['P5培训与运行准备','P5 培训与运行准备','P5 Training & Readiness','Training & Readiness','培训与运行准备']},
+  {id:'ct7',parent:'',code:'P7',en:'Equipment tagging records',zh:'现场实物标签记录'},
+  {id:'ct8',parent:'',code:'P8',en:'Permits & registrations',zh:'许可及登记文件'},
+  {id:'ct9',parent:'',code:'P9',en:'Project management, HSE & quality',zh:'项目管理、HSE 与质量体系'},
+  {id:'ct10',parent:'',code:'P10',en:'Handover checklist',zh:'移交总检文件'},
+  {id:'ct11',parent:'',code:'P11',en:'Sectional handover (if applicable)',zh:'分段移交专用（如适用）'},
+  {id:'pk8',parent:'',code:'P12',en:'Final archive submission',zh:'最终归档提交',aka:['P8最终移交与关闭','P8 最终移交与关闭','P8 Final Handover & Close-out','Final Handover & Close-out','最终移交与关闭']}
 ];
+var DEF_TREE_VER = 'contract-1';
 var WBS_TREE = [
   {id:'w1',parent:'',code:'W1',en:'Site preparation & civil',zh:'场平与土建'},{id:'w2',parent:'',code:'W2',en:'Piling',zh:'打桩'},
   {id:'w3',parent:'',code:'W3',en:'Tracker / structure installation',zh:'跟踪支架安装'},{id:'w4',parent:'',code:'W4',en:'Module installation',zh:'组件安装'},
@@ -146,7 +166,7 @@ var TEMPLATES = {
 
   turnover: {en:'Turnover documents', zh:'移交文件台账', icon:'doc', sec:'docs', prefix:'DOC', ownerPublish:true, fields:[
     F('regNo','No.','序号','text',{w:84}),F('docNo','Document No.','文件编号','text'),F('rev','Rev.','版本','text',{w:56, hide:true}),
-    F('node','Package','文件包','tree',{tree:DEF_TREE}),F('dept','Department','部门','select',{list:'dept'}),
+    F('node','Package','文件包','tree',{tree:DEF_TREE, treeVer:DEF_TREE_VER}),F('dept','Department','部门','select',{list:'dept'}),
     F('en','Document title','文件名称（英文）','text',{w:260, ext:true}),F('zh','Name (中文)','文件名称','text',{hide:true}),
     F('disc','Discipline','专业','select',{list:'disc', multi:true}),F('areas','Block','区域','select',{list:'blocks', multi:true}),
     F('type','Type','类型','select',{opts:[O('deliverable','Deliverable','交付项','blue'),O('activity','Activity','活动','teal'),O('task','Task','任务','grey'),O('milestone','Milestone','里程碑','violet',{ms:true})], hide:true}),

@@ -17,6 +17,7 @@ function renderAll(){
   var fk = focusKey(document.activeElement);
   document.documentElement.lang = S.lang === 'zh' ? 'zh-CN' : 'en';
   renderTop();
+  if(typeof pkgUpgrade === 'function') setTimeout(pkgUpgrade, 0);
   if(STORE.mode === 'cloud' && (!STORE.ready || !STORE.session || !STORE.me || role() === 'pending' || role() === 'none' || S.recovery)){ $('#side').innerHTML = ''; document.body.classList.add('gate'); renderGate(); renderDrawer(); renderPop(); renderModal(); return; }
   document.body.classList.remove('gate');
   if(role() === 'owner'){ $('#side').innerHTML = ''; document.body.classList.add('gate'); $('#main').innerHTML = viewOwnerPortal(); fitSlides(); renderDrawer(); renderPop(); renderModal(); return; }
@@ -83,6 +84,7 @@ function renderMain0(){
   else if(STORE.needSchema) banner = '<div class="banner" style="background:var(--warn-soft);color:var(--warn)">' + L('The database needs the updated structure. In Supabase open SQL Editor → New query, paste the new supabase/schema.sql, click Run, then reload this page.', '数据库需要更新结构：在 Supabase 打开 SQL Editor → New query，粘贴新的 supabase/schema.sql，点 Run，然后刷新本页。') + '</div>';
   else if(STORE.v1 && role() === 'admin') banner = '<div class="banner">' + L('One-time setup: create the registers (turnover, site works, punch list, meetings, TDS) and move existing turnover data into the new structure.', '一次性设置：建立台账（移交、现场施工、尾项、会议、TDS），并把现有移交数据迁移到新结构。') + ' <button type="button" class="btn pri sm" data-act="setup">' + L('Set up now', '立即设置') + '</button></div>';
   else if(STORE.v1) banner = '<div class="banner">' + L('The project admin needs to sign in once to finish setting up the registers.', '需要项目管理员登录一次完成台账设置。') + '</div>';
+  if(!STORE.needSchema && !STORE.v1 && typeof pkgBanner === 'function' && S.page !== 'decks') banner += pkgBanner();
   if(h.indexOf('data-rg=') < 0 || !regionPatch(m, banner + h)){ RG = {}; m.innerHTML = banner + h; }
   $$('.dke-film .dk-t').forEach(function(t){ t.classList.toggle('on', t.dataset.v === S.dslide); });
   document.body.classList.toggle('dkfull', S.page === 'decks' && !!m.querySelector('.dke'));
