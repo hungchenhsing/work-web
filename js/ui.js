@@ -171,7 +171,7 @@ function cellHtml(reg, f, rec, opts){
     case 'sub': var rows = asArr(v); if(!rows.length) return '<span class="muted">—</span>'; var open = f.key === 'actions' ? rows.filter(function(x){ return !x.done; }).length : null; return '<span class="mono muted">' + rows.length + (open != null ? ' · ' + open + ' ' + T('open', '未完成') : '') + '</span>';
     case 'url': return v ? '<a href="' + esc(/^https?:/i.test(v) ? v : 'https://' + v) + '" target="_blank" rel="noopener">' + uic('link', 13) + ' ' + esc(String(v).replace(/^https?:\/\//, '').slice(0, 28)) + '</a>' : '<span class="muted">—</span>';
     case 'long': return v ? '<span class="clamp">' + esc(v) + '</span>' : '<span class="muted">—</span>';
-    default: return isEmpty(v) ? '<span class="muted">—</span>' : esc(v);
+    default: return isEmpty(v) ? '<span class="muted">—</span>' : '<span class="clamp">' + esc(v) + '</span>';
   }
 }
 function canInline(f){ return ['text','number','percent','date','url','long'].indexOf(f.type) >= 0; }
