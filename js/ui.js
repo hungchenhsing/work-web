@@ -85,6 +85,7 @@ function renderMain0(){
   else if(STORE.v1 && role() === 'admin') banner = '<div class="banner">' + L('One-time setup: create the registers (turnover, site works, punch list, meetings, TDS) and move existing turnover data into the new structure.', '一次性设置：建立台账（移交、现场施工、尾项、会议、TDS），并把现有移交数据迁移到新结构。') + ' <button type="button" class="btn pri sm" data-act="setup">' + L('Set up now', '立即设置') + '</button></div>';
   else if(STORE.v1) banner = '<div class="banner">' + L('The project admin needs to sign in once to finish setting up the registers.', '需要项目管理员登录一次完成台账设置。') + '</div>';
   if(!STORE.needSchema && !STORE.v1 && typeof pkgBanner === 'function' && S.page !== 'decks') banner += pkgBanner();
+  if(S.newVer) banner = '<div class="banner" style="background:var(--warn-soft);color:var(--warn)">' + L('A newer version of this site is available (' + S.newVer + ').', '网站有新版本（' + S.newVer + '）。') + ' <button type="button" class="btn pri sm" data-act="appReload">' + L('Load it now', '立即载入') + '</button></div>' + banner;
   if(h.indexOf('data-rg=') < 0 || !regionPatch(m, banner + h)){ RG = {}; m.innerHTML = banner + h; }
   $$('.dke-film .dk-t').forEach(function(t){ t.classList.toggle('on', t.dataset.v === S.dslide); });
   document.body.classList.toggle('dkfull', S.page === 'decks' && !!m.querySelector('.dke'));
@@ -164,13 +165,33 @@ function vwRender(st, c){
   st.top = c.scrollTop; st.vh = c.clientHeight || st.vh; st.range = vwRange(st, st.top - st.head, st.vh);
   b.innerHTML = vwInner(st); vwSync(st, c, b, anchor); if(fk) restoreFocus(fk);
 }
-function vwAfterRender(){ Object.keys(VW).forEach(function(k){ var b = vwBody(k), c = b && b.closest('[data-vw]'); if(!c){ delete VW[k]; return; } vwSync(VW[k], c, b, null); }); }
+function vwAfterRender(){
+  Object.keys(VW).forEach(function(k){ var b = vwBody(k), c = b && b.closest('[data-vw]'); if(!c){ delete VW[k]; return; } vwSync(VW[k], c, b, null); vwWatch(VW[k], c, b); });
+  /* once more after the browser has laid out images and fonts */
+  requestAnimationFrame(function(){ Object.keys(VW).forEach(function(k){ var st = VW[k], b = vwBody(k), c = b && b.closest('[data-vw]'); if(c && !vwCovered(st, c, b)) vwRender(st, c); }); });
+}
+/* is the view filled? checked on the page itself (row positions on screen), not on the remembered heights */
+function vwCovered(st, c, b){
+  var kids = vwKids(b); if(!kids.length) return st.rows.length === 0;
+  var cr = c.getBoundingClientRect(), head = st.head - 0, top = cr.top + Math.max(0, Math.min(head, 80)), bot = cr.top + c.clientHeight, r = st.range, n = st.rows.length;
+  var f = kids[0].getBoundingClientRect(), l = kids[kids.length - 1].getBoundingClientRect();
+  return (r[0] === 0 || f.top <= top + 1) && (r[1] >= n || l.bottom >= bot - 1);
+}
+/* rows change height after they were measured (window width, sidebar, fonts, images): measure again and keep the view filled */
+var VW_RO = typeof ResizeObserver === 'function' ? new ResizeObserver(function(es){
+  es.forEach(function(e){ var b = e.target, key = b.getAttribute('data-vwb'), st = key && VW[key], c = b.closest('[data-vw]'); if(!st || !c) return;
+    var w = Math.round(e.contentRect.width); if(st.ow === w) return; st.ow = w;   // width changed: row heights may have changed
+    if(st.roT) cancelAnimationFrame(st.roT); st.roT = requestAnimationFrame(function(){ st.roT = 0; st.hs = []; st.sum = 0; st.cnt = 0; vwSync(st, c, b, vwAnchor(st, c, b)); }); });
+}) : null;
+function vwWatch(st, c, b){ if(VW_RO && b && !b.__vwro){ b.__vwro = 1; VW_RO.observe(b); } }
+if(document.fonts && document.fonts.ready) document.fonts.ready.then(function(){ Object.keys(VW).forEach(function(k){ var st = VW[k], b = vwBody(k), c = b && b.closest('[data-vw]'); if(c){ st.hs = []; st.sum = 0; st.cnt = 0; vwSync(st, c, b, vwAnchor(st, c, b)); } }); });
+document.addEventListener('load', function(ev){ var t = ev.target; if(!t || t.tagName !== 'IMG') return; var b = t.closest && t.closest('[data-vwb]'), c = b && b.closest('[data-vw]'), st = b && VW[b.getAttribute('data-vwb')]; if(st && c && !vwCovered(st, c, b)) vwRender(st, c); }, true);
 /* while scrolling: redraw as soon as the drawn rows no longer reach a margin past the view (in the same frame, before paint) */
 document.addEventListener('scroll', function(ev){
   var c = ev.target; if(!c || !c.getAttribute) return; var key = c.getAttribute('data-vw'); if(!key || !VW[key]) return;
   var st = VW[key], o = st.off || vwOff(st), r = st.range, n = st.rows.length, vh = c.clientHeight || st.vh, y = c.scrollTop - st.head, m = Math.min(300, vh / 2);
   st.top = c.scrollTop;
-  if((r[0] === 0 || o[r[0]] <= y - m) && (r[1] === n || o[r[1]] >= y + vh + m)) return;
+  if((r[0] === 0 || o[r[0]] <= y - m) && (r[1] === n || o[r[1]] >= y + vh + m)){ var b = vwBody(key); if(!b || vwCovered(st, c, b)) return; }
   vwRender(st, c);
 }, true);
 /* table column widths for long (windowed) tables, so columns don't jump while scrolling */
@@ -476,3 +497,17 @@ function renderGate(){
   else body = '<label class="fl">' + L('Email', '邮箱') + '<input class="in" type="email" id="aEmail" required autocomplete="email"></label><label class="fl">' + L('Password', '密码') + '<input class="in" type="password" id="aPw" required autocomplete="current-password"></label><button class="btn pri" type="submit"' + (a.busy ? ' disabled' : '') + '>' + L('Sign in', '登录') + '</button>';
   v.innerHTML = '<div class="card auth"><h1 class="vtitle">' + esc(c.projectEn) + '</h1><p class="muted" style="margin:0">work-web · ' + L('Site & document registers', '现场与资料台账') + '</p>' + tabs + '<form id="fAuth" class="fg1">' + body + '</form>' + (a.err ? '<p class="err" role="alert">' + esc(a.err) + '</p>' : '') + (a.msg ? '<p class="okm" role="status">' + esc(a.msg) + '</p>' : '') + '</div>';
 }
+
+/* ---------------- new version check ----------------
+   The site's pages can stay cached in the browser for a while after an update. version.json is read without the
+   cache; when it names a newer version than the running page, a banner offers to load it (a new URL skips the cache). */
+function appVer(){ var m = document.querySelector('meta[name="app-ver"]'); return m ? m.content : ''; }
+function checkVersion(){
+  if(!window.fetch || location.protocol === 'file:') return;
+  fetch('version.json?t=' + Date.now(), {cache:'no-store'}).then(function(r){ return r.ok ? r.json() : null; }).then(function(j){
+    if(j && /^[\w.-]{1,20}$/.test(j.v || '') && appVer() && j.v !== appVer() && S.newVer !== j.v){ S.newVer = j.v; if(typeof renderAll === 'function') renderAll(); }
+  }).catch(function(){});
+}
+setTimeout(checkVersion, 4000); setInterval(checkVersion, 10 * 60 * 1000);
+window.addEventListener('focus', function(){ if(!S.verAt || Date.now() - S.verAt > 60000){ S.verAt = Date.now(); checkVersion(); } });
+document.addEventListener('click', function(e){ var el = e.target.closest && e.target.closest('[data-act="appReload"]'); if(!el) return; location.replace(location.pathname + '?v=' + encodeURIComponent(S.newVer || Date.now()) + location.hash); });
