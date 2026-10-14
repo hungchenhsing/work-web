@@ -82,6 +82,7 @@ function renderMain0(){
   else if(STORE.v1 && role() === 'admin') banner = '<div class="banner">' + L('One-time setup: create the registers (turnover, site works, punch list, meetings, TDS) and move existing turnover data into the new structure.', '一次性设置：建立台账（移交、现场施工、尾项、会议、TDS），并把现有移交数据迁移到新结构。') + ' <button type="button" class="btn pri sm" data-act="setup">' + L('Set up now', '立即设置') + '</button></div>';
   else if(STORE.v1) banner = '<div class="banner">' + L('The project admin needs to sign in once to finish setting up the registers.', '需要项目管理员登录一次完成台账设置。') + '</div>';
   m.innerHTML = banner + h;
+  document.body.classList.toggle('dkfull', S.page === 'decks' && !!m.querySelector('.dke'));
   m.scrollTop = sx;
   var same = S.lastPk === pk; S.lastPk = pk;
   if(same && tsc){ var t2 = $('.tbl-wrap'); if(t2){ t2.scrollLeft = tsc[0]; t2.scrollTop = tsc[1]; } }
@@ -361,6 +362,7 @@ function renderModal(){
   root.innerHTML = '<div class="scrim" data-act="mclose"></div><div class="modal card' + (body.wide ? ' wide' : '') + '" role="dialog" aria-modal="true" aria-label="' + esc(body.title) + '"><div class="mhead"><h2>' + body.title + '</h2><button type="button" class="ib" data-act="mclose" aria-label="Close">' + uic('x', 18) + '</button></div><div class="mbody">' + body.html + '</div>' + (body.foot ? '<div class="mfoot">' + body.foot + '</div>' : '') + '</div>';
   var nb = $('.mbody'); if(nb) nb.scrollTop = sy;
   restoreFocus(fk);
+  if(root.querySelector('.dk-fit') && typeof fitSlides === 'function') fitSlides();
 }
 
 /* ---------------- sign-in gate ---------------- */

@@ -31,7 +31,10 @@ function edTitle(o){ o = o || {}; var en = o.en || '', zh = o.zh || '';
   if(S.lang === 'zh') return '<span data-ed="title.zh">' + esc(zh || en) + '</span>';
   if(S.lang === 'en' || !zh || zh === en) return '<span data-ed="title.en">' + esc(en || zh) + '</span>';
   return '<span data-ed="title.en">' + esc(en) + '</span><span class="sl-zh" data-ed="title.zh">' + esc(zh) + '</span>'; }
-function room(s, n, mc, sc){ var c = (s && s.cfg) || {}; return Math.max(3, n - (c.msg ? (mc == null ? 1 : mc) : 0) - (c.side ? (sc == null ? 3 : sc) : 0)); }
+/* DK_STYLE: the style of the deck being built. In the drawing-sheet style the key message sits under the title (not in the body). */
+var DK_STYLE = 'sheet';
+function msgIn(s){ return DK_STYLE === 'classic' && !!(s && s.cfg && s.cfg.msg); }
+function room(s, n, mc, sc){ var c = (s && s.cfg) || {}; return Math.max(3, n - (msgIn(s) ? (mc == null ? 1 : mc) : 0) - (c.side ? (sc == null ? 3 : sc) : 0)); }
 function bulletsHtml(t){ var lines = String(t || '').split(/\n/).filter(function(x){ return x.trim(); }); return lines.length ? '<ul>' + lines.map(function(l){ var sb = /^\s{2,}|^\t|^-\s/.test(l); return '<li' + (sb ? ' class="sub"' : '') + '>' + esc(l.replace(/^[\s\-•*]+/, '')) + '</li>'; }).join('') + '</ul>' : ''; }
 function bil1(o){ return o ? esc(S.lang === 'zh' ? (o.zh || o.en || '') : (o.en || o.zh || '')) : ''; }
 function recPair(reg, r){ var ro = rolesOf(reg); return {en:(ro.title && r.d[ro.title]) || '', zh:(ro.title2 && r.d[ro.title2]) || ''}; }
@@ -160,15 +163,29 @@ var SLIDE_DATA = {
 /* ---------------- render (data → page bodies) ---------------- */
 function slBar(p){ p = p == null ? 0 : clamp(Math.round(p), 0, 100); return '<span class="sl-bar"><i style="width:' + p + '%"></i></span>'; }
 function slBlk(arr){ arr = arr || []; if(!arr.length) return '<span class="sl-blk">' + (S.lang === 'zh' ? '全场' : 'Site') + '</span>'; if(arr.length > 2) return '<span class="sl-blk">' + esc(arr.join('·')) + '</span>'; return arr.map(function(b){ return '<span class="sl-blk">' + esc(b) + '</span>'; }).join(''); }
-function slChip(s){ return s ? '<span class="sl-chip c-' + esc(s.color || 'grey') + '">' + bil1(s) + '</span>' : ''; }
-function slHeat(v){ if(v == null) return ''; return 'background:color-mix(in srgb,#2E9E6A ' + Math.round(6 + v * 0.55) + '%,#fff)'; }
+function slChip(s){ return s ? '<span class="sl-chip c-' + esc(s.color || 'grey') + '"><i></i>' + bil1(s) + '</span>' : ''; }
+function slSt(color, txt){ return '<span class="sl-chip c-' + esc(color || 'grey') + '"><i></i>' + esc(txt) + '</span>'; }
+function slHeat(v){ if(v == null) return ''; var t = (6 + clamp(+v || 0, 0, 100) * 0.55) / 100; return 'background:rgb(' + [46, 158, 106].map(function(c){ return Math.round(255 + (c - 255) * t); }).join(',') + ')'; }
 function chunk(arr, n){ var out = []; for(var i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n)); return out.length ? out : [[]]; }
 function fmtD(n){ var d = new Date(n * 864e5); return pad(d.getUTCDate()) + ' ' + MON[d.getUTCMonth()]; }
 function slEmpty(en, zh){ return '<div class="sl-empty">' + esc(S.lang === 'zh' ? zh : en) + '</div>'; }
 var SLIDE_RENDER = {
-  cover:function(d){ return ['<div class="sl-cv-l"><i class="sl-cv-bar"></i><div class="sl-cv-proj">' + esc(d.project.en) + (d.project.zh && S.lang !== 'en' ? '<span>' + esc(d.project.zh) + '</span>' : '') + '</div><h1 data-ed="' + (S.lang === 'zh' ? 'deck.titleZh' : 'deck.title') + '">' + (S.lang === 'zh' ? esc(d.title.zh || d.title.en) : esc(d.title.en || d.title.zh)) + '</h1>' + (S.lang === 'both' && d.title.zh && d.title.en ? '<h2 data-ed="deck.titleZh">' + esc(d.title.zh) + '</h2>' : '') + '<p class="sl-cv-sub" data-ed="cfg.sub" data-ph="' + esc(T('Subtitle', '副标题')) + '">' + esc(d.sub || '') + '</p></div>' +
-    '<div class="sl-cv-meta"><div><b>' + T('Date', '日期') + '</b>' + esc(d.date ? (S.lang === 'zh' ? +d.date.slice(0, 4) + '年' + (+d.date.slice(5, 7)) + '月' + (+d.date.slice(8, 10)) + '日' : fmtD(d2n(d.date)) + ' ' + d.date.slice(0, 4)) : '') + (d.meeting && d.meeting.time ? ' · ' + esc(d.meeting.time) : '') + '</div>' + (d.meeting && d.meeting.loc ? '<div><b>' + T('Venue', '地点') + '</b>' + esc(d.meeting.loc) + '</div>' : '') + (d.presenter ? '<div><b>' + T('Presented by', '汇报人') + '</b><span data-ed="cfg.presenter">' + esc(d.presenter) + '</span></div>' : '') + (d.meeting ? '<div><b>' + T('Meeting', '会议') + '</b>' + esc(d.meeting.no) + '</div>' : '') + '</div>']; },
-  section:function(d, s){ return ['<div class="sl-sec"><h1>' + edTitle(s.title) + '</h1><p data-ed="cfg.sub" data-ph="' + esc(T('Subtitle', '副标题')) + '">' + esc(d.sub || '') + '</p></div>']; },
+  cover:function(d){
+    var zh = S.lang === 'zh', ttl = zh ? (d.title.zh || d.title.en) : (d.title.en || d.title.zh), dt = d.date ? (zh ? +d.date.slice(0, 4) + '年' + (+d.date.slice(5, 7)) + '月' + (+d.date.slice(8, 10)) + '日' : fmtD(d2n(d.date)) + ' ' + d.date.slice(0, 4)) : '';
+    if(DK_STYLE === 'sheet'){
+      var cells = [[T('Date', '日期'), dt + (d.meeting && d.meeting.time ? ' · ' + d.meeting.time : '')]];
+      if(d.meeting && d.meeting.loc) cells.push([T('Venue', '地点'), d.meeting.loc]);
+      if(d.presenter) cells.push([T('Presented by', '汇报人'), d.presenter, 'cfg.presenter']);
+      if(d.meeting) cells.push([T('Meeting', '会议'), d.meeting.no]);
+      return ['<i class="sl-cvb"></i><div class="sl-cv3"><div class="sl-cv3-proj">' + esc(d.project.en) + (d.project.zh && S.lang !== 'en' ? '<span>' + esc(d.project.zh) + '</span>' : '') + '</div>' +
+        '<h1 data-ed="' + (zh ? 'deck.titleZh' : 'deck.title') + '">' + esc(ttl) + '</h1>' + (S.lang === 'both' && d.title.zh && d.title.en ? '<h2 data-ed="deck.titleZh">' + esc(d.title.zh) + '</h2>' : '') +
+        '<i class="sl-cv3-rule"></i><p class="sl-cv-sub" data-ed="cfg.sub" data-ph="' + esc(T('Subtitle', '副标题')) + '">' + esc(d.sub || '') + '</p></div>' +
+        '<div class="sl-tb sl-tbcv">' + cells.map(function(c){ return '<div><small>' + esc(c[0]) + '</small><b' + (c[2] ? ' data-ed="' + c[2] + '"' : '') + '>' + esc(c[1]) + '</b></div>'; }).join('') + '</div>']; }
+    return ['<div class="sl-cv-l"><i class="sl-cv-bar"></i><div class="sl-cv-proj">' + esc(d.project.en) + (d.project.zh && S.lang !== 'en' ? '<span>' + esc(d.project.zh) + '</span>' : '') + '</div><h1 data-ed="' + (zh ? 'deck.titleZh' : 'deck.title') + '">' + esc(ttl) + '</h1>' + (S.lang === 'both' && d.title.zh && d.title.en ? '<h2 data-ed="deck.titleZh">' + esc(d.title.zh) + '</h2>' : '') + '<p class="sl-cv-sub" data-ed="cfg.sub" data-ph="' + esc(T('Subtitle', '副标题')) + '">' + esc(d.sub || '') + '</p></div>' +
+    '<div class="sl-cv-meta"><div><b>' + T('Date', '日期') + '</b>' + esc(dt) + (d.meeting && d.meeting.time ? ' · ' + esc(d.meeting.time) : '') + '</div>' + (d.meeting && d.meeting.loc ? '<div><b>' + T('Venue', '地点') + '</b>' + esc(d.meeting.loc) + '</div>' : '') + (d.presenter ? '<div><b>' + T('Presented by', '汇报人') + '</b><span data-ed="cfg.presenter">' + esc(d.presenter) + '</span></div>' : '') + (d.meeting ? '<div><b>' + T('Meeting', '会议') + '</b>' + esc(d.meeting.no) + '</div>' : '') + '</div>']; },
+  section:function(d, s, box){
+    if(DK_STYLE === 'sheet') return ['<div class="sl-sec3"><b class="sl-secn">' + (box && box.secNo ? pad(box.secNo) : '') + '</b><div class="sl-sec3t"><h1>' + edTitle(s.title) + '</h1><p data-ed="cfg.sub" data-ph="' + esc(T('Subtitle', '副标题')) + '">' + esc(d.sub || '') + '</p></div></div>'];
+    return ['<div class="sl-sec"><h1>' + edTitle(s.title) + '</h1><p data-ed="cfg.sub" data-ph="' + esc(T('Subtitle', '副标题')) + '">' + esc(d.sub || '') + '</p></div>']; },
   kpi:function(d, s){
     if(!d.items.length) return [slEmpty('Choose registers for this slide.', '请为此页选择台账。')];
     var tiles = [[T('Overall progress', '总体进度'), d.pct == null ? '—' : d.pct + '%', d.pct, ''], [T('Items completed', '已完成'), d.done + ' / ' + d.tot, null, ''], [T('Overdue', '逾期'), String(d.od), null, d.od ? 'bad' : ''], [T('Due in next 14 days', '未来 14 天到期'), String(d.due), null, '']];
@@ -210,7 +227,7 @@ var SLIDE_RENDER = {
     if(d.err) return [slEmpty('Choose the punch-list register.', '请选择尾项台账。')];
     var tiles = '<div class="sl-tiles s3"><div class="sl-tile' + (d.open ? ' bad' : '') + '"><span>' + T('Open items', '未关闭') + '</span><b>' + d.open + '</b><small>' + T('of ' + d.total + ' raised', '共 ' + d.total + ' 项') + '</small></div><div class="sl-tile' + (d.od ? ' bad' : '') + '"><span>' + T('Past due date', '超期未关闭') + '</span><b>' + d.od + '</b></div>' + (d.closedWk != null ? '<div class="sl-tile good"><span>' + T('Closed in last 7 days', '近 7 天关闭') + '</span><b>' + d.closedWk + '</b></div>' : '') + '</div>';
     var grid = d.prios.length && d.blocks.length ? '<table class="sl-t sl-pg"><thead><tr><th>' + T('Priority', '优先级') + '</th>' + d.blocks.map(function(b){ return '<th><span class="sl-blk c-' + esc(b.color) + '">' + esc(b.v) + '</span></th>'; }).join('') + '<th>' + T('Total', '合计') + '</th></tr></thead><tbody>' + d.prios.map(function(p, i){ var row = d.grid[i] || [], tot = row.reduce(function(s, x){ return s + x; }, 0); return '<tr><th>' + slChip(p) + '</th>' + row.map(function(n){ return '<td class="n' + (n ? ' hit' : '') + '">' + (n || '·') + '</td>'; }).join('') + '<td class="n"><b>' + tot + '</b></td></tr>'; }).join('') + '</tbody></table>' : '';
-    var topRows = d.top.slice(0, room(s, 7)), top = topRows.length ? '<table class="sl-t sl-pt"><thead><tr><th></th><th>' + T('Item', '问题') + '</th><th>' + T('Location', '位置') + '</th><th>' + T('Due', '期限') + '</th></tr></thead><tbody>' + topRows.map(function(r){ return '<tr data-hk="r:' + esc(r.id) + '" data-hl="' + esc(r.no) + '"' + (r.od ? ' class="sl-od"' : '') + '><td>' + (r.prio ? '<span class="sl-chip c-' + esc(r.prio.color) + '">' + esc(r.prio.v) + '</span>' : '') + '</td><td><span class="n">' + esc(r.no) + '</span> ' + bil1(r.t) + '</td><td>' + slBlk(r.b) + ' ' + esc(r.loc) + '</td><td class="n">' + esc(r.due ? fmtD(d2n(r.due)) : '') + '</td></tr>'; }).join('') + '</tbody></table>' : '';
+    var topRows = d.top.slice(0, room(s, 7)), top = topRows.length ? '<table class="sl-t sl-pt"><thead><tr><th></th><th>' + T('Item', '问题') + '</th><th>' + T('Location', '位置') + '</th><th>' + T('Due', '期限') + '</th></tr></thead><tbody>' + topRows.map(function(r){ return '<tr data-hk="r:' + esc(r.id) + '" data-hl="' + esc(r.no) + '"' + (r.od ? ' class="sl-od"' : '') + '><td>' + (r.prio ? slSt(r.prio.color, r.prio.v) : '') + '</td><td><span class="n">' + esc(r.no) + '</span> ' + bil1(r.t) + '</td><td>' + slBlk(r.b) + ' ' + esc(r.loc) + '</td><td class="n">' + esc(r.due ? fmtD(d2n(r.due)) : '') + '</td></tr>'; }).join('') + '</tbody></table>' : '';
     return [tiles + '<div class="sl-2c"><div>' + grid + '</div><div>' + top + '</div></div>'];
   },
   photos:function(d){
@@ -223,7 +240,7 @@ var SLIDE_RENDER = {
     if(!d.meeting) return [slEmpty('No meeting with action items before this date.', '此日期前没有带待办事项的会议。')];
     var head = '<p class="sl-sub">' + T('From ', '来自 ') + esc(d.meeting.no) + ' · ' + bil1(d.meeting.t) + ' · ' + esc(d.meeting.date) + '</p>';
     if(!d.rows.length) return [head + slEmpty('No open action items.', '没有未完成的待办事项。')];
-    return chunk(d.rows, room(s, 11)).map(function(part){ return head + '<table class="sl-t"><thead><tr><th style="width:40px">#</th><th>' + T('Action', '事项') + '</th><th style="width:220px">' + T('Owner', '负责人') + '</th><th style="width:130px">' + T('Due', '期限') + '</th><th style="width:110px">' + T('Status', '状态') + '</th></tr></thead><tbody>' + part.map(function(r, i){ return '<tr data-hk="a:' + esc(r.id || '') + '" data-hl="' + esc(String(r.a).slice(0, 40)) + '"' + (r.od ? ' class="sl-od"' : '') + '><td class="n">' + (d.rows.indexOf(r) + 1) + '</td><td>' + esc(r.a) + '</td><td>' + esc(r.who) + '</td><td class="n">' + esc(r.due) + '</td><td>' + (r.done ? '<span class="sl-chip c-green">' + T('Done', '完成') + '</span>' : r.od ? '<span class="sl-chip c-red">' + T('Overdue', '逾期') + '</span>' : '<span class="sl-chip c-blue">' + T('Open', '进行中') + '</span>') + '</td></tr>'; }).join('') + '</tbody></table>'; });
+    return chunk(d.rows, room(s, 11)).map(function(part){ return head + '<table class="sl-t"><thead><tr><th style="width:40px">#</th><th>' + T('Action', '事项') + '</th><th style="width:220px">' + T('Owner', '负责人') + '</th><th style="width:130px">' + T('Due', '期限') + '</th><th style="width:110px">' + T('Status', '状态') + '</th></tr></thead><tbody>' + part.map(function(r, i){ return '<tr data-hk="a:' + esc(r.id || '') + '" data-hl="' + esc(String(r.a).slice(0, 40)) + '"' + (r.od ? ' class="sl-od"' : '') + '><td class="n">' + (d.rows.indexOf(r) + 1) + '</td><td>' + esc(r.a) + '</td><td>' + esc(r.who) + '</td><td class="n">' + esc(r.due) + '</td><td>' + (r.done ? slSt('green', T('Done', '完成')) : r.od ? slSt('red', T('Overdue', '逾期')) : slSt('blue', T('Open', '进行中'))) + '</td></tr>'; }).join('') + '</tbody></table>'; });
   },
   text:function(d){
     return ['<div class="sl-txt' + (d.body2 ? ' two' : '') + '"><div data-ed="cfg.body" data-raw="1" data-ph="' + esc(T('Click to type the points — one per line', '点击输入要点，每行一条')) + '">' + bulletsHtml(d.body) + '</div>' + (d.body2 ? '<div data-ed="cfg.body2" data-raw="1">' + bulletsHtml(d.body2) + '</div>' : '') + '</div>'];
@@ -232,101 +249,201 @@ var SLIDE_RENDER = {
 
 /* ---------------- deck → pages ---------------- */
 function slideData(deck, s, ctx){ var snap = deck.d.status === 'issued' && deck.d.snap && deck.d.snap[s.id]; if(snap) return snap; try{ return SLIDE_DATA[s.type](s.cfg || {}, ctx); }catch(e){ console.error(e); return {err:'x'}; } }
+/* a data block placed on a slide like any other element: its data is keyed slideId#elementId (frozen on issue, carried to the Owner) */
+function elKey(s, e){ return s.id + '#' + e.id; }
+function elData(deck, s, e, ctx){ var snap = deck.d.status === 'issued' && deck.d.snap && deck.d.snap[elKey(s, e)]; if(snap) return snap; try{ return SLIDE_DATA[e.type](e.cfg || {}, ctx); }catch(err){ console.error(err); return {err:'x'}; } }
+function isDataEl(e){ return !!(e && e.k === 'data' && SLIDE_DATA[e.type] && SLIDE_RENDER[e.type]); }
 function slideTitle(s){ return s.title || {en:'', zh:''}; }
-function wrapPage(deck, s, body, pi, pn, n, total, hdr){
-  var th = hdr.theme || themeOf(deck), st = ' style="' + themeVars(th) + '"', els = elsHtml(s), foot = footHtml(th, hdr, n, total);
-  if(s.type === 'cover' || s.type === 'section') return '<div class="sl sl-' + s.type + '"' + st + '>' + (s.type === 'cover' ? logosHtml(th, 'cv') : '') + body + '<div class="sl-f2"><span>' + esc(hdr.proj) + '</span><span>' + n + ' / ' + total + '</span></div>' + els + '</div>';
-  var c = s.cfg || {}, msg = c.msg ? '<div class="sl-msg" data-ed="cfg.msg">' + esc(c.msg) + '</div>' : '', side = c.side ? '<div class="sl-side' + (String(c.side).split(/\n/).filter(function(x){ return x.trim(); }).length > 4 ? ' two' : '') + '" data-ed="cfg.side" data-raw="1">' + bulletsHtml(c.side) + '</div>' : '';
-  if(s.type === 'blank' && c.noHead) return '<div class="sl sl-blank"' + st + '><div class="sl-b"></div>' + foot + els + '</div>';
-  return '<div class="sl"' + st + '><div class="sl-band"><i></i><b></b></div><div class="sl-h"><h1>' + edTitle(slideTitle(s)) + (pn > 1 ? '<span class="sl-pgn">' + (pi + 1) + ' / ' + pn + '</span>' : '') + '</h1>' + (th.logos ? logosHtml(th, 'h') : '<div class="sl-proj">' + esc(hdr.proj) + '</div>') + '</div><div class="sl-b">' + msg + body + side + '</div>' + foot + els + '</div>';
+/* text size: auto fits the content to its box (scaled between 66 % and 120 %); L / M / S are fixed */
+var SL_SZ = {L:1.15, M:1, S:0.86};
+function fitWrap(inner, size){ var k = SL_SZ[size]; return k ? '<div class="sl-fit" data-k="' + k + '" style="width:' + (100 / k) + '%;height:' + (100 / k) + '%;transform:scale(' + k + ')">' + inner + '</div>' : '<div class="sl-fit" data-fit="auto" data-k="1">' + inner + '</div>'; }
+function cleanBox(b){ if(!b || typeof b !== 'object') return null; var o = {x:Math.round(n0(b.x, 52)), y:Math.round(n0(b.y, 150)), w:Math.round(clamp(n0(b.w, 600), 60, 1280)), h:Math.round(clamp(n0(b.h, 300), 40, 720))}; return o; }
+var SHEET_BODY = {x:52, y:150, w:1176, h:470};
+function bodyBox(s, th){ var b = cleanBox(s.box); if(b) return {w:b.w, h:b.h}; if(th.style === 'classic') return {w:1184, h:560}; var ag = th.agenda ? 30 : 0; return {w:1176, h:(s.cfg && s.cfg.msg ? 466 : 500) - ag}; }
+function bodyWrap(s, inner, cls){ var b = cleanBox(s.box), c = s.cfg || {};
+  return '<div class="sl-b' + (b ? ' abs' : '') + (cls ? ' ' + cls : '') + '" data-blk="main"' + (b ? ' style="left:' + b.x + 'px;top:' + b.y + 'px;width:' + b.w + 'px;height:' + b.h + 'px"' : '') + '>' + fitWrap(inner, c.size) + '</div>'; }
+function fmtLong(iso){ var n = d2n(iso); if(n == null) return iso || ''; if(S.lang === 'zh') return +iso.slice(0, 4) + '年' + (+iso.slice(5, 7)) + '月' + (+iso.slice(8, 10)) + '日'; return fmtD(n) + ' ' + iso.slice(0, 4); }
+function titleBlock(th, hdr, n, total){
+  function cell(lab, v, cls){ return '<div class="' + (cls || '') + '"><small>' + esc(lab) + '</small><b>' + esc(v) + '</b></div>'; }
+  var cells = [];
+  if(th.logos){ var a = logoUrl(th.logoL), b = logoUrl(th.logoR); cells.push('<div class="sl-tbl">' + (a ? '<img src="' + esc(a) + '" alt="">' : '') + (b ? '<img src="' + esc(b) + '" alt="">' : '') + '</div>'); }
+  cells.push(cell(T('Project', '项目'), hdr.proj, 'w3'));
+  if(th.foot === 'custom') cells.push(cell(T('Note', '说明'), th.footText || '', 'w3'));
+  else if(th.foot !== 'none' && th.foot !== 'project') cells.push(cell(T('Presentation', '文稿'), hdr.title + (hdr.no ? ' · ' + hdr.no : ''), 'w3'));
+  cells.push(cell(T('Data as of', '数据日期'), fmtLong(hdr.date), 'w2'));
+  cells.push(th.conf ? cell(T('Marking', '密级'), th.conf, 'w2 cf') : cell(T('Audience', '对象'), hdr.aud === 'internal' ? T1('Internal', '内部') : T1('Owner', '业主'), 'w2'));
+  cells.push(cell(T('Page', '页'), n + ' / ' + total, 'w1'));
+  return '<div class="sl-tb">' + cells.join('') + '</div>';
+}
+function agendaHtml(hdr, cur){ if(!hdr.secs || !hdr.secs.length) return '<div class="sl-ag empty"></div>'; return '<div class="sl-ag">' + hdr.secs.map(function(x, i){ return '<span' + (i === cur ? ' class="on"' : '') + '>' + esc(T1(x.t.en, x.t.zh)) + '</span>'; }).join('') + '</div>'; }
+function wrapPage(deck, s, body, pi, pn, n, total, hdr, x){
+  x = x || {}; var th = hdr.theme || themeOf(deck), st = ' style="' + themeVars(th) + '"', els = elsHtml(s, x.edata), c = s.cfg || {};
+  var side = c.side ? '<div class="sl-side' + (String(c.side).split(/\n/).filter(function(q){ return q.trim(); }).length > 4 ? ' two' : '') + '" data-ed="cfg.side" data-raw="1">' + bulletsHtml(c.side) + '</div>' : '';
+  if(th.style === 'classic'){
+    var foot = footHtml(th, hdr, n, total);
+    if(s.type === 'cover' || s.type === 'section') return '<div class="sl st-classic sl-' + s.type + '"' + st + '>' + (s.type === 'cover' ? logosHtml(th, 'cv') : '') + body + '<div class="sl-f2"><span>' + esc(hdr.proj) + '</span><span>' + n + ' / ' + total + '</span></div>' + els + '</div>';
+    var msg = c.msg ? '<div class="sl-msg" data-ed="cfg.msg">' + esc(c.msg) + '</div>' : '';
+    if(s.type === 'blank' && c.noHead) return '<div class="sl st-classic sl-blank"' + st + '>' + bodyWrap(s, '', 'nohead') + foot + els + '</div>';
+    return '<div class="sl st-classic"' + st + '><div class="sl-band"><i></i><b></b></div><div class="sl-h"><h1>' + edTitle(slideTitle(s)) + (pn > 1 ? '<span class="sl-pgn">' + (pi + 1) + ' / ' + pn + '</span>' : '') + '</h1>' + (th.logos ? logosHtml(th, 'h') : '<div class="sl-proj">' + esc(hdr.proj) + '</div>') + '</div>' + bodyWrap(s, msg + body + side) + foot + els + '</div>';
+  }
+  var ag = th.agenda ? agendaHtml(hdr, x.sec) : '', cls = 'sl st-sheet' + (ag ? ' has-ag' : '');
+  if(s.type === 'cover') return '<div class="' + cls + ' sl-cover"' + st + '><i class="sl-frame"></i>' + logosHtml(th, 'cv') + body + els + '</div>';
+  var tb = titleBlock(th, hdr, n, total);
+  if(s.type === 'section') return '<div class="' + cls + ' sl-section"' + st + '><i class="sl-frame"></i>' + ag + body + tb + els + '</div>';
+  if(s.type === 'blank' && c.noHead) return '<div class="' + cls + ' sl-blank"' + st + '><i class="sl-frame"></i>' + ag + bodyWrap(s, '', 'nohead') + tb + els + '</div>';
+  var head = '<div class="sl-h"><h1>' + edTitle(slideTitle(s)) + (pn > 1 ? '<span class="sl-pgn">' + (pi + 1) + ' / ' + pn + '</span>' : '') + '</h1>' + (c.msg ? '<p class="sl-hs" data-ed="cfg.msg">' + esc(c.msg) + '</p>' : '') + '</div>';
+  return '<div class="' + cls + '"' + st + '><i class="sl-frame"></i>' + ag + head + bodyWrap(s, body + side) + tb + els + '</div>';
 }
 function deckBuild(deck, opts){
   opts = opts || {};
-  var ctx = dctx(deck), outer = DK_CACHE; DK_CACHE = outer || {};
+  var ctx = dctx(deck), outer = DK_CACHE, oldSt = DK_STYLE; DK_CACHE = outer || {};
   try{ return withLang(ctx.lang, function(){
-    var pc = cfg(), hdr = {theme:themeOf(deck), proj:S.lang === 'zh' ? (pc.projectZh || pc.projectEn) : pc.projectEn, title:S.lang === 'zh' ? (deck.d.titleZh || deck.d.title || '') : (deck.d.title || deck.d.titleZh || ''), date:deck.d.date || ''};
-    var out = [];
-    (deck.d.slides || []).forEach(function(s){ if(s.hidden && !opts.all) return; if(!SLIDES[s.type]) return;
-      var data = opts.data ? (opts.data[s.id] || {err:'x'}) : slideData(deck, s, ctx), b;
-      try{ b = SLIDE_RENDER[s.type](data, s, {w:1184, h:560}); }catch(e){ console.error(e); b = [slEmpty('This slide could not be drawn.', '此页无法显示。')]; }
-      out.push({s:s, data:data, bodies:b.length ? b : [slEmpty('Empty', '空')]}); });
+    var pc = cfg(), th = themeOf(deck); DK_STYLE = th.style;
+    var hdr = {theme:th, proj:S.lang === 'zh' ? (pc.projectZh || pc.projectEn) : pc.projectEn, title:S.lang === 'zh' ? (deck.d.titleZh || deck.d.title || '') : (deck.d.title || deck.d.titleZh || ''), no:deck.d.no || '', date:deck.d.date || '', aud:deck.d.aud || 'owner', secs:[]};
+    (deck.d.slides || []).forEach(function(s){ if(s.type === 'section' && !s.hidden && SLIDES[s.type]) hdr.secs.push({id:s.id, t:s.title || {en:'', zh:''}}); });
+    var out = [], cur = -1;
+    (deck.d.slides || []).forEach(function(s){ if(!SLIDES[s.type]) return;
+      if(s.type === 'section' && !s.hidden) cur = hdr.secs.map(function(q){ return q.id; }).indexOf(s.id);
+      if(s.hidden && !opts.all) return;
+      var data = opts.data ? (opts.data[s.id] || {err:'x'}) : slideData(deck, s, ctx), ed = {}, b;
+      (s.els || []).forEach(function(e){ if(isDataEl(e)) ed[e.id] = opts.data ? (opts.data[elKey(s, e)] || {err:'x'}) : elData(deck, s, e, ctx); });
+      var box = bodyBox(s, th); if(s.type === 'section') box.secNo = s.hidden ? 0 : cur + 1;
+      try{ b = SLIDE_RENDER[s.type](data, s, box); }catch(e){ console.error(e); b = [slEmpty('This slide could not be drawn.', '此页无法显示。')]; }
+      out.push({s:s, data:data, edata:ed, sec:cur, bodies:b.length ? b : [slEmpty('Empty', '空')]}); });
     var total = 0, n = 0; out.forEach(function(x){ if(!x.s.hidden) total += x.bodies.length; });
-    out.forEach(function(x){ x.first = x.s.hidden ? 0 : n + 1; x.pages = x.bodies.map(function(b, i){ return wrapPage(deck, x.s, b, i, x.bodies.length, x.s.hidden ? '–' : ++n, total, hdr); }); });
-    out.total = total;
+    out.forEach(function(x){ x.first = x.s.hidden ? 0 : n + 1; x.pages = x.bodies.map(function(b, i){ return wrapPage(deck, x.s, b, i, x.bodies.length, x.s.hidden ? '–' : ++n, total, hdr, x); }); });
+    out.total = total; out.theme = th;
     return out;
-  }); } finally { DK_CACHE = outer; }
+  }); } finally { DK_CACHE = outer; DK_STYLE = oldSt; }
 }
 function deckPages(deck, opts){ var out = []; deckBuild(deck, opts).forEach(function(x){ if(x.s.hidden) return; x.pages.forEach(function(h){ out.push({sid:x.s.id, html:h}); }); }); return out; }
-function deckData(deck){ var ctx = dctx(deck), o = {}, outer = DK_CACHE; DK_CACHE = outer || {}; try{ withLang(ctx.lang, function(){ (deck.d.slides || []).forEach(function(s){ if(SLIDES[s.type]){ try{ o[s.id] = SLIDE_DATA[s.type](s.cfg || {}, ctx); }catch(e){ console.error(e); o[s.id] = {err:'x'}; } } }); }); } finally { DK_CACHE = outer; } return o; }
+function deckData(deck){ var ctx = dctx(deck), o = {}, outer = DK_CACHE; DK_CACHE = outer || {}; try{ withLang(ctx.lang, function(){ (deck.d.slides || []).forEach(function(s){ if(!SLIDES[s.type]) return; try{ o[s.id] = SLIDE_DATA[s.type](s.cfg || {}, ctx); }catch(e){ console.error(e); o[s.id] = {err:'x'}; }
+  (s.els || []).forEach(function(e){ if(!isDataEl(e)) return; try{ o[elKey(s, e)] = SLIDE_DATA[e.type](e.cfg || {}, ctx); }catch(er){ console.error(er); o[elKey(s, e)] = {err:'x'}; } }); }); }); } finally { DK_CACHE = outer; } return o; }
 
-/* ---------------- slide CSS (used on screen, in present mode and in the PDF window) ---------------- */
+/* ---------------- fit: scale each content box so it fills its space without overflowing ----------------
+   Runs wherever slides are put on screen (editor, thumbnails, present mode, Owner view, PDF window, PowerPoint export). */
+var SL_FIT = {};
+function slHash(t){ var h = 2166136261; for(var i = 0; i < t.length; i++){ h ^= t.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(36) + '.' + t.length; }
+function slFit1(el){
+  var box = el.parentElement; if(!box) return; var W = box.clientWidth, H = box.clientHeight; if(!W || !H) return;
+  function set(k){ el.style.width = (W / k) + 'px'; el.style.height = (H / k) + 'px'; el.style.transform = 'scale(' + k + ')'; el.setAttribute('data-k', k); }
+  var key = slHash(el.innerHTML) + ':' + W + 'x' + H, k = SL_FIT[key];
+  if(k){ set(k); return; }
+  var ks = [1.2, 1.1, 1, 0.92, 0.85, 0.78, 0.72, 0.66]; k = ks[ks.length - 1];
+  for(var i = 0; i < ks.length; i++){ set(ks[i]); if(el.scrollHeight <= el.clientHeight + 2 && el.scrollWidth <= el.clientWidth + 2){ k = ks[i]; break; } }
+  set(k); SL_FIT[key] = k;
+}
+function slFitAll(root){ Array.prototype.forEach.call((root || document).querySelectorAll('.sl-fit[data-fit="auto"]'), slFit1); }
+var SL_FONT = (function(){ try{ return new URL('vendor/fonts/', document.baseURI).href; }catch(e){ return 'vendor/fonts/'; } })();
+
+/* ---------------- slide CSS (used on screen, in present mode and in the PDF window) ----------------
+   Two looks: st-sheet (drawing sheet: frame, title block, action title) and st-classic (coloured band). Content styles are shared. */
 var SLIDE_CSS = [
-'.sl{--sl-p:#123660;--sl-p2:#1D4E89;--sl-p3:#0E2A4C;--sl-acc:#E8930C;width:1280px;height:720px;background:#fff;color:#1A1D21;position:relative;overflow:hidden;display:flex;flex-direction:column;font:18px/1.4 system-ui,-apple-system,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact;box-sizing:border-box}',
+'@font-face{font-family:SlPlex;src:url(' + SL_FONT + 'ibm-plex-sans-latin-400-normal.woff2) format("woff2");font-weight:400;font-display:swap}',
+'@font-face{font-family:SlPlex;src:url(' + SL_FONT + 'ibm-plex-sans-latin-600-normal.woff2) format("woff2");font-weight:500 600;font-display:swap}',
+'@font-face{font-family:SlPlex;src:url(' + SL_FONT + 'ibm-plex-sans-latin-700-normal.woff2) format("woff2");font-weight:700 800;font-display:swap}',
+'.sl{--sl-p:#14365E;--sl-p2:#1D4E89;--sl-p3:#0E2A4C;--sl-acc:#E8930C;--sl-ink:#17202B;--sl-mut:#4A5561;--sl-line:#CDD2D8;--sl-soft:#F2F4F6;width:1280px;height:720px;background:#fff;color:var(--sl-ink);position:relative;overflow:hidden;display:flex;flex-direction:column;text-align:left;white-space:normal;letter-spacing:normal;font:18px/1.4 SlPlex,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",system-ui,sans-serif;font-variant-numeric:tabular-nums;-webkit-print-color-adjust:exact;print-color-adjust:exact;box-sizing:border-box}',
 '.sl *{box-sizing:border-box}',
+'.sl-zh{display:block;font-size:.78em;color:#5B6570;font-weight:400}',
+'.sl-b{flex:1;min-height:0;position:relative;overflow:hidden}.sl-b.abs{position:absolute;flex:none;margin:0!important}',
+'.sl-fit{position:absolute;left:0;top:0;width:100%;height:100%;display:flex;flex-direction:column;gap:16px;transform-origin:0 0;overflow:hidden}',
+/* drawing sheet */
+'.st-sheet{padding:0 0 96px}',
+'.sl-frame{position:absolute;inset:18px;border:1.5px solid var(--sl-ink);pointer-events:none;z-index:3}',
+'.sl-ag{position:absolute;left:19px;right:19px;top:19px;height:30px;display:flex;border-bottom:1px solid var(--sl-line);font-size:13px;z-index:1}',
+'.sl-ag.empty{border-bottom:0}.sl-ag span{flex:1;display:flex;align-items:center;justify-content:center;color:#7A838D;border-right:1px solid var(--sl-line);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 8px}.sl-ag span:last-child{border-right:0}.sl-ag span.on{background:var(--sl-p);color:#fff;font-weight:600}',
+'.st-sheet .sl-h{flex:none;padding:40px 52px 0;position:relative;z-index:2}.st-sheet.has-ag .sl-h{padding-top:68px}',
+'.st-sheet .sl-h h1{margin:0;font-size:36px;line-height:1.16;font-weight:600;color:var(--sl-p);letter-spacing:-.01em}',
+'.st-sheet .sl-h h1 .sl-zh{font-size:22px;font-weight:400;color:#5B6570;margin-top:4px;letter-spacing:0}',
+'.st-sheet .sl-pgn{font-size:15px;font-weight:400;color:#7A838D;margin-left:14px;letter-spacing:0}',
+'.sl-hs{margin:8px 0 0;font-size:20px;line-height:1.35;color:#47515C;max-width:1100px}',
+'.st-sheet .sl-b{margin:24px 52px 0}.st-sheet.sl-blank .sl-b.nohead{margin:40px 52px 0}.st-sheet.has-ag.sl-blank .sl-b.nohead{margin-top:68px}',
+'.sl-tb{position:absolute;left:18px;right:18px;bottom:18px;height:58px;border-top:1.5px solid var(--sl-ink);display:flex;z-index:1;background:#fff}',
+'.sl-tb>div{flex:2;min-width:0;border-left:1px solid var(--sl-line);padding:7px 14px;display:flex;flex-direction:column;justify-content:center;overflow:hidden}.sl-tb>div:first-child{border-left:0}',
+'.sl-tb>.w3{flex:3}.sl-tb>.w1{flex:1}.sl-tb small{font-size:11px;color:#6B7580;white-space:nowrap}.sl-tb b{font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+'.sl-tb>.sl-tbl{flex:none;flex-direction:row;align-items:center;gap:12px;padding:6px 14px}.sl-tbl img{height:38px;max-width:150px;object-fit:contain}',
+'.sl-tb .cf b{color:#A1262A;text-transform:uppercase;letter-spacing:.04em}',
+'.st-sheet.sl-cover{padding:0}',
+'.sl-cvb{position:absolute;left:18px;top:18px;bottom:18px;width:18px;background:var(--sl-p);z-index:1}',
+'.sl-cv3{position:absolute;left:96px;right:96px;top:150px;display:flex;flex-direction:column;gap:12px}',
+'.sl-cv3-proj{font-size:18px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--sl-p2)}.sl-cv3-proj span{margin-left:14px;letter-spacing:.02em;color:#5B6570;font-weight:400}',
+'.sl-cv3 h1{margin:8px 0 0;font-size:60px;line-height:1.08;font-weight:600;color:var(--sl-p);letter-spacing:-.02em}',
+'.sl-cv3 h2{margin:0;font-size:32px;font-weight:400;color:#47515C}',
+'.sl-cv3-rule{display:block;width:96px;height:6px;background:var(--sl-acc);margin:14px 0 4px}',
+'.sl-cv3 .sl-cv-sub{font-size:24px;color:#47515C;margin:0}',
+'.sl-tbcv{left:36px;height:84px}.sl-tbcv>div{padding:10px 22px}.sl-tbcv small{font-size:13px}.sl-tbcv b{font-size:20px}',
+'.st-sheet .sl-logos.cv{position:absolute;top:44px;right:52px;z-index:2;display:flex;gap:18px}.st-sheet .sl-logos.cv img{height:52px;max-width:200px;object-fit:contain}',
+'.st-sheet.sl-section{padding:0 0 96px}',
+'.sl-sec3{flex:1;display:flex;align-items:center;gap:48px;padding:0 96px}',
+'.sl-secn{font-size:150px;line-height:1;font-weight:600;color:var(--sl-acc);letter-spacing:-.04em;flex:none}',
+'.sl-sec3t{border-left:3px solid var(--sl-ink);padding-left:40px;display:flex;flex-direction:column;gap:12px}',
+'.sl-sec3 h1{margin:0;font-size:54px;line-height:1.1;font-weight:600;color:var(--sl-p)}.sl-sec3 h1 .sl-zh{font-size:30px;margin-top:6px}.sl-sec3 p{margin:0;font-size:24px;color:#47515C}',
+/* classic */
 '.sl-band{height:8px;display:flex;flex:none}.sl-band i{flex:7;background:var(--sl-p2)}.sl-band b{flex:3;background:var(--sl-acc)}',
-'.sl-h{display:flex;justify-content:space-between;align-items:flex-end;padding:22px 48px 12px;border-bottom:1px solid #E3E5E0}',
-'.sl-h h1{margin:0;font-size:32px;font-weight:700;letter-spacing:-.01em;color:var(--sl-p);display:flex;align-items:baseline;gap:14px}',
-'.sl-h h1 .sl-zh{font-size:22px;font-weight:500;color:#5A6067;margin:0}',
-'.sl-pgn{font-size:16px;font-weight:500;color:#8A9096}',
+'.st-classic .sl-h{display:flex;justify-content:space-between;align-items:flex-end;padding:22px 48px 12px;border-bottom:1px solid #E3E5E0;flex:none}',
+'.st-classic .sl-h h1{margin:0;font-size:32px;font-weight:700;letter-spacing:-.01em;color:var(--sl-p);display:flex;align-items:baseline;gap:14px}',
+'.st-classic .sl-h h1 .sl-zh{font-size:22px;font-weight:500;color:#5A6067;margin:0}',
+'.st-classic .sl-pgn{font-size:16px;font-weight:500;color:#8A9096}',
 '.sl-proj{font-size:14px;color:#5A6067;font-weight:600;letter-spacing:.04em;text-transform:uppercase}',
-'.sl-b{flex:1;min-height:0;padding:20px 48px 12px;display:flex;flex-direction:column;gap:14px;overflow:hidden}',
+'.st-classic .sl-b{margin:20px 48px 12px}.st-classic .sl-b.nohead{margin:24px 48px 12px}',
 '.sl-f{height:40px;flex:none;display:flex;justify-content:space-between;align-items:center;padding:0 48px;font-size:13px;color:#7A8087;border-top:1px solid #E3E5E0}',
 '.sl-f2{position:absolute;left:0;right:0;bottom:0;height:40px;display:flex;justify-content:space-between;align-items:center;padding:0 48px;font-size:13px;color:rgba(255,255,255,.7)}',
-'.sl-zh{display:block;font-size:.78em;color:#6B7178;font-weight:400}',
-'.sl-cover{background:var(--sl-p);color:#fff;flex-direction:row}',
+'.st-classic.sl-cover{background:var(--sl-p);color:#fff;flex-direction:row}',
 '.sl-cv-l{flex:1;padding:120px 72px 60px;display:flex;flex-direction:column;justify-content:center;gap:12px;background:linear-gradient(135deg,var(--sl-p) 0,var(--sl-p2) 100%);position:relative}',
 '.sl-cv-bar{position:absolute;left:72px;bottom:120px;width:120px;height:6px;background:var(--sl-acc)}',
-'.sl-cv-proj{font-size:20px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#C9D8EC}',
-'.sl-cv-proj span{display:block;font-size:16px;letter-spacing:0;color:#9FB6D3}',
-'.sl-cover h1{font-size:54px;line-height:1.12;margin:6px 0 0;font-weight:750;letter-spacing:-.02em}',
-'.sl-cover h2{font-size:30px;margin:0;font-weight:500;color:#DCE6F3}',
-'.sl-cv-sub{font-size:22px;color:#DCE6F3;margin:6px 0 0}',
+'.sl-cv-proj{font-size:20px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#C9D8EC}.sl-cv-proj span{display:block;font-size:16px;letter-spacing:0;color:#9FB6D3}',
+'.st-classic.sl-cover h1{font-size:54px;line-height:1.12;margin:6px 0 0;font-weight:700;letter-spacing:-.02em}.st-classic.sl-cover h2{font-size:30px;margin:0;font-weight:500;color:#DCE6F3}',
+'.st-classic .sl-cv-sub{font-size:22px;color:#DCE6F3;margin:6px 0 0}',
 '.sl-cv-meta{width:380px;flex:none;background:var(--sl-p3);padding:120px 48px 60px;display:flex;flex-direction:column;justify-content:center;gap:22px;font-size:20px}',
 '.sl-cv-meta b{display:block;font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:#9FB6D3;font-weight:600;margin-bottom:2px}',
-'.sl-section{background:var(--sl-p2);color:#fff}',
+'.st-classic.sl-section{background:var(--sl-p2);color:#fff}',
 '.sl-sec{flex:1;display:flex;flex-direction:column;justify-content:center;padding:0 96px;gap:10px;border-left:16px solid var(--sl-acc)}',
-'.sl-sec h1{font-size:56px;margin:0;font-weight:750}.sl-sec h1 .sl-zh{color:#DCE6F3;font-size:32px}.sl-sec p{font-size:24px;color:#DCE6F3;margin:0}',
-'.sl-tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}.sl-tiles.s3{grid-template-columns:repeat(3,1fr)}',
-'.sl-tile{border:1px solid #DADDD6;border-radius:10px;padding:16px 18px;display:flex;flex-direction:column;gap:6px;background:#F7F8F5}',
-'.sl-tile span{font-size:15px;color:#5A6067}.sl-tile b{font-size:40px;line-height:1.05;font-variant-numeric:tabular-nums}.sl-tile small{font-size:14px;color:#6B7178}',
-'.sl-tile.bad b{color:#A1262A}.sl-tile.good b{color:#1F6B45}',
-'.sl-bar{display:inline-block;vertical-align:middle;width:180px;height:10px;border-radius:5px;background:#E6E8E3;overflow:hidden}.sl-tile .sl-bar{width:100%}',
-'.sl-bar i{display:block;height:100%;background:#2E9E6A;border-radius:5px}',
-'.sl-t{width:100%;border-collapse:collapse;font-size:16px}',
-'.sl-t th{text-align:left;font-size:13px;font-weight:600;color:#5A6067;text-transform:none;padding:8px 10px;border-bottom:2px solid var(--sl-p2);background:#F3F5F8}',
+'.sl-sec h1{font-size:56px;margin:0;font-weight:700}.sl-sec h1 .sl-zh{color:#DCE6F3;font-size:32px}.sl-sec p{font-size:24px;color:#DCE6F3;margin:0}',
+'.sl-msg{flex:none;font-size:21px;font-weight:600;color:var(--sl-p);background:#FFF6E6;border-left:6px solid var(--sl-acc);padding:9px 16px;line-height:1.35}',
+/* shared content */
+'.sl-cv-sub:empty,.sl-sec p:empty,.sl-sec3 p:empty{display:none}',
+'.sl-tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:28px;flex:none}.sl-tiles.s3{grid-template-columns:repeat(3,1fr)}',
+'.sl-tile{border-top:2px solid var(--sl-ink);padding:10px 0 0;display:flex;flex-direction:column;gap:4px;min-width:0}',
+'.sl-tile span{font-size:15px;color:var(--sl-mut)}.sl-tile b{font-size:44px;line-height:1.05;font-weight:600;letter-spacing:-.01em}.sl-tile small{font-size:14px;color:#6B7580}',
+'.sl-tile.bad b{color:#C8372D}.sl-tile.good b{color:#1F6B45}',
+'.sl-bar{display:inline-block;vertical-align:middle;width:160px;height:8px;border-radius:4px;background:#E3E6EA;overflow:hidden}.sl-tile .sl-bar{width:100%;margin-top:4px}',
+'.sl-bar i{display:block;height:100%;background:#2E9E6A;border-radius:4px}',
+'.sl-t{width:100%;border-collapse:collapse;font-size:18px}',
+'.sl-t th{text-align:left;font-size:14px;font-weight:600;color:var(--sl-mut);padding:0 12px 9px;border-bottom:1.5px solid var(--sl-ink);vertical-align:bottom}',
 '.sl-t th .sl-zh{display:inline;margin-left:4px}',
-'.sl-t td{padding:8px 10px;border-bottom:1px solid #E6E8E3;vertical-align:middle}',
-'.sl-t tr.sl-od td{background:#FDF1F1}.sl-t td.bad{color:#A1262A;font-weight:700}',
-'.sl-t .n{font-variant-numeric:tabular-nums;font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:14px;white-space:nowrap}',
+'.sl-t td{padding:10px 12px;border-bottom:1px solid var(--sl-line);vertical-align:middle}',
+'.sl-t tr.sl-od td:first-child{border-left:4px solid #C8372D}.sl-t td.bad{color:#C8372D;font-weight:600}',
+'.sl-t .n{white-space:nowrap;font-size:.92em}',
 '.sl-t td.sl-tt .sl-zh{display:inline;margin-left:8px;font-size:.85em}',
-'.sl-kt td{font-size:18px}',
-'.sl-mx th,.sl-mx td{text-align:center;border:1px solid #E3E5E0}.sl-mx thead th{text-align:center}.sl-mx tbody th{text-align:left;font-size:15px;color:#1A1D21;background:#fff;font-weight:600;width:300px}',
-'.sl-mx td b{display:block;font-size:20px}.sl-mx td small{display:block;font-size:12px;color:#5A6067;font-family:ui-monospace,Menlo,monospace}.sl-mx td.na{color:#C8CBC5}.sl-mx tr.sl-sum th,.sl-mx tr.sl-sum td{border-top:2px solid var(--sl-p2)}',
-'.sl-blk{display:inline-block;font:600 12px/18px ui-monospace,Menlo,monospace;padding:0 6px;border-radius:4px;background:#ECEEEA;color:#3D434A;margin-right:3px}',
-'.sl-chip{display:inline-block;font-size:13px;line-height:22px;padding:0 10px;border-radius:11px;white-space:nowrap}',
-'.c-grey{background:#ECEEEA;color:#3D434A}.c-blue{background:#E5EDF7;color:var(--sl-p)}.c-amber{background:#FCEFE1;color:#8A3F00}.c-red{background:#FBE8E8;color:#A1262A}.c-green{background:#E3F1E8;color:#1F6B45}.c-violet{background:#EAE6F6;color:#4A3A8C}.c-teal{background:#DDF1EF;color:#0E6B6B}.c-pink{background:#F8E3EE;color:#9B2C68}',
+'.sl-kt td{font-size:19px}',
+'.sl-mx th,.sl-mx td{text-align:center;border:1px solid var(--sl-line)}.sl-mx thead th{text-align:center;border-bottom:1.5px solid var(--sl-ink)}.sl-mx tbody th{text-align:left;font-size:16px;color:var(--sl-ink);background:#fff;font-weight:600;width:280px;padding:8px 12px}',
+'.sl-mx td b{display:block;font-size:20px;font-weight:600}.sl-mx td small{display:block;font-size:12px;color:var(--sl-mut)}.sl-mx td.na{color:#C8CBC5}.sl-mx tr.sl-sum th,.sl-mx tr.sl-sum td{border-top:1.5px solid var(--sl-ink)}',
+'.sl-blk{display:inline-block;font-size:13px;line-height:18px;font-weight:600;padding:0 6px;border-radius:3px;border:1px solid #BCC3CA;color:#3D434A;margin-right:3px;white-space:nowrap;background:#fff}',
+'.sl-chip{display:inline-flex;align-items:center;gap:8px;font-size:.92em;white-space:nowrap;color:var(--sl-ink)}.sl-chip>i{flex:none;width:10px;height:10px;border-radius:50%;background:#8E949A}',
+'.sl-chip.c-blue>i{background:#2F6DB5}.sl-chip.c-green>i{background:#2E9E6A}.sl-chip.c-amber>i{background:#E8930C}.sl-chip.c-red>i{background:#D2453F}.sl-chip.c-violet>i{background:#7564B5}.sl-chip.c-teal>i{background:#2F9A93}.sl-chip.c-pink>i{background:#C25690}',
+'.sl-chip.c-red{color:#A1262A;font-weight:600}',
+'.sl .sl-chip{background:none;padding:0;border-radius:0;line-height:inherit}.sl .sl-blk{background:#fff}',
+'.sl-blk.c-blue{border-color:#3E6FAD;color:#1D4E89}.sl-blk.c-green{border-color:#3C8A5E;color:#1F6B45}.sl-blk.c-amber{border-color:#C9822F;color:#8A3F00}.sl-blk.c-red{border-color:#B8474A;color:#A1262A}.sl-blk.c-violet{border-color:#7564B5;color:#4A3A8C}.sl-blk.c-teal{border-color:#2F9A93;color:#0E6B6B}.sl-blk.c-pink{border-color:#C25690;color:#9B2C68}',
 '.cb-grey{background:#8E949A}.cb-blue{background:#3E6FAD}.cb-amber{background:#C9822F}.cb-red{background:#B8474A}.cb-green{background:#3C8A5E}.cb-violet{background:#7564B5}.cb-teal{background:#2F9A93}.cb-pink{background:#C25690}',
-'.sl-note{font-size:13px;color:#7A8087;margin:0}.sl-sub{font-size:16px;color:#5A6067;margin:0}',
-'.sl-la td{padding:5px 10px;font-size:15px}.sl-gh{position:relative;height:30px}.sl-gh span{position:absolute;top:6px;font-size:12px;color:#5A6067;border-left:1px solid #C8CBC5;padding-left:4px;white-space:nowrap}',
-'.sl-gc{position:relative;height:34px;padding:0!important;background-image:linear-gradient(90deg,#EEF0EC 1px,transparent 1px);background-size:0 0}',
-'.sl-gb{position:absolute;top:10px;height:14px;border-radius:3px;background:#2F6DB5;overflow:hidden}.sl-gb i{display:block;height:100%;background:#2E9E6A}.sl-gb.sl-od{background:#D2453F}',
-'.sl-gp{position:absolute;top:8px;font-size:12px;color:#5A6067;white-space:nowrap}.sl-gp.sl-in{top:10px;font-size:11px;line-height:14px;color:#fff;font-weight:600;z-index:2}'+
-'.sl-blk{white-space:nowrap}.sl-ms{position:absolute;top:10px;width:14px;height:14px;background:#1A1D21;transform:rotate(45deg)}',
+'.sl-note{font-size:13px;color:#6B7580;margin:0}.sl-sub{font-size:16px;color:var(--sl-mut);margin:0}',
+'.sl-la td{padding:6px 10px;font-size:16px}.sl-gh{position:relative;height:30px}.sl-gh span{position:absolute;top:6px;font-size:12px;color:var(--sl-mut);border-left:1px solid #C8CBC5;padding-left:4px;white-space:nowrap}',
+'.sl-gc{position:relative;height:34px;padding:0!important}',
+'.sl-gb{position:absolute;top:10px;height:14px;border-radius:2px;background:#2F6DB5;overflow:hidden}.sl-gb i{display:block;height:100%;background:#2E9E6A}.sl-gb.sl-od{background:#D2453F}',
+'.sl-gp{position:absolute;top:8px;font-size:12px;color:var(--sl-mut);white-space:nowrap}.sl-gp.sl-in{top:10px;font-size:11px;line-height:14px;color:#fff;font-weight:600;z-index:2}',
+'.sl-ms{position:absolute;top:10px;width:14px;height:14px;background:var(--sl-ink);transform:rotate(45deg)}',
 '.sl-today{position:absolute;top:0;bottom:0;width:2px;background:var(--sl-acc);z-index:1}.sl-late{position:absolute;left:6px;top:7px;font-size:12px;color:#A1262A;font-weight:600;background:#FDF1F1;padding:0 4px;z-index:2;white-space:nowrap}',
 '.sl-reg{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px;vertical-align:1px}.sl-reg.c-blue{background:#3E6FAD}.sl-reg.c-green{background:#3C8A5E}.sl-reg.c-amber{background:#C9822F}.sl-reg.c-violet{background:#7564B5}.sl-reg.c-red{background:#B8474A}.sl-reg.c-teal{background:#2F9A93}.sl-reg.c-grey{background:#8E949A}.sl-reg.c-pink{background:#C25690}',
-'.sl-bd{display:flex;flex-direction:column;gap:12px}.sl-bdr{display:grid;grid-template-columns:330px 1fr 90px;gap:14px;align-items:center}',
-'.sl-bdl{font-size:16px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.sl-bdb{display:flex;height:26px;border-radius:5px;overflow:hidden;background:#ECEEEA}',
-'.sl-bdb i{display:flex;align-items:center;justify-content:center;color:#fff;font:600 12px ui-monospace,Menlo,monospace;font-style:normal}.sl-bdn{font:15px ui-monospace,Menlo,monospace;color:#5A6067;text-align:right}.sl-bdn b{color:#1A1D21}',
-'.sl-legend{display:flex;gap:18px;font-size:14px;color:#5A6067;flex-wrap:wrap}.sl-legend i{display:inline-block;width:14px;height:14px;border-radius:3px;margin-right:6px;vertical-align:-2px}',
-'.sl-2c{display:grid;grid-template-columns:440px 1fr;gap:24px;min-height:0}.sl-pg td.hit{background:#FDF1F1;color:#A1262A;font-weight:700}.sl-pg td,.sl-pg th{text-align:center}.sl-pg tbody th{text-align:left}.sl-pt td{font-size:14px}',
-'.sl-ph{flex:1;display:grid;gap:14px;min-height:0}.sl-ph.l2x2{grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr}.sl-ph.l3x2{grid-template-columns:repeat(3,1fr);grid-template-rows:1fr 1fr}.sl-ph.l1{grid-template-columns:1fr}',
-'.sl-ph figure{margin:0;display:flex;flex-direction:column;min-height:0;border:1px solid #E3E5E0;border-radius:8px;overflow:hidden;background:#F7F8F5}',
+'.sl-bd{display:flex;flex-direction:column;gap:14px}.sl-bdr{display:grid;grid-template-columns:320px 1fr 96px;gap:16px;align-items:center}',
+'.sl-bdl{font-size:17px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.sl-bdb{display:flex;height:28px;overflow:hidden;background:#E9ECEF}',
+'.sl-bdb i{display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:600;font-style:normal}.sl-bdn{font-size:16px;color:var(--sl-mut);text-align:right}.sl-bdn b{color:var(--sl-ink);font-weight:600}',
+'.sl-legend{display:flex;gap:20px;font-size:14px;color:var(--sl-mut);flex-wrap:wrap;flex:none}.sl-legend i{display:inline-block;width:14px;height:14px;border-radius:2px;margin-right:6px;vertical-align:-2px}',
+'.sl-2c{display:grid;grid-template-columns:440px 1fr;gap:28px;min-height:0}.sl-pg td.hit{color:#C8372D;font-weight:600}.sl-pg td,.sl-pg th{text-align:center}.sl-pg tbody th{text-align:left}.sl-pt td{font-size:16px}',
+'.sl-ph{flex:1;display:grid;gap:16px;min-height:0}.sl-ph.l2x2{grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr}.sl-ph.l3x2{grid-template-columns:repeat(3,1fr);grid-template-rows:1fr 1fr}.sl-ph.l1{grid-template-columns:1fr}',
+'.sl-ph figure{margin:0;display:flex;flex-direction:column;min-height:0;overflow:hidden}',
 '.sl-ph img,.sl-noimg{flex:1;min-height:0;width:100%;object-fit:cover;background:#E6E8E3}',
-'.sl-ph figcaption{padding:6px 10px;font-size:13px;display:flex;gap:6px;align-items:center;white-space:nowrap;overflow:hidden}.sl-ph figcaption span{margin-left:auto;color:#7A8087;font-family:ui-monospace,Menlo,monospace;font-size:12px}',
-'.sl-txt{display:grid;gap:40px;font-size:24px}.sl-txt.two{grid-template-columns:1fr 1fr}.sl-txt ul{margin:0;padding-left:28px;display:flex;flex-direction:column;gap:14px}.sl-txt li::marker{color:var(--sl-acc)}.sl-txt li.sub{margin-left:32px;font-size:20px;color:#3D434A;list-style:circle}',
-'.sl-msg{flex:none;font-size:21px;font-weight:650;color:var(--sl-p);background:#FFF6E6;border-left:6px solid var(--sl-acc);padding:9px 16px;border-radius:0 6px 6px 0;line-height:1.35}',
-'.sl-side{flex:none;max-height:118px;overflow:hidden;font-size:15px;color:#2E3338;background:#F3F5F8;border-left:6px solid var(--sl-p2);padding:8px 16px 8px 14px;border-radius:0 6px 6px 0}.sl-side ul{margin:0;padding-left:20px}.sl-side li{margin:2px 0}.sl-side li.sub{margin-left:20px;list-style:circle}.sl-side.two ul{columns:2;column-gap:36px}',
-'.sl-cv-sub:empty,.sl-sec p:empty{display:none}',
-'.sl-empty{flex:1;display:flex;align-items:center;justify-content:center;color:#8A9096;font-size:20px;border:2px dashed #DADDD6;border-radius:12px;text-align:center;padding:40px}'
+'.sl-ph figcaption{padding:6px 0 0;font-size:14px;display:flex;gap:6px;align-items:center;white-space:nowrap;overflow:hidden;border-bottom:1px solid var(--sl-line);padding-bottom:5px}.sl-ph figcaption span{margin-left:auto;color:#6B7580;font-size:13px}',
+'.sl-txt{display:grid;gap:48px;font-size:26px;line-height:1.35}.sl-txt.two{grid-template-columns:1fr 1fr}.sl-txt ul{margin:0;padding-left:30px;display:flex;flex-direction:column;gap:16px}.sl-txt li::marker{color:var(--sl-acc)}.sl-txt li.sub{margin-left:32px;font-size:21px;color:#3D434A;list-style:circle}',
+'.sl-side{flex:none;max-height:124px;overflow:hidden;font-size:16px;color:#2E3338;background:var(--sl-soft);border-left:4px solid var(--sl-acc);padding:9px 16px 9px 14px}.sl-side ul{margin:0;padding-left:20px}.sl-side li{margin:2px 0}.sl-side li.sub{margin-left:20px;list-style:circle}.sl-side.two ul{columns:2;column-gap:36px}',
+'.sl-empty{flex:1;display:flex;align-items:center;justify-content:center;color:#8A9096;font-size:20px;border:2px dashed #DADDD6;border-radius:4px;text-align:center;padding:40px}'
 ].join('\n');
 (function(){ var st = document.createElement('style'); st.id = 'slide-css'; st.textContent = SLIDE_CSS; document.head.appendChild(st); })();

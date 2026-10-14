@@ -32,7 +32,8 @@ async function pageToSlide(pptx, root, note){
   slide.background = {color:'FFFFFF'};
   function box(r){ return {x:inch(r.left - R0.left), y:inch(r.top - R0.top), w:inch(Math.max(1, r.width)), h:inch(Math.max(1, r.height))}; }
   function visible(el, cs){ if(cs.display === 'none' || cs.visibility === 'hidden' || +cs.opacity === 0) return false; var r = el.getBoundingClientRect(); return r.width > 0.5 && r.height > 0.5; }
-  function runStyle(cs, text){ var o = {fontFace:fontFor(cs, text), fontSize:Math.max(5, Math.round(parseFloat(cs.fontSize) * 0.75 * 10) / 10), color:rgbHex(cs.color) || '1A1D21', bold:+cs.fontWeight >= 600 || cs.fontWeight === 'bold'}; if(cs.fontStyle === 'italic') o.italic = true; return o; }
+  function kOf(el){ var k = 1; for(var n = el; n && n !== root.parentNode; n = n.parentElement){ var a = n.getAttribute && n.getAttribute('data-k'); if(a) k *= (+a || 1); } return k; }
+  function runStyle(cs, text, k){ var o = {fontFace:fontFor(cs, text), fontSize:Math.max(5, Math.round(parseFloat(cs.fontSize) * 0.75 * (k || 1) * 10) / 10), color:rgbHex(cs.color) || '1A1D21', bold:+cs.fontWeight >= 600 || cs.fontWeight === 'bold'}; if(cs.fontStyle === 'italic') o.italic = true; return o; }
   function shapeFor(el, cs, r){
     var bg = rgbHex(cs.backgroundColor), gr = cs.backgroundImage && cs.backgroundImage !== 'none' ? gradFirst(cs.backgroundImage) : null, fill = bg || gr;
     var bw = ['Top','Right','Bottom','Left'].map(function(s){ return parseFloat(cs['border' + s + 'Width']) || 0; }), bc = ['Top','Right','Bottom','Left'].map(function(s){ return rgbHex(cs['border' + s + 'Color']); });
@@ -47,10 +48,10 @@ async function pageToSlide(pptx, root, note){
       var x1 = r.left, y1 = r.top, x2 = r.right, y2 = r.top; if(i === 1){ x1 = x2 = r.right; y2 = r.bottom; } if(i === 2){ y1 = y2 = r.bottom; } if(i === 3){ x2 = x1; y2 = r.bottom; }
       slide.addShape(pptx.ShapeType.line, {x:inch(x1 - R0.left), y:inch(y1 - R0.top), w:inch(x2 - x1) || 0.001, h:inch(y2 - y1) || 0.001, line:{color:bc[i], width:Math.max(0.25, w * 0.75), dashType:cs['border' + ['Top','Right','Bottom','Left'][i] + 'Style'] === 'dashed' ? 'dash' : 'solid'}}); });
   }
-  function textRuns(el, out, inheritCs){
+  function textRuns(el, out, inheritCs, k){
     Array.prototype.forEach.call(el.childNodes, function(n){
-      if(n.nodeType === 3){ var t = n.textContent.replace(/\s+/g, ' '); if(t.trim() || out.length) out.push({text:t, options:runStyle(inheritCs, t)}); }
-      else if(n.nodeType === 1){ var cs = getComputedStyle(n); if(cs.display === 'none') return; if(n.tagName === 'BR'){ out.push({text:'', options:{breakLine:true}}); return; } if(cs.display === 'block' && out.length){ out[out.length - 1].options.breakLine = true; } textRuns(n, out, cs); }
+      if(n.nodeType === 3){ var t = n.textContent.replace(/\s+/g, ' '); if(t.trim() || out.length) out.push({text:t, options:runStyle(inheritCs, t, k)}); }
+      else if(n.nodeType === 1){ var cs = getComputedStyle(n); if(cs.display === 'none') return; if(n.tagName === 'BR'){ out.push({text:'', options:{breakLine:true}}); return; } if(cs.display === 'block' && out.length){ out[out.length - 1].options.breakLine = true; } textRuns(n, out, cs, k); }
     });
     return out;
   }
@@ -60,9 +61,9 @@ async function pageToSlide(pptx, root, note){
     runs[0].text = runs[0].text.replace(/^\s+/, ''); runs[runs.length - 1].text = runs[runs.length - 1].text.replace(/\s+$/, '');
     var pl = parseFloat(cs.paddingLeft) || 0, pr = parseFloat(cs.paddingRight) || 0, pt = parseFloat(cs.paddingTop) || 0, pb = parseFloat(cs.paddingBottom) || 0, bl = parseFloat(cs.borderLeftWidth) || 0, bt = parseFloat(cs.borderTopWidth) || 0;
     var x = r.left + pl + bl - R0.left, y = r.top + pt + bt - R0.top, w = r.width - pl - pr - bl * 2 + 6, h = r.height - pt - pb - bt * 2;
-    var lh = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.3, oneLine = h < lh * 1.6;
+    var kk = kOf(el), lh = (parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.3) * kk, oneLine = h < lh * 1.6;
     var al = cs.textAlign === 'center' ? 'center' : cs.textAlign === 'right' || cs.textAlign === 'end' ? 'right' : 'left', va = (cs.display === 'flex' || cs.display === 'inline-flex') && cs.alignItems === 'center' || el.tagName === 'TD' || el.tagName === 'TH' ? 'middle' : 'top';
-    if(el.tagName === 'LI') runs.unshift({text:(el.classList.contains('sub') ? '◦ ' : '• '), options:Object.assign(runStyle(cs, '•'), {color:'E8930C', bold:true})});
+    if(el.tagName === 'LI') runs.unshift({text:(el.classList.contains('sub') ? '◦ ' : '• '), options:Object.assign(runStyle(cs, '•', kOf(el)), {color:'E8930C', bold:true})});
     slide.addText(runs, {x:inch(x - 2), y:inch(y), w:inch(Math.max(8, w)), h:inch(Math.max(lh, h)), margin:0, align:al, valign:va, wrap:!(oneLine || cs.whiteSpace === 'nowrap'), fit:'none', lineSpacingMultiple:Math.max(0.9, Math.min(1.6, lh / (parseFloat(cs.fontSize) || 16)))});
   }
   function addTable(tb){
@@ -73,11 +74,12 @@ async function pageToSlide(pptx, root, note){
       Array.prototype.forEach.call(tr.cells, function(td, ci){
         var cs = getComputedStyle(td), trcs = getComputedStyle(tr), txt = String(td.innerText || td.textContent || '').replace(/[ \t]+/g, ' ').trim(), chip = td.querySelector('.sl-chip,.sl-blk'), ccs = chip ? getComputedStyle(chip) : cs;
         if(ri === 0) colW.push(inch(td.getBoundingClientRect().width));
-        var fill = rgbHex(cs.backgroundColor) || rgbHex(trcs.backgroundColor), o = Object.assign(runStyle(chip && chip.textContent.trim() === txt ? ccs : cs, txt), {align:cs.textAlign === 'center' ? 'center' : cs.textAlign === 'right' ? 'right' : 'left', valign:'middle'});
+        var tk = kOf(td), fill = rgbHex(cs.backgroundColor) || rgbHex(trcs.backgroundColor), o = Object.assign(runStyle(chip && chip.textContent.trim() === txt ? ccs : cs, txt, tk), {align:cs.textAlign === 'center' ? 'center' : cs.textAlign === 'right' ? 'right' : 'left', valign:'middle'});
         if(fill) o.fill = {color:fill}; if(td.colSpan > 1) o.colspan = td.colSpan;
         var bb = rgbHex(cs.borderBottomColor), bbw = parseFloat(cs.borderBottomWidth) || 0, bt = rgbHex(cs.borderTopColor), btw = parseFloat(cs.borderTopWidth) || 0, blc = rgbHex(cs.borderLeftColor), blw = parseFloat(cs.borderLeftWidth) || 0;
         o.border = [btw ? {type:'solid', pt:btw * 0.75, color:bt} : {type:'none'}, blw && blc ? {type:'solid', pt:blw * 0.75, color:blc} : {type:'none'}, bbw ? {type:'solid', pt:bbw * 0.75, color:bb} : {type:'none'}, blw && blc ? {type:'solid', pt:blw * 0.75, color:blc} : {type:'none'}];
-        row.push({text:txt, options:o});
+        var dot = chip && chip.querySelector(':scope>i'), dc = dot ? rgbHex(getComputedStyle(dot).backgroundColor) : null;
+        row.push(dc && txt ? {text:[{text:'● ', options:{color:dc, fontSize:o.fontSize, fontFace:o.fontFace}}, {text:txt, options:{color:o.color, bold:o.bold, fontSize:o.fontSize, fontFace:o.fontFace}}], options:o} : {text:txt, options:o});
       });
       rows.push(row);
     });
@@ -106,10 +108,10 @@ async function pageToSlide(pptx, root, note){
     shapeFor(el, cs, r);
     if(el.dataset && el.dataset.shape === 'diamond') return;
     var hasText = Array.prototype.some.call(el.childNodes, function(n){ return n.nodeType === 3 && n.textContent.trim(); });
-    if(el.children.length === 0 || (hasText && isInlineOnly(el)) || (isInlineOnly(el) && el.textContent.trim() && !el.querySelector('img,svg,table'))){ addText(el, cs, r, textRuns(el, [], cs)); return; }
+    if(el.children.length === 0 || (hasText && isInlineOnly(el)) || (isInlineOnly(el) && el.textContent.trim() && !el.querySelector('img,svg,table'))){ addText(el, cs, r, textRuns(el, [], cs, kOf(el))); return; }
     for(var i = 0; i < el.childNodes.length; i++){ var n = el.childNodes[i];
       if(n.nodeType === 3){ var t = n.textContent.replace(/\s+/g, ' '); if(!t.trim()) continue; var rg = document.createRange(); rg.selectNodeContents(n); var rr = rg.getBoundingClientRect(); if(rr.width < 1) continue;
-        slide.addText([{text:t.trim(), options:runStyle(cs, t)}], {x:inch(rr.left - R0.left - 1), y:inch(rr.top - R0.top), w:inch(rr.width + 6), h:inch(rr.height), margin:0, wrap:false, valign:'top'}); }
+        slide.addText([{text:t.trim(), options:runStyle(cs, t, kOf(el))}], {x:inch(rr.left - R0.left - 1), y:inch(rr.top - R0.top), w:inch(rr.width + 6), h:inch(rr.height), margin:0, wrap:false, valign:'top'}); }
       else if(n.nodeType === 1) await walk(n); }
   }
   await walk(root);
@@ -125,6 +127,7 @@ async function buildPptx(pages, title, fileName){
       host.innerHTML = pages[i].html;
       var imgs = Array.prototype.slice.call(host.querySelectorAll('img'));
       await Promise.all(imgs.map(function(im){ return im.complete ? 0 : new Promise(function(r){ im.onload = im.onerror = r; setTimeout(r, 8000); }); }));
+      if(document.fonts && document.fonts.ready) await document.fonts.ready; slFitAll(host);
       await pageToSlide(pptx, host.firstElementChild, pages[i].note || '');
       if(S.pptxProg) S.pptxProg(i + 1, pages.length);
     }

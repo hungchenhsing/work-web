@@ -77,7 +77,7 @@ function axisTicks(lo, hi, W){
 function diamond(x, y, size, fill, stroke, extra){ return '<i class="sl-dia" data-shape="diamond" style="left:' + (x - size / 2) + 'px;top:' + (y - size / 2) + 'px;width:' + size + 'px;height:' + size + 'px;background:' + fill + ';border-color:' + (stroke || fill) + '"' + (extra || '') + '></i>'; }
 function tlRender(d, s, box){
   if(d.err) return [slEmpty(d.only === 'ms' ? 'No milestones in the chosen registers. Tick “Milestone” (◆) on records, or add a Key milestones register.' : 'Nothing with dates in the chosen registers.', d.only === 'ms' ? '所选台账没有里程碑。可在记录上点 ◆ 标为里程碑，或新增「关键里程碑」台账。' : '所选台账没有带日期的记录。')];
-  var BW = (box && box.w) || 1184, LW = BW < 900 ? 200 : 300, CW = BW - LW, span = d.to - d.from + 1, px = CW / span, RH = 34;
+  var BW = (box && box.w) || 1184, LW = BW < 900 ? 200 : BW >= 1100 ? 370 : 300, CW = BW - LW, span = d.to - d.from + 1, px = CW / span, RH = 34, BH = (box && box.h) || 500;
   function X(n){ return clamp((n - d.from) * px, 0, CW); }
   var rows = []; d.lanes.forEach(function(l){ if(d.lanes.length > 1) rows.push({lane:l}); l.items.forEach(function(x){ rows.push({it:x}); }); });
   var ticks = axisTicks(d.from, d.to, CW), today = d.asOf >= d.from && d.asOf <= d.to ? X(d.asOf) : null;
@@ -97,7 +97,7 @@ function tlRender(d, s, box){
     return '<div class="sl-tlr" data-hk="r:' + esc(x.id) + '" data-hl="' + esc(x.no + ' ' + (x.t.en || x.t.zh)) + '"><div class="sl-tll" style="width:' + LW + 'px"><span class="sl-dot" style="background:' + col + '"></span><span class="n">' + esc(x.no) + '</span> <span class="sl-tlx">' + bil1(x.t) + '</span></div><div class="sl-tla" style="width:' + CW + 'px">' + grid + h + '</div></div>';
   }
   var legend = '<div class="sl-legend sl-tlleg">' + ['done','ok','risk','late'].map(function(k){ return '<span><i class="sl-legd" style="background:' + TL_COL[k] + '"></i>' + esc(T1(MS_ST[k].en, MS_ST[k].zh)) + '</span>'; }).join('') + (d.base ? '<span><i class="sl-legd" style="background:#fff;border:2px solid #8A9096"></i>' + esc(T('Baseline', '基准')) + '</span>' : '') + '<span><i style="display:inline-block;width:2px;height:14px;background:var(--sl-acc);margin-right:6px;vertical-align:-2px"></i>' + esc(T('Status date', '状态日期')) + ' ' + esc(fmtD(d.asOf)) + '</span></div>';
-  return chunk(rows, room(s, 13)).map(function(part){ return '<div class="sl-tl">' + head + part.map(function(r){ return r.lane ? '<div class="sl-tlln" data-hk="g:' + esc(r.lane.label) + '" data-hl="' + esc(r.lane.label) + '"><span style="width:' + LW + 'px">' + esc(r.lane.label || '') + '</span><div class="sl-tla" style="width:' + CW + 'px">' + grid + '</div></div>' : itemRow(r.it); }).join('') + '</div>' + legend; });
+  return chunk(rows, room(s, 13)).map(function(part){ RH = clamp(Math.floor((BH - 96) / Math.max(1, part.length)), 34, 54); return '<div class="sl-tl" style="--rh:' + RH + 'px;font-size:' + Math.round(15 + (RH - 34) / 5) + 'px">' + head + part.map(function(r){ return r.lane ? '<div class="sl-tlln" data-hk="g:' + esc(r.lane.label) + '" data-hl="' + esc(r.lane.label) + '"><span style="width:' + LW + 'px">' + esc(r.lane.label || '') + '</span><div class="sl-tla" style="width:' + CW + 'px">' + grid + '</div></div>' : itemRow(r.it); }).join('') + '</div>' + legend; });
 }
 SLIDE_RENDER.timeline = tlRender;
 SLIDE_RENDER.gantt = tlRender;
@@ -105,12 +105,12 @@ SLIDE_RENDER.mstable = function(d, s, box){
   if(!d.rows.length) return [slEmpty('No milestones to show.', '没有可显示的里程碑。')];
   if(box && box.w < 760) d = Object.assign({}, d, {blk:false, rem:false, narrow:true});
   return chunk(d.rows, room(s, 11)).map(function(part){ return '<table class="sl-t sl-mst"><thead><tr><th>' + T('No.', '编号') + '</th><th>' + T('Milestone', '里程碑') + '</th>' + (d.blk ? '<th>' + T('Block', '区域') + '</th>' : '') + '<th>' + T('Baseline', '基准') + '</th><th>' + T('Forecast', '预测') + '</th>' + (d.narrow ? '' : '<th>' + T('Actual', '实际') + '</th>') + '<th>' + T('Var. (d)', '偏差（天）') + '</th><th>' + T('Status', '状态') + '</th>' + (d.rem ? '<th>' + T('Remarks', '备注') + '</th>' : '') + '</tr></thead><tbody>' +
-    part.map(function(r){ var stc = MS_ST[r.st] || MS_ST.ok; return '<tr data-hk="r:' + esc(r.id) + '" data-hl="' + esc(r.no + ' ' + (r.t.en || r.t.zh)) + '"' + (r.st === 'late' ? ' class="sl-od"' : '') + '><td class="n">' + esc(r.no) + '</td><td class="sl-tt"><span class="sl-dia sm" data-shape="diamond" style="background:' + TL_COL[r.st] + ';border-color:' + TL_COL[r.st] + '"></span> ' + bil(r.t) + '</td>' + (d.blk ? '<td>' + (r.b ? slBlk(r.b) : '') + '</td>' : '') + '<td class="n">' + esc(r.base || '—') + '</td><td class="n">' + esc(r.fc || '—') + '</td>' + (d.narrow ? '' : '<td class="n">' + esc(r.act || '—') + '</td>') + '<td class="n" style="font-weight:700;color:' + (r.slip > 0 ? '#A1262A' : r.slip < 0 ? '#1F6B45' : '#5A6067') + '">' + (r.slip == null ? '—' : (r.slip > 0 ? '+' : '') + n0(r.slip, 0)) + '</td><td><span class="sl-chip c-' + stc.color + '">' + esc(T1(stc.en, stc.zh)) + '</span></td>' + (d.rem ? '<td class="sl-rem">' + esc(r.rem) + '</td>' : '') + '</tr>'; }).join('') + '</tbody></table>'; });
+    part.map(function(r){ var stc = MS_ST[r.st] || MS_ST.ok; return '<tr data-hk="r:' + esc(r.id) + '" data-hl="' + esc(r.no + ' ' + (r.t.en || r.t.zh)) + '"' + (r.st === 'late' ? ' class="sl-od"' : '') + '><td class="n">' + esc(r.no) + '</td><td class="sl-tt"><span class="sl-dia sm" data-shape="diamond" style="background:' + TL_COL[r.st] + ';border-color:' + TL_COL[r.st] + '"></span> ' + bil(r.t) + '</td>' + (d.blk ? '<td>' + (r.b ? slBlk(r.b) : '') + '</td>' : '') + '<td class="n">' + esc(r.base || '—') + '</td><td class="n">' + esc(r.fc || '—') + '</td>' + (d.narrow ? '' : '<td class="n">' + esc(r.act || '—') + '</td>') + '<td class="n" style="font-weight:700;color:' + (r.slip > 0 ? '#A1262A' : r.slip < 0 ? '#1F6B45' : '#5A6067') + '">' + (r.slip == null ? '—' : (r.slip > 0 ? '+' : '') + n0(r.slip, 0)) + '</td><td>' + slSt(stc.color, T1(stc.en, stc.zh)) + '</td>' + (d.rem ? '<td class="sl-rem">' + esc(r.rem) + '</td>' : '') + '</tr>'; }).join('') + '</tbody></table>'; });
 };
 SLIDE_RENDER.scurve = function(d, s, box){
   if(d.loading) return ['<div class="sl-empty">' + esc(T('Reading the progress history…', '正在读取进度历史…')) + '</div>'];
   if(d.err) return [slEmpty('No items with planned dates in the chosen registers.', '所选台账没有带计划日期的记录。')];
-  var BW = (box && box.w) || 1184, H = ((box && box.h) || 560) - (s && s.cfg && s.cfg.msg ? 60 : 0) - (s && s.cfg && s.cfg.side ? 130 : 0) - (((box && box.w) || 1184) < 760 ? 150 : 160), H2 = Math.max(220, H), L = 56, R = 70, T0 = 14, B = 34, CW = BW - L - R, CH = H2 - T0 - B, n = d.pts.length;
+  var BW = (box && box.w) || 1184, H = ((box && box.h) || 560) - (msgIn(s) ? 60 : 0) - (s && s.cfg && s.cfg.side ? 130 : 0) - (((box && box.w) || 1184) < 760 ? 150 : 160), H2 = Math.max(220, H), L = 56, R = 70, T0 = 14, B = 34, CW = BW - L - R, CH = H2 - T0 - B, n = d.pts.length;
   function x(i){ return L + (n > 1 ? i / (n - 1) * CW : 0); } function y(v){ return T0 + CH - v / 100 * CH; }
   function path(arr){ var p = '', on = false; arr.forEach(function(v, i){ if(v == null){ on = false; return; } p += (on ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(v).toFixed(1) + ' '; on = true; }); return p; }
   var grid = [0, 20, 40, 60, 80, 100].map(function(v){ return '<line x1="' + L + '" x2="' + (L + CW) + '" y1="' + y(v) + '" y2="' + y(v) + '" stroke="#E6E8E3"/><text x="' + (L - 8) + '" y="' + (y(v) + 4) + '" text-anchor="end" font-size="12" fill="#5A6067">' + v + '%</text>'; }).join('');
@@ -135,22 +135,22 @@ SLIDE_RENDER.scurve = function(d, s, box){
 };
 
 SLIDE_CSS += [
-'.sl-tl{display:flex;flex-direction:column;font-size:14px}',
-'.sl-tlh{display:flex;height:30px;border-bottom:2px solid var(--sl-p2)}.sl-tlh .sl-tla{position:relative}.sl-tlh .sl-tla span{position:absolute;top:7px;font-size:12px;color:#5A6067;padding-left:4px;border-left:1px solid #C8CBC5;white-space:nowrap}',
+'.sl-tl{display:flex;flex-direction:column;font-size:15px}',
+'.sl-tlh{display:flex;height:30px;border-bottom:1.5px solid var(--sl-ink)}.sl-tlh .sl-tla{position:relative}.sl-tlh .sl-tla span{position:absolute;top:7px;font-size:12px;color:#5A6067;padding-left:4px;border-left:1px solid #C8CBC5;white-space:nowrap}',
 '.sl-tlt{position:absolute;top:-2px;transform:translateX(-50%);font-size:11px;color:#fff;background:var(--sl-acc);padding:0 5px;border-radius:3px;z-index:2}',
-'.sl-tlr,.sl-tlln{display:flex;height:34px;border-bottom:1px solid #EEF0EC}.sl-tlln{height:26px;background:#F3F5F8}.sl-tlln>span{flex:none;font-weight:700;font-size:13px;color:var(--sl-p);padding:4px 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+'.sl-tlr,.sl-tlln{display:flex;height:var(--rh,34px);border-bottom:1px solid #EEF0EC}.sl-tlln{height:26px;background:#F3F5F8}.sl-tlln>span{flex:none;font-weight:700;font-size:13px;color:var(--sl-p);padding:4px 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
 '.sl-tll{flex:none;display:flex;align-items:center;gap:6px;padding:0 8px;white-space:nowrap;overflow:hidden}.sl-tll .n{font:12px ui-monospace,Menlo,monospace;color:#5A6067}.sl-tlx{overflow:hidden;text-overflow:ellipsis}',
 '.sl-tla{position:relative;flex:none;height:100%}.sl-tlg{position:absolute;top:0;bottom:0;width:1px;background:#EEF0EC}',
 '.sl-dot{width:8px;height:8px;border-radius:50%;flex:none}',
 '.sl-dia{position:absolute;border:2px solid;transform:rotate(45deg);z-index:2;box-sizing:border-box}.sl-dia.sm{position:relative;display:inline-block;width:11px;height:11px;margin:0 4px;vertical-align:0}',
-'.sl-slip{position:absolute;top:16px;height:0;border-top:2px dashed;z-index:1}',
-'.sl-tll2{position:absolute;top:8px;font-size:12px;white-space:nowrap;z-index:3;color:#3D434A}',
-'.sl-tlb{position:absolute;top:24px;height:5px;border-radius:2px;background:#B9BEC4}',
-'.sl-tlbar{position:absolute;top:8px;height:14px;border:1px solid;border-radius:3px;overflow:hidden;box-sizing:border-box}.sl-tlbar i{display:block;height:100%}',
+'.sl-slip{position:absolute;top:calc(var(--rh,34px)/2 - 1px);height:0;border-top:2px dashed;z-index:1}',
+'.sl-tll2{position:absolute;top:calc(var(--rh,34px)/2 - 9px);font-size:13px;white-space:nowrap;z-index:3;color:#3D434A}',
+'.sl-tlb{position:absolute;top:calc(var(--rh,34px)/2 + 7px);height:5px;border-radius:2px;background:#B9BEC4}',
+'.sl-tlbar{position:absolute;top:calc(var(--rh,34px)/2 - 8px);height:14px;border:1px solid;border-radius:3px;overflow:hidden;box-sizing:border-box}.sl-tlbar i{display:block;height:100%}',
 '.sl-tlleg{margin-top:8px}.sl-legd{display:inline-block;width:11px!important;height:11px!important;transform:rotate(45deg);margin-right:8px!important;box-sizing:border-box}',
-'.sl-mst td{font-size:15px}.sl-rem{font-size:13px!important;color:#3D434A;max-width:300px}',
-'.sl-tiles.s4{grid-template-columns:repeat(4,1fr)}.sl-tiles.s4 .sl-tile{padding:10px 16px}.sl-tiles.s4 .sl-tile b{font-size:30px}',
+'.sl-mst td{font-size:17px}.sl-rem{font-size:13px!important;color:#3D434A;max-width:300px}',
+'.sl-tiles.s4{grid-template-columns:repeat(4,1fr)}.sl-tiles.s4 .sl-tile{padding:8px 0 0}.sl-tiles.s4 .sl-tile b{font-size:34px}',
 '.sl-sc{display:block;flex:none}',
-'.sl-tiles.sn{grid-template-columns:repeat(4,1fr);gap:8px}.sl-tiles.sn .sl-tile{padding:6px 8px}.sl-tiles.sn .sl-tile b{font-size:20px}.sl-tiles.sn .sl-tile span{font-size:11px}'
+'.sl-tiles.sn{grid-template-columns:repeat(4,1fr);gap:12px}.sl-tiles.sn .sl-tile{padding:6px 0 0}.sl-tiles.sn .sl-tile b{font-size:20px}.sl-tiles.sn .sl-tile span{font-size:11px}'
 ].join('\n');
 (function(){ var st = document.getElementById('slide-css'); if(st) st.textContent = SLIDE_CSS; })();
