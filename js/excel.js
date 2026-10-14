@@ -87,8 +87,9 @@ function impConvert(reg, f, raw, ctx){
       var out = parts.map(function(p){
         var pl = p.toLowerCase(), cand = f.list === 'blocks' ? p.replace(/block|区/ig, '').trim().toUpperCase() : null;
         var o = opts.filter(function(x){ return [x.v, x.en, x.zh].some(function(y){ return y && String(y).toLowerCase() === pl; }) || (cand && x.v === cand); })[0];
-        if(!o){ var mm = /^([a-zA-Z]+)\s*(.*)$/.exec(p); if(mm) o = opts.filter(function(x){ return x.v.toLowerCase() === mm[1].toLowerCase(); })[0]; }
-        if(!o && f.list !== 'blocks') o = opts.filter(function(x){ return [x.en, x.zh].some(function(y){ return y && pl.indexOf(String(y).toLowerCase()) >= 0 && String(y).length > 1; }); })[0];
+        var person = f.list === 'people' || f.list === 'subcon';   // names: exact match only (郑道明 must not become 郑道)
+        if(!o && !person){ var mm = /^([a-zA-Z]+)\s*(.*)$/.exec(p); if(mm) o = opts.filter(function(x){ return x.v.toLowerCase() === mm[1].toLowerCase(); })[0]; }
+        if(!o && f.list !== 'blocks' && !person) o = opts.filter(function(x){ return [x.en, x.zh].some(function(y){ return y && pl.indexOf(String(y).toLowerCase()) >= 0 && String(y).length > 1; }); })[0];
         if(!o){ var zh = /[一-鿿]/.test(p) && !/[A-Za-z]{3,}/.test(p); o = O(cand || (f.list === 'people' || f.list === 'subcon' ? p : p.length <= 14 ? p : slug(p) || uid('o')), zh ? p : p, zh ? p : '', COLORS[(opts.length + 1) % COLORS.length]); opts.push(o); ctx.newOpt(T1(f.en, f.zh) + ': ' + p); }
         return o.v;
       });
