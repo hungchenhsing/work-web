@@ -197,7 +197,7 @@ function backupXlsx(){
   XLSX.writeFile(wb, fname('backup'));
 }
 function backupJson(){
-  var data = {exported:new Date().toISOString(), cfg:STORE.cfg, registers:allRegs().map(function(r){ return {id:r.id, visibility:r.vis, data:r.d}; }), records:allRecs().map(function(r){ return {id:r.id, register_id:r.reg, data:r.d}; })};
+  var data = {exported:new Date().toISOString(), cfg:STORE.cfg, registers:(STORE.regs || []).map(function(r){ return {id:r.id, visibility:r.vis, data:r.d}; }), records:allRecs().map(function(r){ return {id:r.id, register_id:r.reg, data:r.d}; })};
   var blob = new Blob([JSON.stringify(data, null, 1)], {type:'application/json'}), a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = slug(cfg().projectEn) + '_backup_' + TODAY_S + '.json'; document.body.appendChild(a); a.click(); setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 500);
 }

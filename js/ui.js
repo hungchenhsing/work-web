@@ -17,7 +17,7 @@ function renderAll(){
   renderTop();
   if(STORE.mode === 'cloud' && (!STORE.ready || !STORE.session || !STORE.me || role() === 'pending' || role() === 'none' || S.recovery)){ $('#side').innerHTML = ''; document.body.classList.add('gate'); renderGate(); renderDrawer(); renderPop(); renderModal(); return; }
   document.body.classList.remove('gate');
-  if(role() === 'owner'){ $('#side').innerHTML = ''; document.body.classList.add('gate'); $('#main').innerHTML = viewOwnerPortal(); renderDrawer(); renderPop(); renderModal(); return; }
+  if(role() === 'owner'){ $('#side').innerHTML = ''; document.body.classList.add('gate'); $('#main').innerHTML = viewOwnerPortal(); fitSlides(); renderDrawer(); renderPop(); renderModal(); return; }
   renderSide();
   renderMain();
   renderDrawer(); renderPop(); renderModal();
@@ -45,7 +45,7 @@ function searchResults(){
   return '<div class="gres card">' + (out.length ? out.map(function(x){ return '<button type="button" data-act="openRec" data-id="' + esc(x.rec.id) + '">' + icon(x.reg.d.icon, 14) + '<span class="mono muted">' + esc(recNo(x.reg, x.rec)) + '</span> ' + esc(recTitle(x.reg, x.rec) || '—') + ' <span class="muted" style="margin-left:auto;font-size:12px">' + esc(regName(x.reg)) + '</span></button>'; }).join('') : '<div class="note" style="padding:10px">' + L('No matches', '没有匹配') + '</div>') + '</div>';
 }
 function renderSide(){
-  var pages = [['home','home','Overview','总览'],['schedule','cal','Schedule','进度计划'],['activity','hist','Change log','修改记录'],['files','file','Files & photos','文件与照片'],['owner','owner','Owner plan','业主计划'],['settings','gear','Settings','设置']];
+  var pages = [['home','home','Overview','总览'],['schedule','cal','Schedule','进度计划'],['decks','present','Presentations','演示文稿'],['activity','hist','Change log','修改记录'],['files','file','Files & photos','文件与照片'],['owner','owner','Owner plan','业主计划'],['settings','gear','Settings','设置']];
   var h = '<div class="snav">' + pages.map(function(p){ return '<button type="button" data-act="page" data-v="' + p[0] + '"' + (S.page === p[0] ? ' aria-current="page"' : '') + '>' + uic(p[1]) + '<span>' + L(p[2], p[3]) + '</span></button>'; }).join('') + '</div>';
   var regs = allRegs(), secs = SECS.map(function(s){ return {s:s, regs:regs.filter(function(r){ return !isPrivate(r) && (r.d.sec || 'other') === s[0]; })}; });
   secs.push({s:['private','Only me','仅自己可见'], regs:regs.filter(isPrivate)});
@@ -69,6 +69,7 @@ function renderMain(){
     else if(S.page === 'files') h = viewFiles();
     else if(S.page === 'owner') h = viewOwner();
     else if(S.page === 'settings') h = viewSettings();
+    else if(S.page === 'decks') h = viewDecks();
     else { S.page = 'home'; h = viewHome(); }
   }catch(e){ console.error(e); h = '<div class="card empty">' + L('Something went wrong showing this page.', '页面显示出错。') + '<pre class="note">' + esc(e && e.message) + '</pre></div>'; }
   var banner = '';
@@ -81,6 +82,7 @@ function renderMain(){
   var same = S.lastPk === pk; S.lastPk = pk;
   if(same && tsc){ var t2 = $('.tbl-wrap'); if(t2){ t2.scrollLeft = tsc[0]; t2.scrollTop = tsc[1]; } }
   if(S.page === 'reg' || S.page === 'schedule') afterGantt(same && S.gKeep ? gsc : null);
+  if(S.page === 'decks'){ fitSlides(); if(!same) m.scrollTop = 0; }
 }
 
 /* ---------------- cell rendering ---------------- */
@@ -219,7 +221,7 @@ function renderDrawer(){
     (reg.d.meeting ? '<button type="button" class="ib" data-act="printMom" title="' + esc(T('Print minutes', '打印纪要')) + '">' + uic('print', 16) + '</button>' : '') +
     '<button type="button" class="ib" data-act="close" aria-label="Close">' + uic('x', 18) + '</button></span></div>' +
     '<div class="dtitle">' + esc(recTitle(reg, rec) || T('Untitled', '未命名')) + '</div>' + (recTitle2(reg, rec) ? '<div class="muted">' + esc(recTitle2(reg, rec)) + '</div>' : '') +
-    '<div class="dchips">' + (statusOpt(reg, rec) ? optChip(statusOpt(reg, rec)) : '') + (rf(reg, 'block') ? ' ' + blockChips(rec.d[rf(reg, 'block').key], rf(reg, 'block')) : '') + (isOverdue(reg, rec) ? ' ' + chip('red', L('Overdue', '逾期')) : '') + (rec.d.ext ? ' ' + chip('violet', L('External', '对外')) : '') + '</div>' +
+    '<div class="dchips">' + (statusOpt(reg, rec) ? optChip(statusOpt(reg, rec)) : '') + (rf(reg, 'block') ? ' ' + blockChips(rec.d[rf(reg, 'block').key], rf(reg, 'block')) : '') + (isOverdue(reg, rec) ? ' ' + chip('red', L('Overdue', '逾期')) : '') + (rec.d.ext ? ' ' + chip('violet', L('External', '对外')) : '') + '</div>' + (reg.d.meeting && !isPrivate(reg) ? meetingDeckStrip(rec) : '') +
     '<div class="dtabs" role="tablist">' + tabs.map(function(t){ return '<button type="button" role="tab" data-act="dtab" data-v="' + t[0] + '" aria-selected="' + (S.dtab === t[0]) + '">' + L(t[1], t[2]) + (t[3] ? ' <span class="cnt">' + t[3] + '</span>' : '') + '</button>'; }).join('') + '</div></div><div class="dbody">';
   if(S.dtab === 'files') h += drawerFiles(reg, rec, ed);
   else if(S.dtab === 'links') h += drawerLinks(reg, rec, ed);
@@ -273,7 +275,7 @@ function fileList(reg, f, rec, ed){
 function drawerFiles(reg, rec, ed){
   var ff = dataFields(reg).filter(function(f){ return f.type === 'files'; });
   if(!ff.length) return '<div class="note">' + L('This register has no file field yet.', '此台账还没有文件字段。') + (canSchemaEdit(reg) ? ' <button type="button" class="lnk" data-act="fieldsOpen" data-v="' + esc(reg.id) + '">' + L('Add one', '添加') + '</button>' : '') + '</div>';
-  return ff.map(function(f){ return '<h3 class="fsec">' + L(f.en, f.zh) + '</h3>' + fileList(reg, f, rec, ed); }).join('');
+  return recPhotoBtn(rec) + ff.map(function(f){ return '<h3 class="fsec">' + L(f.en, f.zh) + '</h3>' + fileList(reg, f, rec, ed); }).join('');
 }
 function backlinks(rec){ var out = []; allRecs().forEach(function(r){ if(r.id === rec.id) return; var reg = getReg(r.reg); if(!reg) return; dataFields(reg).forEach(function(f){ if(f.type === 'link' && asArr(r.d[f.key]).indexOf(rec.id) >= 0) out.push(r); }); }); return out; }
 function recRow(r, extra){ var reg = getReg(r.reg); if(!reg) return ''; return '<div class="lrow"><button type="button" class="lnk" data-act="openRec" data-id="' + esc(r.id) + '">' + icon(reg.d.icon, 13) + ' <span class="mono">' + esc(recNo(reg, r)) + '</span> ' + esc(recTitle(reg, r) || '—') + '</button>' + (statusOpt(reg, r) ? optChip(statusOpt(reg, r)) : '') + '<span class="muted" style="font-size:12px">' + esc(regName(reg)) + '</span>' + (extra || '') + '</div>'; }

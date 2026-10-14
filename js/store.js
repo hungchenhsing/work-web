@@ -44,6 +44,7 @@ function DemoStore(){
     resetDemo: function(){ LS.del(KEY); location.reload(); },
     upload: function(file){ var id = 'demo:' + uid('b'); blobs[id] = URL.createObjectURL(file); return Promise.resolve({path:id, name:file.name, type:file.type || '', size:file.size}); },
     fileUrl: function(path){ return blobs[path] || null; },
+    signUrls: function(){ return Promise.resolve(); },
     removeFile: function(){ return Promise.resolve(); }
   };
   return api;
@@ -191,6 +192,11 @@ function CloudStore(url, key){
       sb.storage.from('files').createSignedUrls(paths, 3600).then(function(r){ (r.data || []).forEach(function(x){ if(x.signedUrl) urls[x.path] = {url:x.signedUrl, exp:Date.now() + 3300e3}; }); notifySoft(); });
     }, 30);
     return null;
+  };
+  api.signUrls = function(paths){
+    var need = (paths || []).filter(function(p, i, a){ var c = urls[p]; return p && a.indexOf(p) === i && !(c && c.exp > Date.now() + 60e3); });
+    if(!need.length) return Promise.resolve();
+    return sb.storage.from('files').createSignedUrls(need, 3600).then(function(r){ (r.data || []).forEach(function(x){ if(x.signedUrl) urls[x.path] = {url:x.signedUrl, exp:Date.now() + 3300e3}; }); }).catch(function(){});
   };
   api.signIn = function(email, pw){ return sb.auth.signInWithPassword({email:email, password:pw}); };
   api.signUp = function(email, pw, name){ return sb.auth.signUp({email:email, password:pw, options:{data:{name:name}, emailRedirectTo: location.origin + location.pathname}}); };

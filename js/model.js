@@ -11,7 +11,7 @@ function lists(){ var l = cfg().lists || {}, o = {}; Object.keys(DEF_LISTS).forE
 
 /* registers */
 function allRegs(){
-  var order = cfg().regOrder || [], regs = ((STORE && STORE.regs) || []).slice();
+  var order = cfg().regOrder || [], regs = ((STORE && STORE.regs) || []).filter(function(r){ return r.d.kind !== 'decks'; });
   regs.sort(function(a, b){ var ia = order.indexOf(a.id), ib = order.indexOf(b.id); if(ia < 0) ia = 999; if(ib < 0) ib = 999; return ia - ib || String(a.d.en || '').localeCompare(String(b.d.en || '')); });
   return regs;
 }

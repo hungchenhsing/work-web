@@ -3,7 +3,7 @@
 
 function goPage(p){ S.page = p; S.sideOpen = false; S.q = ''; S.sel = {}; S.bulkF = null; closePop(); saveUI(); renderAll(); $('#main').scrollTop = 0; }
 function goReg(id){ S.page = 'reg'; S.reg = id; S.sideOpen = false; S.q = ''; S.sel = {}; S.bulkF = null; S.gKeep = false; closePop(); saveUI(); renderAll(); $('#main').scrollTop = 0; }
-function openRec(id, tab){ var r = getRec(id); if(!r) return; S.open = id; S.dtab = tab || 'details'; S.delAsk = false; S.hist = null; S.q = ''; closePop(); renderAll(); }
+function openRec(id, tab){ var r = getRec(id); if(!r) return; if(isDeckRec(r)){ openDeck(id); return; } S.open = id; S.dtab = tab || 'details'; S.delAsk = false; S.hist = null; S.q = ''; closePop(); renderAll(); }
 function curReg(){ return S.page === 'reg' ? getReg(S.reg) : null; }
 function odArr(){ var m = S.modal; if(m && m.kind === 'fields' && m.exp != null){ var f = m.d.fields[m.exp]; if(f.type === 'select' && !f.list){ f.opts = f.opts || []; return f.opts; } } if(m && m.kind === 'opts' && m.d && m.d.opts) return m.d.opts; return S.ldraft ? S.ldraft.opts : []; }
 function tdArr(){ var m = S.modal; if(m && m.kind === 'fields' && m.exp != null){ var f = m.d.fields[m.exp]; f.tree = f.tree || []; return f.tree; } if(m && m.kind === 'opts' && m.d && m.d.tree) return m.d.tree; return []; }

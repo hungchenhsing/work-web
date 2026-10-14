@@ -67,14 +67,14 @@ function nmL(o){ return o ? L(o.en || o.zh || '', o.en ? o.zh : '') : ''; }
 var UI = LS.get('ww2.ui', {});
 var S = {
   lang: LS.get('ww.lang', 'both'),
-  page: UI.page || 'home', reg: UI.reg || null,
+  page: UI.page || 'home', reg: UI.reg || null, deck: UI.deck || null, dslide: null, dpage: 0, present: null,
   rv: UI.rv || {}, rf: {}, rs: UI.rs || {}, rg: UI.rg || {}, rcols: UI.rcols || {}, rmx: UI.rmx || {}, rboard: UI.rboard || {},
   sel: {}, open: null, dtab: 'details', pop: null, modal: null, rexp: {}, treeEdit: {},
   stab: UI.stab || 'project', sreg: null, sched: UI.sched || null, gz: UI.gz || 'week', gcol: {},
   act: {reg:'', who:'', type:''}, files: {reg:'', q:''}, otab: 'live', oreg: null, pubSel: null, fbFor: null,
   q: '', auth: {tab:'in'}, sideOpen: false, imp: null, asOfLocal: null
 };
-function saveUI(){ LS.set('ww2.ui', {page:S.page, reg:S.reg, rv:S.rv, rs:S.rs, rg:S.rg, rcols:S.rcols, rmx:S.rmx, rboard:S.rboard, stab:S.stab, sched:S.sched, gz:S.gz}); }
+function saveUI(){ LS.set('ww2.ui', {page:S.page, reg:S.reg, deck:S.deck, rv:S.rv, rs:S.rs, rg:S.rg, rcols:S.rcols, rmx:S.rmx, rboard:S.rboard, stab:S.stab, sched:S.sched, gz:S.gz}); }
 
 /* ================= colours ================= */
 var COLORS = ['grey','blue','green','amber','red','violet','teal','pink'];

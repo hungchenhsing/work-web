@@ -70,7 +70,7 @@ function viewOwner(){
   h += '<div class="seg" style="margin-bottom:10px">' + [['live','Preview & publish','预览与发布'],['snaps','Published','已发布'],['fb','Owner comments','业主意见']].map(function(t){ return '<button type="button" data-act="otab" data-v="' + t[0] + '" aria-pressed="' + (S.otab === t[0]) + '">' + L(t[1], t[2]) + '</button>'; }).join('') + '</div>';
   if(S.otab === 'snaps'){
     var pubs = (STORE.pubs || []);
-    return h + (pubs.length ? '<div class="card tbl-wrap"><table class="tbl"><thead><tr><th>No.</th><th>' + L('Register', '台账') + '</th><th>' + L('Published', '发布时间') + '</th><th>' + L('By', '发布人') + '</th><th>' + L('Note', '说明') + '</th><th>' + L('Items', '数量') + '</th><th></th></tr></thead><tbody>' + pubs.map(function(p){ return '<tr><td class="mono">' + esc(p.no) + '</td><td>' + esc(p.reg ? T1(p.reg.en, p.reg.zh) : '') + '</td><td class="mono">' + esc(fmtTime(p.at)) + '</td><td>' + esc(p.by || '') + '</td><td>' + esc(p.note || '') + '</td><td class="mono">' + (p.count || 0) + '</td><td>' + (ed ? '<button type="button" class="btn sm danger-o" data-act="pubDel" data-v="' + esc(p.id) + '">' + L('Withdraw', '撤回') + '</button>' : '') + '</td></tr>'; }).join('') + '</tbody></table></div>' : '<div class="card empty">' + L('Nothing published yet.', '尚未发布。') + '</div>');
+    return h + (pubs.length ? '<div class="card tbl-wrap"><table class="tbl"><thead><tr><th>No.</th><th>' + L('Register', '台账') + '</th><th>' + L('Published', '发布时间') + '</th><th>' + L('By', '发布人') + '</th><th>' + L('Note', '说明') + '</th><th>' + L('Items', '数量') + '</th><th></th></tr></thead><tbody>' + pubs.map(function(p){ return '<tr><td class="mono">' + esc(p.no) + '</td><td>' + (p.kind === 'deck' ? chip('violet', uic('present', 11) + ' ' + L('Presentation', '演示文稿')) + ' ' + esc(T1(p.title.en, p.title.zh)) : esc(p.reg ? T1(p.reg.en, p.reg.zh) : '')) + '</td><td class="mono">' + esc(fmtTime(p.at)) + '</td><td>' + esc(p.by || '') + '</td><td>' + esc(p.note || '') + '</td><td class="mono">' + (p.count || 0) + '</td><td>' + (ed ? '<button type="button" class="btn sm danger-o" data-act="pubDel" data-v="' + esc(p.id) + '">' + L('Withdraw', '撤回') + '</button>' : '') + '</td></tr>'; }).join('') + '</tbody></table></div>' : '<div class="card empty">' + L('Nothing published yet.', '尚未发布。') + '</div>');
   }
   if(S.otab === 'fb'){
     var fbs = (STORE.fb || []).slice().reverse();
@@ -87,8 +87,9 @@ function viewOwnerPortal(){
   var pubs = STORE.pubs || [];
   if(!pubs.length) return '<div class="card empty">' + L('Nothing has been published yet.', '尚未发布内容。') + '</div>';
   var p = pubs.filter(function(x){ return x.id === S.pubSel; })[0] || pubs[0];
+  if(p.kind === 'deck') return ownerDeckView(p, pubs);
   var fbc = function(id){ return (STORE.fb || []).filter(function(f){ return f.item_id === id; }).length; };
-  return '<div class="ph"><div><h1 class="vtitle">' + esc(p.reg ? T1(p.reg.en, p.reg.zh) : T('Submission plan', '提交计划')) + '</h1><span class="muted">' + esc(p.no + ' · ' + fmtTime(p.at) + (p.note ? ' · ' + p.note : '')) + '</span></div><select class="in" id="pubSel">' + pubs.map(function(x){ return '<option value="' + esc(x.id) + '"' + (x.id === p.id ? ' selected' : '') + '>' + esc(x.no + ' · ' + fmtTime(x.at).slice(0, 10) + (x.reg ? ' · ' + T1(x.reg.en, x.reg.zh) : '')) + '</option>'; }).join('') + '</select></div>' + ownerTable(p, {fb:true, fbCount:fbc});
+  return '<div class="ph"><div><h1 class="vtitle">' + esc(p.reg ? T1(p.reg.en, p.reg.zh) : T('Submission plan', '提交计划')) + '</h1><span class="muted">' + esc(p.no + ' · ' + fmtTime(p.at) + (p.note ? ' · ' + p.note : '')) + '</span></div><select class="in" id="pubSel">' + pubs.map(function(x){ return '<option value="' + esc(x.id) + '"' + (x.id === p.id ? ' selected' : '') + '>' + esc(x.no + ' · ' + fmtTime(x.at).slice(0, 10) + (x.kind === 'deck' ? ' · ' + T1(x.title.en, x.title.zh) : x.reg ? ' · ' + T1(x.reg.en, x.reg.zh) : '')) + '</option>'; }).join('') + '</select></div>' + ownerTable(p, {fb:true, fbCount:fbc});
 }
 
 /* ================= Settings ================= */
@@ -175,6 +176,7 @@ function modalBody(m){
   if(m.kind === 'regSettings') return regSettingsModal(m);
   if(m.kind === 'import') return importModal(m);
   if(m.kind === 'cols') return colsModal(m);
+  if(DECK_MODALS[m.kind]) return DECK_MODALS[m.kind](m);
   return {title:'', html:''};
 }
 function optsModal(m){
