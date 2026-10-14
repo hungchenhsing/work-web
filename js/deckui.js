@@ -93,7 +93,8 @@ function viewDeckEditor(deck){
     (ed ? '<button type="button" class="btn dk-add" data-act="dkAddMenu">' + uic('plus', 14) + ' ' + L('Add slide', '添加页面') + '</button>' : '') + '</aside>';
   h += '<section class="dk-pv">' + (sel ? (sel.pages.length > 1 ? '<div class="seg dk-pg">' + sel.pages.map(function(_, i){ return '<button type="button" data-act="dkPage" data-v="' + i + '" aria-pressed="' + (i === pi) + '">' + L('Page ' + (i + 1), '第 ' + (i + 1) + ' 页') + '</button>'; }).join('') + '</div><p class="note dk-pgn">' + L('Long content continues automatically on ' + sel.pages.length + ' pages.', '内容较多，自动分为 ' + sel.pages.length + ' 页。') + '</p>' : '') +
       scaled(sel.pages[pi], 'dk-stage card') +
-      '<div class="row dk-stb"><button type="button" class="btn sm" data-act="dkPresentHere">' + uic('play', 12) + ' ' + L('Present from here', '从此页演示') + '</button>' + (ed ? '<span class="dk-sp"></span><button type="button" class="ib" data-act="dkMove" data-v="-1" title="' + esc(T('Move up', '上移')) + '">' + uic('up', 15) + '</button><button type="button" class="ib" data-act="dkMove" data-v="1" title="' + esc(T('Move down', '下移')) + '">' + uic('down', 15) + '</button><button type="button" class="ib" data-act="dkDup" title="' + esc(T('Duplicate', '复制')) + '">' + uic('copy', 15) + '</button><button type="button" class="ib' + (sel.s.hidden ? ' on' : '') + '" data-act="dkHide" title="' + esc(sel.s.hidden ? T('Show this slide', '显示此页') : T('Hide this slide (kept, not presented)', '隐藏此页（保留但不演示）')) + '">' + uic(sel.s.hidden ? 'eye' : 'hide', 15) + '</button><button type="button" class="ib" data-act="dkDelSlide" title="' + esc(T('Delete slide', '删除此页')) + '">' + uic('trash', 15) + '</button>' : '') + '</div>' +
+      (ed ? '<div class="dk-hint note">' + L('Click any text on the slide to change it.', '点击页面上的文字即可直接修改。') + (['cover','section','text'].indexOf(sel.s.type) < 0 ? ' ' + L('Figures and tables come from the registers — change them there and the slide follows.', '数字和表格来自台账：在台账里修改，页面会跟着更新。') : '') + '</div>' : '') +
+      '<div class="row dk-stb"><button type="button" class="btn sm" data-act="dkPresentHere">' + uic('play', 12) + ' ' + L('Present from here', '从此页演示') + '</button>' + (ed && ['cover','section','text'].indexOf(sel.s.type) < 0 ? (sel.s.cfg && sel.s.cfg.msg ? '' : '<button type="button" class="btn sm" data-act="dkAddMsg">' + uic('plus', 12) + ' ' + L('Key message', '重点结论') + '</button>') + (sel.s.cfg && sel.s.cfg.side ? '' : '<button type="button" class="btn sm" data-act="dkAddSide">' + uic('plus', 12) + ' ' + L('Notes box', '说明框') + '</button>') : '') + (ed ? '<span class="dk-sp"></span><button type="button" class="ib" data-act="dkMove" data-v="-1" title="' + esc(T('Move up', '上移')) + '">' + uic('up', 15) + '</button><button type="button" class="ib" data-act="dkMove" data-v="1" title="' + esc(T('Move down', '下移')) + '">' + uic('down', 15) + '</button><button type="button" class="ib" data-act="dkDup" title="' + esc(T('Duplicate', '复制')) + '">' + uic('copy', 15) + '</button><button type="button" class="ib' + (sel.s.hidden ? ' on' : '') + '" data-act="dkHide" title="' + esc(sel.s.hidden ? T('Show this slide', '显示此页') : T('Hide this slide (kept, not presented)', '隐藏此页（保留但不演示）')) + '">' + uic(sel.s.hidden ? 'eye' : 'hide', 15) + '</button><button type="button" class="ib" data-act="dkDelSlide" title="' + esc(T('Delete slide', '删除此页')) + '">' + uic('trash', 15) + '</button>' : '') + '</div>' +
       (sel.s.note ? '<div class="card dk-note"><b>' + L('Speaker notes', '演讲备注') + '</b><div>' + esc(sel.s.note) + '</div></div>' : '')
     : '<div class="card empty">' + L('This presentation has no slides yet.', '此演示文稿还没有页面。') + '</div>') +
     (fbs.length ? '<details class="card dk-fb"' + (fbOpen ? ' open' : '') + '><summary><b>' + L('Owner comments', '业主意见') + '</b> ' + (fbOpen ? chip('red', fbOpen + ' ' + L('open', '待处理')) : '') + '</summary>' + fbs.map(function(x){ return '<div class="fb' + (x.status === 'open' ? ' open' : '') + '"><div class="ahead"><b>' + esc(x.author_name || '') + '</b> <span class="mono muted">' + esc(x.reg_no || '') + '</span> <span class="muted">' + esc(fmtTime(x.created_at)) + '</span></div><div style="white-space:pre-wrap">' + esc(x.body) + '</div>' + (x.reply ? '<div class="note">↳ ' + esc(x.reply) + '</div>' : '') + (canTeamEdit() && x.status === 'open' ? '<div class="row"><input class="in" id="rp_' + esc(x.id) + '" placeholder="' + esc(T('Reply (optional)', '回复（可选）')) + '"><button type="button" class="btn sm" data-act="fbResolve" data-v="' + esc(x.id) + '">' + L('Reply & resolve', '回复并关闭') + '</button></div>' : '') + '</div>'; }).join('') + '</details>' : '') +
@@ -170,6 +171,7 @@ function slideProps(deck, s, ed){
       if(reg) h += pRow(L('Meeting', '会议'), pSel('cfg.meeting', c.meeting || 'latest', [['latest', T('Latest meeting before the deck date', '演示日期前的最近一次会议')]].concat(recsOf(reg.id).slice().sort(function(a, b){ return String(b.d[rolesOf(reg).start] || '').localeCompare(String(a.d[rolesOf(reg).start] || '')); }).map(function(r){ return [r.id, (r.d[rolesOf(reg).start] || '') + ' · ' + recLabel(r)]; })), ed)) + pChk('cfg.open', c.open, L('Open actions only', '只显示未完成'), ed);
       break;
   }
+  if(['cover','section','text'].indexOf(s.type) < 0) h += pRow(L('Key message', '重点结论'), pIn('cfg.msg', c.msg, ed, T('One line shown under the title', '显示在标题下方的一句话')), L('Shown under the title in an orange bar. Leave empty to hide.', '以橙色条显示在标题下方；留空即隐藏。')) + pRow(L('Notes box', '说明框'), '<textarea class="in" rows="3" data-sp="cfg.side" data-fk="sp:' + esc(S.dslide) + ':side"' + (ed ? '' : ' disabled') + ' placeholder="' + esc(T('Your comments on this slide, one point per line', '对此页的说明，每行一条')) + '">' + esc(c.side || '') + '</textarea>', L('Shown at the bottom of the slide. The data above stays live.', '显示在页面底部；上方数据仍实时更新。'));
   h += pRow(L('Speaker notes', '演讲备注'), '<textarea class="in" rows="3" data-sp="note" data-fk="sp:' + esc(S.dslide) + ':note"' + (ed ? '' : ' disabled') + ' placeholder="' + esc(T('Only you see these — in the editor and in present mode (press N).', '只有你能看到：在编辑页和演示时（按 N）显示。')) + '">' + esc(s.note || '') + '</textarea>');
   return h;
 }
@@ -311,7 +313,7 @@ async function shareDeck(deck){
   if(deck.d.status !== 'issued'){ if(!confirm(T('Sharing issues the presentation: its figures are frozen as they are now, and the Owner sees exactly this version. Continue?', '发给业主会同时定稿：数据按当前冻结，业主看到的就是这一版。继续？'))) return; await issueDeck(deck); deck = getRec(deck.id); }
   else if(!confirm(T('Publish this issued presentation to the Owner?', '把这份已定稿的演示文稿发布给业主？'))) return;
   toast(T('Preparing the Owner copy…', '正在准备业主版本…'));
-  var data = clone(deck.d.snap || deckData(deck)), slides = (deck.d.slides || []).filter(function(s){ return !s.hidden; }).map(function(s){ return {id:s.id, type:s.type, title:s.title, cfg:{}}; });
+  var data = clone(deck.d.snap || deckData(deck)), slides = (deck.d.slides || []).filter(function(s){ return !s.hidden; }).map(function(s){ return {id:s.id, type:s.type, title:s.title, cfg:{msg:(s.cfg && s.cfg.msg) || '', side:(s.cfg && s.cfg.side) || ''}}; });
   var paths = [], bad = 0; slides.forEach(function(s){ var dd = data[s.id]; if(dd && dd.photos) dd.photos.forEach(function(p){ paths.push(p.path); }); });
   if(paths.length && STORE.signUrls) await STORE.signUrls(paths);
   for(var i = 0; i < slides.length; i++){ var dd = data[slides[i].id]; if(!dd || !dd.photos) continue; for(var j = 0; j < dd.photos.length; j++){ var p = dd.photos[j], u = STORE.fileUrl(p.path); p.src = u ? await imgToData(u, 1280) : null; if(!p.src) bad++; delete p.path; } }
@@ -371,6 +373,7 @@ document.addEventListener('click', function(e){
     case 'dkDup': (function(){ var s = slideById(deck, S.dslide); if(!s) return; var c = clone(s); c.id = uid('s'); addSlideTo(deck, c, s.id).then(function(){ S.dslide = c.id; renderMain(); }); })(); break;
     case 'dkHide': (function(){ var sl = clone(deck.d.slides || []); sl.forEach(function(s){ if(s.id === S.dslide) s.hidden = !s.hidden; }); saveSlides(deck, sl, true); })(); break;
     case 'dkDelSlide': (function(){ var sl = deck.d.slides || [], i = sl.map(function(s){ return s.id; }).indexOf(S.dslide); if(i < 0) return; var rest = sl.filter(function(s){ return s.id !== S.dslide; }); S.dslide = rest[Math.min(i, rest.length - 1)] ? rest[Math.min(i, rest.length - 1)].id : null; saveSlides(deck, clone(rest)); })(); break;
+    case 'dkAddMsg': case 'dkAddSide': (function(){ var k = act === 'dkAddMsg' ? 'msg' : 'side', sl = clone(deck.d.slides || []); sl.forEach(function(x){ if(x.id === S.dslide){ x.cfg = x.cfg || {}; x.cfg[k] = k === 'msg' ? T1('Key message', '重点结论') : T1('Comment', '说明'); } }); S.dkFocus = 'cfg.' + k; saveSlides(deck, sl, true); })(); break;
     case 'dkClearFx': (function(){ var sl = clone(deck.d.slides || []); sl.forEach(function(s){ if(s.id === S.dslide && s.cfg.filter){ s.cfg.filter.fx = {}; s.cfg.filter.q = ''; s.cfg.filter.from = ''; s.cfg.filter.to = ''; } }); saveSlides(deck, sl, true); })(); break;
     case 'dkPresent': (function(){ var d0 = getRec(v); if(d0) presentDeck(d0); })(); break;
     case 'dkPresentHere': if(deck) presentDeck(deck, S.dslide); break;
@@ -425,6 +428,35 @@ document.addEventListener('change', function(e){
     if(d === 'cfg.reg'){ var nr = getReg(v); if(s.type === 'table'){ s.cfg.cols = nr ? defCols(nr) : []; s.cfg.filter = {open:!!(s.cfg.filter && s.cfg.filter.open)}; s.cfg.sort = null; if(nr && (!s.title || !s.title.en || s.title.en === 'Register')) s.title = {en:nr.d.en || '', zh:nr.d.zh || ''}; } if(s.type === 'matrix'){ s.cfg.row = ''; s.cfg.col = ''; } if(s.type === 'breakdown') s.cfg.by = ''; if(s.type === 'actions') s.cfg.meeting = 'latest'; }
     saveSlides(deck, slides, true);
   }
+});
+
+/* inline editing on the slide preview: text marked data-ed becomes editable in place (only in the editor, only for drafts) */
+function enableInline(){
+  var deck = S.deck && getRec(S.deck); if(S.page !== 'decks' || !deck || !isDeckRec(deck) || deck.d.status === 'issued' || !canDeckEdit()) return;
+  $$('.dk-stage [data-ed]').forEach(function(el){ try{ el.contentEditable = 'plaintext-only'; }catch(e){ el.contentEditable = 'true'; } if(el.contentEditable !== 'plaintext-only') el.contentEditable = 'true'; el.spellcheck = false; el.setAttribute('data-fk', 'ed:' + S.dslide + ':' + el.dataset.ed); });
+  if(S.dkFocus){ var f = $('.dk-stage [data-ed="' + S.dkFocus + '"]'); S.dkFocus = null; if(f){ f.focus(); try{ var r = document.createRange(); r.selectNodeContents(f); var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r); }catch(e){} } }
+}
+function edRaw(deck, path){ if(path.indexOf('deck.') === 0) return deck.d[path.slice(5)] || ''; var s = slideById(deck, S.dslide); return s ? (getPath(s, path) || '') : ''; }
+document.addEventListener('focusin', function(e){
+  var el = e.target; if(!el || !el.dataset || !el.dataset.ed || !el.isContentEditable) return;
+  var deck = S.deck && getRec(S.deck); if(!deck) return;
+  if(el.dataset.raw){ var raw = edRaw(deck, el.dataset.ed); el.dataset.orig = raw; el.classList.add('sl-raw'); el.textContent = raw; }
+  else el.dataset.orig = el.textContent;
+});
+document.addEventListener('keydown', function(e){
+  var el = e.target; if(!el || !el.dataset || !el.dataset.ed || !el.isContentEditable) return;
+  if(e.key === 'Escape'){ e.preventDefault(); e.stopPropagation(); el.dataset.cancel = '1'; el.blur(); return; }
+  if(e.key === 'Enter' && (!el.dataset.raw || e.metaKey || e.ctrlKey)){ e.preventDefault(); el.blur(); }
+}, true);
+document.addEventListener('focusout', function(e){
+  var el = e.target; if(S.inRender || !el || !el.dataset || !el.dataset.ed || !el.isContentEditable) return;
+  var deck = S.deck && getRec(S.deck), path = el.dataset.ed, cancel = el.dataset.cancel; delete el.dataset.cancel;
+  if(!deck || deck.d.status === 'issued'){ return; }
+  var v = el.innerText.replace(/\u00a0/g, ' '); if(!el.dataset.raw) v = v.replace(/\s*\n\s*/g, ' ').trim(); else v = v.replace(/\s+$/, '');
+  if(cancel || v === (el.dataset.orig || '')){ if(el.dataset.raw || cancel) setTimeout(renderMain, 0); return; }
+  if(path.indexOf('deck.') === 0){ setRec(deck, mk(path.slice(5), v), {silent:true}); return; }
+  var sl = clone(deck.d.slides || []), s = sl.filter(function(x){ return x.id === S.dslide; })[0]; if(!s) return;
+  setPath(s, path, v); saveSlides(deck, sl, true);
 });
 
 /* editor: drag thumbnails to reorder; ↑/↓ to move between slides */

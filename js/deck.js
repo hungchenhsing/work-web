@@ -26,6 +26,13 @@ function tplReg(key){ var r = allRegs().filter(function(x){ return x.d.tpl === k
 function withLang(lang, fn){ var old = S.lang; S.lang = lang || 'en'; try{ return fn(); } finally { S.lang = old; } }
 function regLab(reg){ return reg ? {en:reg.d.en || '', zh:reg.d.zh || '', icon:reg.d.icon, color:reg.d.color || 'blue'} : {en:'', zh:''}; }
 function bil(o){ if(!o) return ''; if(S.lang === 'zh') return esc(o.zh || o.en || ''); if(S.lang === 'en' || !o.zh || o.zh === o.en) return esc(o.en || o.zh || ''); return esc(o.en || '') + '<span class="sl-zh">' + esc(o.zh) + '</span>'; }
+/* a slide title as editable spans: data-ed names the path that inline editing writes to */
+function edTitle(o){ o = o || {}; var en = o.en || '', zh = o.zh || '';
+  if(S.lang === 'zh') return '<span data-ed="title.zh">' + esc(zh || en) + '</span>';
+  if(S.lang === 'en' || !zh || zh === en) return '<span data-ed="title.en">' + esc(en || zh) + '</span>';
+  return '<span data-ed="title.en">' + esc(en) + '</span><span class="sl-zh" data-ed="title.zh">' + esc(zh) + '</span>'; }
+function room(s, n, mc, sc){ var c = (s && s.cfg) || {}; return Math.max(3, n - (c.msg ? (mc == null ? 1 : mc) : 0) - (c.side ? (sc == null ? 3 : sc) : 0)); }
+function bulletsHtml(t){ var lines = String(t || '').split(/\n/).filter(function(x){ return x.trim(); }); return lines.length ? '<ul>' + lines.map(function(l){ var sb = /^\s{2,}|^\t|^-\s/.test(l); return '<li' + (sb ? ' class="sub"' : '') + '>' + esc(l.replace(/^[\s\-•*]+/, '')) + '</li>'; }).join('') + '</ul>' : ''; }
 function bil1(o){ return o ? esc(S.lang === 'zh' ? (o.zh || o.en || '') : (o.en || o.zh || '')) : ''; }
 function recPair(reg, r){ var ro = rolesOf(reg); return {en:(ro.title && r.d[ro.title]) || '', zh:(ro.title2 && r.d[ro.title2]) || ''}; }
 function stPair(reg, r){ var o = statusOpt(reg, r); return o ? {en:o.en, zh:o.zh || '', color:o.color, done:!!o.done} : null; }
@@ -155,9 +162,9 @@ function chunk(arr, n){ var out = []; for(var i = 0; i < arr.length; i += n) out
 function fmtD(n){ var d = new Date(n * 864e5); return pad(d.getUTCDate()) + ' ' + MON[d.getUTCMonth()]; }
 function slEmpty(en, zh){ return '<div class="sl-empty">' + esc(S.lang === 'zh' ? zh : en) + '</div>'; }
 var SLIDE_RENDER = {
-  cover:function(d){ return ['<div class="sl-cv-l"><div class="sl-cv-proj">' + esc(d.project.en) + (d.project.zh && S.lang !== 'en' ? '<span>' + esc(d.project.zh) + '</span>' : '') + '</div><h1>' + (S.lang === 'zh' ? esc(d.title.zh || d.title.en) : esc(d.title.en || d.title.zh)) + '</h1>' + (S.lang === 'both' && d.title.zh && d.title.en ? '<h2>' + esc(d.title.zh) + '</h2>' : '') + (d.sub ? '<p class="sl-cv-sub">' + esc(d.sub) + '</p>' : '') + '</div>' +
-    '<div class="sl-cv-meta"><div><b>' + T('Date', '日期') + '</b>' + esc(d.date ? (S.lang === 'zh' ? +d.date.slice(0, 4) + '年' + (+d.date.slice(5, 7)) + '月' + (+d.date.slice(8, 10)) + '日' : fmtD(d2n(d.date)) + ' ' + d.date.slice(0, 4)) : '') + (d.meeting && d.meeting.time ? ' · ' + esc(d.meeting.time) : '') + '</div>' + (d.meeting && d.meeting.loc ? '<div><b>' + T('Venue', '地点') + '</b>' + esc(d.meeting.loc) + '</div>' : '') + (d.presenter ? '<div><b>' + T('Presented by', '汇报人') + '</b>' + esc(d.presenter) + '</div>' : '') + (d.meeting ? '<div><b>' + T('Meeting', '会议') + '</b>' + esc(d.meeting.no) + '</div>' : '') + '</div>']; },
-  section:function(d, s){ return ['<div class="sl-sec"><h1>' + bil(s.title) + '</h1>' + (d.sub ? '<p>' + esc(d.sub) + '</p>' : '') + '</div>']; },
+  cover:function(d){ return ['<div class="sl-cv-l"><div class="sl-cv-proj">' + esc(d.project.en) + (d.project.zh && S.lang !== 'en' ? '<span>' + esc(d.project.zh) + '</span>' : '') + '</div><h1 data-ed="' + (S.lang === 'zh' ? 'deck.titleZh' : 'deck.title') + '">' + (S.lang === 'zh' ? esc(d.title.zh || d.title.en) : esc(d.title.en || d.title.zh)) + '</h1>' + (S.lang === 'both' && d.title.zh && d.title.en ? '<h2 data-ed="deck.titleZh">' + esc(d.title.zh) + '</h2>' : '') + '<p class="sl-cv-sub" data-ed="cfg.sub" data-ph="' + esc(T('Subtitle', '副标题')) + '">' + esc(d.sub || '') + '</p></div>' +
+    '<div class="sl-cv-meta"><div><b>' + T('Date', '日期') + '</b>' + esc(d.date ? (S.lang === 'zh' ? +d.date.slice(0, 4) + '年' + (+d.date.slice(5, 7)) + '月' + (+d.date.slice(8, 10)) + '日' : fmtD(d2n(d.date)) + ' ' + d.date.slice(0, 4)) : '') + (d.meeting && d.meeting.time ? ' · ' + esc(d.meeting.time) : '') + '</div>' + (d.meeting && d.meeting.loc ? '<div><b>' + T('Venue', '地点') + '</b>' + esc(d.meeting.loc) + '</div>' : '') + (d.presenter ? '<div><b>' + T('Presented by', '汇报人') + '</b><span data-ed="cfg.presenter">' + esc(d.presenter) + '</span></div>' : '') + (d.meeting ? '<div><b>' + T('Meeting', '会议') + '</b>' + esc(d.meeting.no) + '</div>' : '') + '</div>']; },
+  section:function(d, s){ return ['<div class="sl-sec"><h1>' + edTitle(s.title) + '</h1><p data-ed="cfg.sub" data-ph="' + esc(T('Subtitle', '副标题')) + '">' + esc(d.sub || '') + '</p></div>']; },
   kpi:function(d){
     if(!d.items.length) return [slEmpty('Choose registers for this slide.', '请为此页选择台账。')];
     var tiles = [[T('Overall progress', '总体进度'), d.pct == null ? '—' : d.pct + '%', d.pct, ''], [T('Items completed', '已完成'), d.done + ' / ' + d.tot, null, ''], [T('Overdue', '逾期'), String(d.od), null, d.od ? 'bad' : ''], [T('Due in next 14 days', '未来 14 天到期'), String(d.due), null, '']];
@@ -165,41 +172,41 @@ var SLIDE_RENDER = {
       '<table class="sl-t sl-kt"><thead><tr><th>' + T('Register', '台账') + '</th><th>' + T('Items', '数量') + '</th><th>' + T('Completed', '已完成') + '</th><th style="width:300px">' + T('Progress', '进度') + '</th><th>' + T('Overdue', '逾期') + '</th><th>' + T('Due ≤ 14 d', '14 天内到期') + '</th></tr></thead><tbody>' +
       d.items.map(function(x){ return '<tr><td><b>' + bil(x.reg) + '</b></td><td class="n">' + x.n + '</td><td class="n">' + x.done + '</td><td>' + (x.pct != null ? slBar(x.pct) + ' <span class="n">' + x.pct + '%</span>' : '—') + '</td><td class="n' + (x.od ? ' bad' : '') + '">' + x.od + '</td><td class="n">' + x.due + '</td></tr>'; }).join('') + '</tbody></table>'];
   },
-  matrix:function(d){
+  matrix:function(d, s){
     if(d.err) return [slEmpty('Choose a register with a Block field.', '请选择有区域字段的台账。')];
-    var rows = chunk(d.rows, 9);
+    var rows = chunk(d.rows, room(s, 9, 1, 1));
     return rows.map(function(part, pi){ return '<table class="sl-t sl-mx"><thead><tr><th>' + bil1(d.rowName) + '</th>' + d.cols.map(function(c){ return '<th><span class="sl-blk c-' + esc(c.color) + '">' + esc(c.v) + '</span> ' + bil1(c) + '</th>'; }).join('') + '<th>' + T('Total', '合计') + '</th></tr></thead><tbody>' +
       part.map(function(r){ return '<tr><th>' + esc(r.label) + '</th>' + r.cells.map(function(c){ return c ? '<td style="' + (d.val === 'progress' ? slHeat(c.v) : c.bad ? 'background:#FBE8E8' : '') + '"><b>' + esc(c.t) + '</b>' + (c.sub ? '<small>' + esc(c.sub) + '</small>' : '') + '</td>' : '<td class="na">·</td>'; }).join('') + '<td class="tot" style="' + (d.val === 'progress' && r.tot ? slHeat(r.tot.v) : '') + '"><b>' + esc(r.tot ? r.tot.t : '—') + '</b></td></tr>'; }).join('') +
       (pi === rows.length - 1 ? '<tr class="sl-sum"><th>' + T('Total', '合计') + '</th>' + d.total.cells.map(function(c){ return '<td style="' + (d.val === 'progress' && c ? slHeat(c.v) : '') + '"><b>' + esc(c ? c.t : '—') + '</b></td>'; }).join('') + '<td class="tot"><b>' + esc(d.total.all ? d.total.all.t : '—') + '</b></td></tr>' : '') + '</tbody></table>' +
       (d.val === 'progress' ? '<p class="sl-note">' + T('Progress = completed ÷ planned quantity where quantities exist, otherwise average item progress.', '有工程量时进度 = 完成量 ÷ 计划量，否则为平均完成率。') + '</p>' : ''); });
   },
-  lookahead:function(d){
+  lookahead:function(d, s){
     if(!d.rows.length) return [slEmpty('Nothing planned in this window.', '此期间没有计划工作。')];
     var days = d.to - d.from + 1, W = 640, px = W / days;
     var head = '<div class="sl-gh">'; for(var w = 0; w < days; w += 7) head += '<span style="left:' + (w * px) + 'px;width:' + (7 * px) + 'px">' + esc(fmtD(d.from + w)) + '</span>'; head += '<i class="sl-today" style="left:' + ((d.asOf - d.from) * px) + 'px"></i></div>';
-    return chunk(d.rows, 12).map(function(part){ return '<table class="sl-t sl-la"><thead><tr><th style="width:96px">' + T('No.', '编号') + '</th><th>' + T('Item', '事项') + '</th><th style="width:80px">' + T('Block', '区域') + '</th><th style="width:' + W + 'px;padding:0">' + head + '</th></tr></thead><tbody>' +
+    return chunk(d.rows, room(s, 12)).map(function(part){ return '<table class="sl-t sl-la"><thead><tr><th style="width:96px">' + T('No.', '编号') + '</th><th>' + T('Item', '事项') + '</th><th style="width:80px">' + T('Block', '区域') + '</th><th style="width:' + W + 'px;padding:0">' + head + '</th></tr></thead><tbody>' +
       part.map(function(r){ var s = Math.max(r.s, d.from), f = Math.min(r.f, d.to), l = (s - d.from) * px, wd = Math.max(px * 0.8, (f - s + 1) * px), late = r.f < d.from;
         return '<tr' + (r.od ? ' class="sl-od"' : '') + '><td class="n">' + esc(r.no) + '</td><td><span class="sl-reg c-' + esc(r.reg.color) + '"></span>' + bil1(r.t) + '</td><td>' + (r.blocks ? slBlk(r.blocks) : '') + '</td><td class="sl-gc" style="width:' + W + 'px"><i class="sl-today" style="left:' + ((d.asOf - d.from) * px) + 'px"></i>' +
           (late ? '<span class="sl-late">' + T('overdue since ', '逾期自 ') + esc(fmtD(r.f)) + '</span>' : r.ms ? '<i class="sl-ms" style="left:' + (l + wd / 2 - 7) + 'px"></i>' : '<span class="sl-gb' + (r.od ? ' sl-od' : '') + '" style="left:' + l + 'px;width:' + wd + 'px"><i style="width:' + (r.pct || 0) + '%"></i></span>' + (r.pct != null ? (l + wd + 44 > W ? '<span class="sl-gp sl-in" style="right:' + (W - l - wd + 4) + 'px">' + r.pct + '%</span>' : '<span class="sl-gp" style="left:' + (l + wd + 4) + 'px">' + r.pct + '%</span>') : '')) + '</td></tr>'; }).join('') + '</tbody></table>'; });
   },
-  table:function(d){
+  table:function(d, s){
     if(d.err) return [slEmpty('Choose a register.', '请选择台账。')];
     if(!d.rows.length) return [slEmpty('No items match this slide’s filter.', '没有符合此页筛选条件的记录。')];
-    return chunk(d.rows, d.per || 12).map(function(part){ return '<table class="sl-t"><thead><tr>' + d.cols.map(function(c){ return '<th>' + bil(c) + '</th>'; }).join('') + '</tr></thead><tbody>' + part.map(function(r){ return '<tr' + (r.od ? ' class="sl-od"' : '') + '>' + r.c.map(function(c, i){
+    return chunk(d.rows, room(s, d.per || 10)).map(function(part){ return '<table class="sl-t"><thead><tr>' + d.cols.map(function(c){ return '<th>' + bil(c) + '</th>'; }).join('') + '</tr></thead><tbody>' + part.map(function(r){ return '<tr' + (r.od ? ' class="sl-od"' : '') + '>' + r.c.map(function(c, i){
       if(c.t) return '<td class="sl-tt"' + (r.dep ? ' style="padding-left:' + (10 + r.dep * 18) + 'px"' : '') + '>' + (r.dep ? '└ ' : '') + bil(c.t) + '</td>';
       if(c.s) return '<td>' + slChip(c.s) + '</td>'; if(c.p !== undefined) return '<td>' + (c.p == null ? '—' : slBar(c.p) + ' <span class="n">' + c.p + '%</span>') + '</td>'; if(c.b) return '<td>' + slBlk(c.b) + '</td>';
       return '<td' + (c.m ? ' class="n"' : '') + '>' + esc(c.v || '—') + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table>'; });
   },
-  breakdown:function(d){
+  breakdown:function(d, s){
     if(d.err) return [slEmpty('Choose a register with a status field.', '请选择有状态字段的台账。')];
     var max = Math.max.apply(null, d.groups.map(function(g){ return g.n; }).concat([1]));
-    return chunk(d.groups, 10).map(function(part){ return '<div class="sl-bd">' + part.map(function(g){ return '<div class="sl-bdr"><span class="sl-bdl">' + esc(g.label) + '</span><span class="sl-bdb" style="width:' + Math.max(4, g.n / max * 100) + '%">' + g.segs.map(function(n, i){ return n ? '<i class="cb-' + esc(d.legend[i].color) + '" style="flex:' + n + '" title="' + n + '">' + (n / g.n > 0.08 ? n : '') + '</i>' : ''; }).join('') + '</span><span class="sl-bdn"><b>' + g.done + '</b> / ' + g.n + '</span></div>'; }).join('') + '</div><div class="sl-legend">' + d.legend.map(function(l){ return '<span><i class="cb-' + esc(l.color) + '"></i>' + bil1(l) + '</span>'; }).join('') + '</div>'; });
+    return chunk(d.groups, room(s, 10)).map(function(part){ return '<div class="sl-bd">' + part.map(function(g){ return '<div class="sl-bdr"><span class="sl-bdl">' + esc(g.label) + '</span><span class="sl-bdb" style="width:' + Math.max(4, g.n / max * 100) + '%">' + g.segs.map(function(n, i){ return n ? '<i class="cb-' + esc(d.legend[i].color) + '" style="flex:' + n + '" title="' + n + '">' + (n / g.n > 0.08 ? n : '') + '</i>' : ''; }).join('') + '</span><span class="sl-bdn"><b>' + g.done + '</b> / ' + g.n + '</span></div>'; }).join('') + '</div><div class="sl-legend">' + d.legend.map(function(l){ return '<span><i class="cb-' + esc(l.color) + '"></i>' + bil1(l) + '</span>'; }).join('') + '</div>'; });
   },
-  punch:function(d){
+  punch:function(d, s){
     if(d.err) return [slEmpty('Choose the punch-list register.', '请选择尾项台账。')];
     var tiles = '<div class="sl-tiles s3"><div class="sl-tile' + (d.open ? ' bad' : '') + '"><span>' + T('Open items', '未关闭') + '</span><b>' + d.open + '</b><small>' + T('of ' + d.total + ' raised', '共 ' + d.total + ' 项') + '</small></div><div class="sl-tile' + (d.od ? ' bad' : '') + '"><span>' + T('Past due date', '超期未关闭') + '</span><b>' + d.od + '</b></div>' + (d.closedWk != null ? '<div class="sl-tile good"><span>' + T('Closed in last 7 days', '近 7 天关闭') + '</span><b>' + d.closedWk + '</b></div>' : '') + '</div>';
     var grid = d.prios.length && d.blocks.length ? '<table class="sl-t sl-pg"><thead><tr><th>' + T('Priority', '优先级') + '</th>' + d.blocks.map(function(b){ return '<th><span class="sl-blk c-' + esc(b.color) + '">' + esc(b.v) + '</span></th>'; }).join('') + '<th>' + T('Total', '合计') + '</th></tr></thead><tbody>' + d.prios.map(function(p, i){ var row = d.grid[i] || [], tot = row.reduce(function(s, x){ return s + x; }, 0); return '<tr><th>' + slChip(p) + '</th>' + row.map(function(n){ return '<td class="n' + (n ? ' hit' : '') + '">' + (n || '·') + '</td>'; }).join('') + '<td class="n"><b>' + tot + '</b></td></tr>'; }).join('') + '</tbody></table>' : '';
-    var top = d.top.length ? '<table class="sl-t sl-pt"><thead><tr><th></th><th>' + T('Item', '问题') + '</th><th>' + T('Location', '位置') + '</th><th>' + T('Due', '期限') + '</th></tr></thead><tbody>' + d.top.map(function(r){ return '<tr' + (r.od ? ' class="sl-od"' : '') + '><td>' + (r.prio ? '<span class="sl-chip c-' + esc(r.prio.color) + '">' + esc(r.prio.v) + '</span>' : '') + '</td><td><span class="n">' + esc(r.no) + '</span> ' + bil1(r.t) + '</td><td>' + slBlk(r.b) + ' ' + esc(r.loc) + '</td><td class="n">' + esc(r.due ? fmtD(d2n(r.due)) : '') + '</td></tr>'; }).join('') + '</tbody></table>' : '';
+    var topRows = d.top.slice(0, room(s, 7)), top = topRows.length ? '<table class="sl-t sl-pt"><thead><tr><th></th><th>' + T('Item', '问题') + '</th><th>' + T('Location', '位置') + '</th><th>' + T('Due', '期限') + '</th></tr></thead><tbody>' + topRows.map(function(r){ return '<tr' + (r.od ? ' class="sl-od"' : '') + '><td>' + (r.prio ? '<span class="sl-chip c-' + esc(r.prio.color) + '">' + esc(r.prio.v) + '</span>' : '') + '</td><td><span class="n">' + esc(r.no) + '</span> ' + bil1(r.t) + '</td><td>' + slBlk(r.b) + ' ' + esc(r.loc) + '</td><td class="n">' + esc(r.due ? fmtD(d2n(r.due)) : '') + '</td></tr>'; }).join('') + '</tbody></table>' : '';
     return [tiles + '<div class="sl-2c"><div>' + grid + '</div><div>' + top + '</div></div>'];
   },
   photos:function(d){
@@ -207,16 +214,15 @@ var SLIDE_RENDER = {
     var per = d.layout === '3x2' ? 6 : d.layout === '1' ? 1 : 4;
     return chunk(d.photos, per).map(function(part){ return '<div class="sl-ph l' + esc(d.layout) + '">' + part.map(function(p){ var u = p.src || (p.path && STORE && STORE.fileUrl(p.path)) || ''; return '<figure>' + (u ? '<img src="' + esc(u) + '" alt="">' : '<div class="sl-noimg"></div>') + '<figcaption><b>' + esc(p.no) + '</b> ' + bil1(p.t) + ' ' + slBlk(p.b) + '<span>' + esc(p.date) + '</span></figcaption></figure>'; }).join('') + '</div>'; });
   },
-  actions:function(d){
+  actions:function(d, s){
     if(d.err) return [slEmpty('Choose the meetings register.', '请选择会议台账。')];
     if(!d.meeting) return [slEmpty('No meeting with action items before this date.', '此日期前没有带待办事项的会议。')];
     var head = '<p class="sl-sub">' + T('From ', '来自 ') + esc(d.meeting.no) + ' · ' + bil1(d.meeting.t) + ' · ' + esc(d.meeting.date) + '</p>';
     if(!d.rows.length) return [head + slEmpty('No open action items.', '没有未完成的待办事项。')];
-    return chunk(d.rows, 11).map(function(part){ return head + '<table class="sl-t"><thead><tr><th style="width:40px">#</th><th>' + T('Action', '事项') + '</th><th style="width:220px">' + T('Owner', '负责人') + '</th><th style="width:130px">' + T('Due', '期限') + '</th><th style="width:110px">' + T('Status', '状态') + '</th></tr></thead><tbody>' + part.map(function(r, i){ return '<tr' + (r.od ? ' class="sl-od"' : '') + '><td class="n">' + (d.rows.indexOf(r) + 1) + '</td><td>' + esc(r.a) + '</td><td>' + esc(r.who) + '</td><td class="n">' + esc(r.due) + '</td><td>' + (r.done ? '<span class="sl-chip c-green">' + T('Done', '完成') + '</span>' : r.od ? '<span class="sl-chip c-red">' + T('Overdue', '逾期') + '</span>' : '<span class="sl-chip c-blue">' + T('Open', '进行中') + '</span>') + '</td></tr>'; }).join('') + '</tbody></table>'; });
+    return chunk(d.rows, room(s, 11)).map(function(part){ return head + '<table class="sl-t"><thead><tr><th style="width:40px">#</th><th>' + T('Action', '事项') + '</th><th style="width:220px">' + T('Owner', '负责人') + '</th><th style="width:130px">' + T('Due', '期限') + '</th><th style="width:110px">' + T('Status', '状态') + '</th></tr></thead><tbody>' + part.map(function(r, i){ return '<tr' + (r.od ? ' class="sl-od"' : '') + '><td class="n">' + (d.rows.indexOf(r) + 1) + '</td><td>' + esc(r.a) + '</td><td>' + esc(r.who) + '</td><td class="n">' + esc(r.due) + '</td><td>' + (r.done ? '<span class="sl-chip c-green">' + T('Done', '完成') + '</span>' : r.od ? '<span class="sl-chip c-red">' + T('Overdue', '逾期') + '</span>' : '<span class="sl-chip c-blue">' + T('Open', '进行中') + '</span>') + '</td></tr>'; }).join('') + '</tbody></table>'; });
   },
   text:function(d){
-    function list(t){ var lines = String(t || '').split(/\n/).filter(function(x){ return x.trim(); }); return lines.length ? '<ul>' + lines.map(function(l){ var sub = /^\s{2,}|^\t|^-\s/.test(l); return '<li' + (sub ? ' class="sub"' : '') + '>' + esc(l.replace(/^[\s\-•*]+/, '')) + '</li>'; }).join('') + '</ul>' : ''; }
-    return ['<div class="sl-txt' + (d.body2 ? ' two' : '') + '"><div>' + (list(d.body) || slEmpty('Type the points in the slide settings.', '请在右侧设置中输入要点。')) + '</div>' + (d.body2 ? '<div>' + list(d.body2) + '</div>' : '') + '</div>'];
+    return ['<div class="sl-txt' + (d.body2 ? ' two' : '') + '"><div data-ed="cfg.body" data-raw="1" data-ph="' + esc(T('Click to type the points — one per line', '点击输入要点，每行一条')) + '">' + bulletsHtml(d.body) + '</div>' + (d.body2 ? '<div data-ed="cfg.body2" data-raw="1">' + bulletsHtml(d.body2) + '</div>' : '') + '</div>'];
   }
 };
 
@@ -225,7 +231,8 @@ function slideData(deck, s, ctx){ var snap = deck.d.status === 'issued' && deck.
 function slideTitle(s){ return s.title || {en:'', zh:''}; }
 function wrapPage(deck, s, body, pi, pn, n, total, hdr){
   if(s.type === 'cover' || s.type === 'section') return '<div class="sl sl-' + s.type + '">' + body + '<div class="sl-f2"><span>' + esc(hdr.proj) + '</span><span>' + n + ' / ' + total + '</span></div></div>';
-  return '<div class="sl"><div class="sl-band"></div><div class="sl-h"><h1>' + bil(slideTitle(s)) + (pn > 1 ? '<span class="sl-pgn">' + (pi + 1) + ' / ' + pn + '</span>' : '') + '</h1><div class="sl-proj">' + esc(hdr.proj) + '</div></div><div class="sl-b">' + body + '</div><div class="sl-f"><span>' + esc(hdr.title) + '</span><span>' + esc(hdr.date) + '</span><span>' + n + ' / ' + total + '</span></div></div>';
+  var c = s.cfg || {}, msg = c.msg ? '<div class="sl-msg" data-ed="cfg.msg">' + esc(c.msg) + '</div>' : '', side = c.side ? '<div class="sl-side' + (String(c.side).split(/\n/).filter(function(x){ return x.trim(); }).length > 4 ? ' two' : '') + '" data-ed="cfg.side" data-raw="1">' + bulletsHtml(c.side) + '</div>' : '';
+  return '<div class="sl"><div class="sl-band"></div><div class="sl-h"><h1>' + edTitle(slideTitle(s)) + (pn > 1 ? '<span class="sl-pgn">' + (pi + 1) + ' / ' + pn + '</span>' : '') + '</h1><div class="sl-proj">' + esc(hdr.proj) + '</div></div><div class="sl-b">' + msg + body + side + '</div><div class="sl-f"><span>' + esc(hdr.title) + '</span><span>' + esc(hdr.date) + '</span><span>' + n + ' / ' + total + '</span></div></div>';
 }
 function deckBuild(deck, opts){
   opts = opts || {};
@@ -311,6 +318,9 @@ var SLIDE_CSS = [
 '.sl-ph img,.sl-noimg{flex:1;min-height:0;width:100%;object-fit:cover;background:#E6E8E3}',
 '.sl-ph figcaption{padding:6px 10px;font-size:13px;display:flex;gap:6px;align-items:center;white-space:nowrap;overflow:hidden}.sl-ph figcaption span{margin-left:auto;color:#7A8087;font-family:ui-monospace,Menlo,monospace;font-size:12px}',
 '.sl-txt{display:grid;gap:40px;font-size:24px}.sl-txt.two{grid-template-columns:1fr 1fr}.sl-txt ul{margin:0;padding-left:28px;display:flex;flex-direction:column;gap:14px}.sl-txt li::marker{color:#E8930C}.sl-txt li.sub{margin-left:32px;font-size:20px;color:#3D434A;list-style:circle}',
+'.sl-msg{flex:none;font-size:21px;font-weight:650;color:#123660;background:#FFF6E6;border-left:6px solid #E8930C;padding:9px 16px;border-radius:0 6px 6px 0;line-height:1.35}',
+'.sl-side{flex:none;max-height:118px;overflow:hidden;font-size:15px;color:#2E3338;background:#F3F5F8;border-left:6px solid #1D4E89;padding:8px 16px 8px 14px;border-radius:0 6px 6px 0}.sl-side ul{margin:0;padding-left:20px}.sl-side li{margin:2px 0}.sl-side li.sub{margin-left:20px;list-style:circle}.sl-side.two ul{columns:2;column-gap:36px}',
+'.sl-cv-sub:empty,.sl-sec p:empty{display:none}',
 '.sl-empty{flex:1;display:flex;align-items:center;justify-content:center;color:#8A9096;font-size:20px;border:2px dashed #DADDD6;border-radius:12px;text-align:center;padding:40px}'
 ].join('\n');
 (function(){ var st = document.createElement('style'); st.id = 'slide-css'; st.textContent = SLIDE_CSS; document.head.appendChild(st); })();

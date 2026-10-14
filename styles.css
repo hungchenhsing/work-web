@@ -583,3 +583,12 @@ body.presenting{overflow:hidden}
 .dk-barg{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px;padding:0 12px 12px;align-items:end;border-top:1px solid var(--line2);padding-top:12px}
 .dk-barg .fl>span{font-size:12px;color:var(--muted)}
 .dk-barg .seg{width:max-content}
+/* inline editing on the slide preview */
+.dk-stage [contenteditable]{outline:2px dashed transparent;outline-offset:4px;border-radius:3px;cursor:text;transition:outline-color .12s}
+.dk-stage [contenteditable]:hover{outline-color:rgba(232,147,12,.65)}
+.dk-stage [contenteditable]:focus{outline:2px solid #E8930C}
+.dk-stage [data-ph]:empty::before{content:attr(data-ph);color:#9AA0A6;font-style:italic;font-weight:400}
+.dk-stage .sl-cv-sub:empty,.dk-stage .sl-sec p:empty{display:block;min-height:1.3em}
+.dk-stage .sl-txt>div:empty{min-height:3em}
+.sl-raw{white-space:pre-wrap}
+.dk-hint{margin:-2px 0 0}

@@ -7,8 +7,9 @@ function notifySoft(){ notify(); }
 function appReady(){ return STORE && STORE.ready && (STORE.mode === 'demo' || (STORE.me && STORE.session)); }
 
 /* keep focus + caret across re-renders */
-function focusKey(el){ if(!el || !el.getAttribute) return null; var k = el.getAttribute('data-fk'); if(!k) return null; var txt = el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && /^(text|search|url|number|email)$/.test(el.type || 'text')); return {k:k, s:el.selectionStart, e:el.selectionEnd, v:txt ? el.value : null}; }
-function restoreFocus(f){ if(!f) return; var el = document.querySelector('[data-fk="' + f.k.replace(/"/g, '\\"') + '"]'); if(el){ if(f.v != null && el.value !== f.v && !el.disabled) el.value = f.v; el.focus(); try{ if(f.s != null) el.setSelectionRange(f.s, f.e); }catch(e){} } }
+function focusKey(el){ if(!el || !el.getAttribute) return null; var k = el.getAttribute('data-fk'); if(!k) return null; if(el.isContentEditable) return {k:k, ce:true, v:el.innerText, raw:el.classList.contains('sl-raw')}; var txt = el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && /^(text|search|url|number|email)$/.test(el.type || 'text')); return {k:k, s:el.selectionStart, e:el.selectionEnd, v:txt ? el.value : null}; }
+function restoreFocus(f){ if(!f) return; var el = document.querySelector('[data-fk="' + f.k.replace(/"/g, '\\"') + '"]'); if(el && f.ce){ if(!el.isContentEditable) return; el.focus(); if(f.raw) el.classList.add('sl-raw'); if(el.innerText !== f.v) el.textContent = f.v; try{ var r = document.createRange(); r.selectNodeContents(el); r.collapse(false); var sl = window.getSelection(); sl.removeAllRanges(); sl.addRange(r); }catch(e){} return; }
+  if(el){ if(f.v != null && el.value !== f.v && !el.disabled) el.value = f.v; el.focus(); try{ if(f.s != null) el.setSelectionRange(f.s, f.e); }catch(e){} } }
 
 function renderAll(){
   if(!STORE) return;
@@ -60,7 +61,9 @@ function renderSide(){
   $('#side').innerHTML = h;
   document.body.classList.toggle('side-open', !!S.sideOpen);
 }
-function renderMain(){
+/* while the main area is rebuilt, the browser fires focusout on the element being replaced — inline editors ignore that */
+function renderMain(){ S.inRender = (S.inRender || 0) + 1; try{ renderMain0(); } finally { S.inRender--; } }
+function renderMain0(){
   var m = $('#main'), sx = m.scrollTop, h, gw = $('#gwrap'), gsc = gw ? [gw.scrollLeft, gw.scrollTop] : null, tw = $('.tbl-wrap'), tsc = tw ? [tw.scrollLeft, tw.scrollTop] : null, pk = S.page + ':' + S.reg + ':' + (S.rv[S.reg] || '');
   try{
     if(S.page === 'reg' && getReg(S.reg)) h = viewRegister(getReg(S.reg));
@@ -82,7 +85,7 @@ function renderMain(){
   var same = S.lastPk === pk; S.lastPk = pk;
   if(same && tsc){ var t2 = $('.tbl-wrap'); if(t2){ t2.scrollLeft = tsc[0]; t2.scrollTop = tsc[1]; } }
   if(S.page === 'reg' || S.page === 'schedule') afterGantt(same && S.gKeep ? gsc : null);
-  if(S.page === 'decks'){ fitSlides(); if(!same) m.scrollTop = 0; }
+  if(S.page === 'decks'){ fitSlides(); enableInline(); }
 }
 
 /* ---------------- cell rendering ---------------- */
