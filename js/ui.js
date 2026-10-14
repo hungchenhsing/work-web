@@ -112,32 +112,66 @@ function regionPatch(m, html){
 
 /* ---------------- long lists: draw only the rows near the visible part ----------------
    Lists up to VW_MIN rows are drawn in full. Longer ones (table rows or Gantt rows) keep all row HTML in memory and put
-   only a window of rows in the page, with spacers above and below; scrolling swaps the window. Row height is measured. */
+   only a window of rows in the page, with spacers above and below.
+   Rows differ in height (two-line titles, sub-item buttons, chips), so each drawn row's real height is remembered and
+   rows not drawn yet count with the average. Positions come from the running sum of those heights. The browser's own
+   scroll anchoring is off for these lists ([data-vw]{overflow-anchor:none}); instead the row at the top of the view is
+   kept in place when heights get corrected, and after every redraw the visible part is checked and filled at once. */
 var VW = {}, VW_MIN = 150, LZ = [];
 /* a lazy row: its HTML is only built when the row is drawn */
 function lzRow(fn, kind){ var i = LZ.push(fn) - 1; return kind === 'div' ? '<div class="grow" data-lz="' + i + '"></div>' : '<tr data-lz="' + i + '"></tr>'; }
 function lzGet(lz, x){ var m = /^<(?:tr|div class="grow") data-lz="(\d+)"><\/(?:tr|div)>$/.exec(x); return m && lz[+m[1]] ? lz[+m[1]]() : x; }
 function vwSplit(html, kind){ return kind === 'tr' ? html.split(/(?=<tr[\s>])/).filter(Boolean) : html.split(/(?=<div class="grow[\s"])/).filter(Boolean); }
 function vwSpacer(st, h){ return st.kind === 'tr' ? '<tr class="vsp" aria-hidden="true"><td colspan="' + st.span + '" style="height:' + Math.round(h) + 'px"></td></tr>' : '<div class="vsp" aria-hidden="true" style="height:' + Math.round(h) + 'px"></div>'; }
-function vwRange(st, top, vh){ var n = st.rows.length, rh = st.rh || 38, s = clamp(Math.floor(top / rh) - 15, 0, Math.max(0, n - 1)), e = Math.min(n, s + Math.ceil(vh / rh) + 40); return [s, e]; }
-function vwInner(st){ var r = st.range, out = ''; for(var i = r[0]; i < r[1]; i++){ var x = st.rows[i]; if(x.indexOf('data-lz=') > 0 && x.length < 60){ x = lzGet(st.lz, x); st.rows[i] = x; } out += x; } return vwSpacer(st, r[0] * st.rh) + out + vwSpacer(st, (st.rows.length - r[1]) * st.rh); }
+function vwSetSp(sp, h){ if(sp) (sp.firstElementChild || sp).style.height = Math.max(0, Math.round(h)) + 'px'; }
+function vwEst(st){ return st.cnt ? st.sum / st.cnt : (st.kind === 'tr' ? 40 : 38); }
+/* offsets: o[i] = top of row i inside the list, o[n] = full height */
+function vwOff(st){ var n = st.rows.length, o = new Float64Array(n + 1), e = vwEst(st), acc = 0; for(var i = 0; i < n; i++){ o[i] = acc; var h = st.hs[i]; acc += h > 0 ? h : e; } o[n] = acc; st.off = o; return o; }
+function vwFind(o, y){ var lo = 0, hi = o.length - 2; if(hi <= 0 || y <= 0) return 0; while(lo < hi){ var m = (lo + hi) >> 1; if(o[m + 1] > y) hi = m; else lo = m + 1; } return lo; }
+/* rows to draw for a view starting at y (list coordinates) of height vh, with a margin of about one screen above and below */
+function vwRange(st, y, vh){ var o = vwOff(st), n = st.rows.length, buf = Math.max(500, vh); var s = vwFind(o, y - buf), e = Math.min(n, vwFind(o, y + vh + buf) + 1); if(e <= s) e = Math.min(n, s + 1); return [s, e]; }
+function vwInner(st){ var r = st.range, o = st.off || vwOff(st), out = ''; for(var i = r[0]; i < r[1]; i++){ var x = st.rows[i]; if(x.indexOf('data-lz=') > 0 && x.length < 60){ x = lzGet(st.lz, x); st.rows[i] = x; } out += x; } return vwSpacer(st, o[r[0]]) + out + vwSpacer(st, o[st.rows.length] - o[r[1]]); }
 /* rows: array of row HTML. Returns the HTML to put inside the scrolling list (all rows when short). */
 function vwHtml(key, rows, kind, span){
   if(rows.length <= VW_MIN){ delete VW[key]; return rows.map(function(x){ return lzGet(LZ, x); }).join(''); }
-  var old = VW[key] || {}, st = VW[key] = {key:key, rows:rows, lz:LZ, kind:kind, span:span || 1, rh:old.rh || (kind === 'tr' ? 36 : 38), top:old.top || 0};
-  st.range = vwRange(st, st.top, window.innerHeight);
+  var old = VW[key] || {}, keep = old.rows && old.rows.length === rows.length;
+  var st = VW[key] = {key:key, rows:rows, lz:LZ, kind:kind, span:span || 1, hs:keep ? old.hs : [], sum:keep ? old.sum : 0, cnt:keep ? old.cnt : 0, top:old.top || 0, head:old.head == null ? (kind === 'tr' ? 34 : 56) : old.head, vh:old.vh || Math.round(window.innerHeight * 0.75)};
+  if(!keep && old.cnt){ st.sum = old.sum / old.cnt * 20; st.cnt = 20; }   // keep the average as a first guess
+  st.range = vwRange(st, st.top - st.head, st.vh);
   return vwInner(st);
 }
 function vwBody(key){ return document.querySelector('[data-vwb="' + key + '"]'); }
-function vwMeasure(st){ var b = vwBody(st.key); if(!b) return; var kids = Array.prototype.filter.call(b.children, function(c){ return !c.classList.contains('vsp'); }); if(!kids.length) return; var h = 0; kids.forEach(function(c){ h += c.getBoundingClientRect().height; }); var rh = h / kids.length; if(rh > 8 && Math.abs(rh - st.rh) > 0.5){ st.rh = rh; var r = st.range; var sp = b.querySelectorAll(':scope>.vsp'); if(sp[0]) (sp[0].firstElementChild || sp[0]).style.height = Math.round(r[0] * rh) + 'px'; if(sp[1]) (sp[1].firstElementChild || sp[1]).style.height = Math.round((st.rows.length - r[1]) * rh) + 'px'; } }
-function vwAfterRender(){ Object.keys(VW).forEach(function(k){ if(vwBody(k)) vwMeasure(VW[k]); else delete VW[k]; }); }
+function vwKids(b){ return Array.prototype.filter.call(b.children, function(c){ return !c.classList.contains('vsp'); }); }
+/* the first row (index and screen position) showing at the top of the view, to keep it still */
+function vwAnchor(st, c, b){ var ct = c.getBoundingClientRect().top + 40, kids = vwKids(b); for(var k = 0; k < kids.length; k++){ var rc = kids[k].getBoundingClientRect(); if(rc.bottom > ct) return {i:st.range[0] + k, y:rc.top}; } return null; }
+/* after the rows are in the page: measure them, fix the spacers, keep the top row still, and make sure the view is filled */
+function vwSync(st, c, b, anchor){
+  for(var pass = 0; pass < 4; pass++){
+    var r = st.range, kids = vwKids(b);
+    kids.forEach(function(el, k){ var i = r[0] + k, h = el.getBoundingClientRect().height; if(!(h > 0)) return; var was = st.hs[i]; if(was > 0){ st.sum += h - was; } else { st.sum += h; st.cnt++; } st.hs[i] = h; });
+    var o = vwOff(st), sp = b.querySelectorAll(':scope>.vsp'); vwSetSp(sp[0], o[r[0]]); vwSetSp(sp[1], o[st.rows.length] - o[r[1]]);
+    if(anchor && anchor.i >= r[0] && anchor.i < r[1] && kids[anchor.i - r[0]]){ var dy = kids[anchor.i - r[0]].getBoundingClientRect().top - anchor.y; if(Math.abs(dy) >= 1) c.scrollTop += dy; }
+    st.top = c.scrollTop; st.vh = c.clientHeight || st.vh;
+    var bt = b.getBoundingClientRect().top - c.getBoundingClientRect().top + c.scrollTop; if(isFinite(bt)) st.head = bt;
+    var y = st.top - st.head, n = st.rows.length;
+    if((r[0] === 0 || o[r[0]] <= y) && (r[1] === n || o[r[1]] >= y + st.vh)) return;
+    st.range = vwRange(st, y, st.vh); b.innerHTML = vwInner(st);
+  }
+}
+/* redraw the window around the current scroll position */
+function vwRender(st, c){
+  var b = vwBody(st.key); if(!b) return; var fk = focusKey(document.activeElement), anchor = vwAnchor(st, c, b);
+  st.top = c.scrollTop; st.vh = c.clientHeight || st.vh; st.range = vwRange(st, st.top - st.head, st.vh);
+  b.innerHTML = vwInner(st); vwSync(st, c, b, anchor); if(fk) restoreFocus(fk);
+}
+function vwAfterRender(){ Object.keys(VW).forEach(function(k){ var b = vwBody(k), c = b && b.closest('[data-vw]'); if(!c){ delete VW[k]; return; } vwSync(VW[k], c, b, null); }); }
+/* while scrolling: redraw as soon as the drawn rows no longer reach a margin past the view (in the same frame, before paint) */
 document.addEventListener('scroll', function(ev){
   var c = ev.target; if(!c || !c.getAttribute) return; var key = c.getAttribute('data-vw'); if(!key || !VW[key]) return;
-  var st = VW[key]; st.top = c.scrollTop; if(st.raf) return;
-  st.raf = requestAnimationFrame(function(){ st.raf = 0; var r = vwRange(st, st.top, c.clientHeight || window.innerHeight), cur = st.range;
-    if(r[0] >= cur[0] && r[1] <= cur[1] && (r[0] - cur[0] < 20 || cur[0] === 0) && (cur[1] - r[1] < 20 || cur[1] === st.rows.length)) return;
-    if(Math.abs(r[0] - cur[0]) < 15 && Math.abs(r[1] - cur[1]) < 15) return;
-    var b = vwBody(key); if(!b) return; var fk = focusKey(document.activeElement); st.range = r; b.innerHTML = vwInner(st); vwMeasure(st); if(fk) restoreFocus(fk); });
+  var st = VW[key], o = st.off || vwOff(st), r = st.range, n = st.rows.length, vh = c.clientHeight || st.vh, y = c.scrollTop - st.head, m = Math.min(300, vh / 2);
+  st.top = c.scrollTop;
+  if((r[0] === 0 || o[r[0]] <= y - m) && (r[1] === n || o[r[1]] >= y + vh + m)) return;
+  vwRender(st, c);
 }, true);
 /* table column widths for long (windowed) tables, so columns don't jump while scrolling */
 function colWidth(reg, f){ if(f.w) return f.w; var ro = rolesOf(reg); if(f.key === ro.no) return 110; if(f.key === ro.title) return 300; if(f.key === ro.title2) return 220;
