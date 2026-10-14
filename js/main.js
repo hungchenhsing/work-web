@@ -114,7 +114,7 @@ document.addEventListener('click', function(e){
     case 'bulkPick': (function(){ var f = fieldOf(reg, S.bulkF); openPick(f.type === 'tree' ? 'tree' : 'opts', {reg:reg.id, key:f.key, bulk:true, bulkVal:null, noClear:false, onPick:function(val){ bulkApply(reg, f, val); closePop(); }}, el); })(); break;
     case 'bulkSet': bulkApply(reg, fieldOf(reg, S.bulkF), v === '1'); break;
     case 'bulkApply': (function(){ var f = fieldOf(reg, S.bulkF), raw = ($('#bulkVal') || {}).value; bulkApply(reg, f, f.type === 'number' || f.type === 'percent' ? num(raw) : raw); })(); break;
-    case 'bulkExt': bulkApply(reg, {key:'ext', type:'check'}, true); break;
+    case 'bulkExt': bulkApply(reg, {key:'ext', type:'check'}, v !== '0'); break;
     case 'bulkDel': S.bulkDel = true; renderMain(); break;
     case 'bulkDelYes': (function(){ var ids = selIds(reg); S.sel = {}; S.bulkDel = false; Promise.all(ids.map(function(id){ return STORE.deleteRec(id).catch(function(){}); })).then(function(){ toast(T('Deleted ' + ids.length + ' — restore from the Change log', '已删除 ' + ids.length + ' 项，可在修改记录中恢复')); }); })(); break;
     case 'mxCell': (function(){ var o = JSON.parse(v), m = matrixCfg(reg), f = rfil(reg.id), rfd = fieldOf(reg, m.row); f.fx = {}; f.fx[m.col] = [o.c]; S.mxFilter = {k:m.row, g:o.g}; if(rfd && (rfd.type === 'select')) f.fx[m.row] = [o.g.replace(/^v:/, '')]; if(rfd && rfd.type === 'tree') f.node = o.g.replace(/^t:/, ''); S.rv[reg.id] = 'table'; renderMain(); })(); break;

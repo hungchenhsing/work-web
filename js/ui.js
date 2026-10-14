@@ -285,7 +285,7 @@ function renderDrawer(){
   else if(S.dtab === 'history') h += drawerHistory(reg, rec);
   else if(S.dtab === 'comments') h += drawerComments(reg, rec);
   else h += (lib ? docPreview(rec, ed) : relStrip(rec, ed)) + drawerForm(reg, rec, ed);
-  h += '</div><div class="dfoot">' + (ed ? '<button type="button" class="btn sm" data-act="dupRec">' + uic('copy', 14) + ' ' + L('Duplicate', '复制') + '</button>' + (reg.d.ownerPublish && !isPrivate(reg) ? '<label class="chk"><input type="checkbox" data-act="extTog"' + (rec.d.ext ? ' checked' : '') + '>' + L('Show in Owner plan', '显示于业主计划') + '</label>' : '') +
+  h += '</div><div class="dfoot">' + (ed ? '<button type="button" class="btn sm" data-act="dupRec">' + uic('copy', 14) + ' ' + L('Duplicate', '复制') + '</button>' + (ownerGated(reg) && !isPrivate(reg) ? '<label class="chk"><input type="checkbox" data-act="extTog"' + (rec.d.ext ? ' checked' : '') + '>' + L('Show in Owner plan', '显示于业主计划') + '</label>' : '') +
     (S.delAsk ? '<span class="dl"><button type="button" class="btn sm danger" data-act="delYes">' + (descendantsOf(rec).length ? L('Delete with ' + descendantsOf(rec).length + ' sub-items', '连同 ' + descendantsOf(rec).length + ' 个子项一起删除') : L('Confirm delete', '确认删除')) + '</button><button type="button" class="btn sm" data-act="delNo">' + L('Cancel', '取消') + '</button></span>' : '<button type="button" class="btn sm danger-o" data-act="delAsk">' + uic('trash', 14) + ' ' + L('Delete', '删除') + '</button>') : '<span class="note">' + L('Read only', '只读') + '</span>') + '</div></aside>';
   root.innerHTML = h; document.body.classList.add('dopen');
   var b = $('.dbody'); if(b) b.scrollTop = ds;

@@ -102,6 +102,7 @@ function freezeSlide(deck, s){
     Array.prototype.forEach.call(tb.rows, function(tr, ri){
       var cells = Array.prototype.map.call(tr.cells, function(td){ var chip = td.querySelector('.sl-chip'), t = td.innerText != null ? td.textContent : ''; t = String(td.textContent || '').replace(/\s+/g, ' ').trim(); var o = {t:t}; if(chip && chip.textContent.trim() === t){ var m = /c-(\w+)/.exec(chip.className); if(m) o.c = m[1]; } var bg = td.getAttribute('style') || ''; var mb = /background:([^;]+)/.exec(bg); if(mb && !/color-mix/.test(mb[1])) o.bg = mb[1].trim(); return o; });
       if(tr.parentNode.tagName === 'THEAD'){ if(!head) head = cells.map(function(c){ return c.t; }); return; }
+      if(head) while(cells.length < head.length) cells.push({t:''});
       rows.push(cells); }); });
   if(!head) return null;
   var c = {head:head, rows:rows, per:(s.cfg && s.cfg.per) || 10, msg:s.cfg && s.cfg.msg, side:s.cfg && s.cfg.side, orig:{type:s.type, cfg:clone(s.cfg)}};

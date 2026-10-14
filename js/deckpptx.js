@@ -73,6 +73,8 @@ async function pageToSlide(pptx, root, note){
       var row = [];
       Array.prototype.forEach.call(tr.cells, function(td, ci){
         var cs = getComputedStyle(td), trcs = getComputedStyle(tr), txt = String(td.innerText || td.textContent || '').replace(/[ \t]+/g, ' ').trim(), chip = td.querySelector('.sl-chip,.sl-blk'), ccs = chip ? getComputedStyle(chip) : cs;
+        if(tr.classList.contains('sl-grp')){ var gb = td.querySelector('b'), gn = td.querySelector('.sl-gn'), gc = Array.prototype.map.call(td.querySelectorAll('.sl-tsc'), function(x){ return String(x.innerText || x.textContent || '').replace(/\s+/g, ' ').trim(); }).join('   ·   '), gx = td.querySelector('.sl-gc');
+          txt = String(gb ? gb.innerText || gb.textContent : txt).replace(/\s+/g, ' ').trim() + (gn ? '  (' + gn.textContent.trim() + ')' : '') + (gx ? ' ' + gx.textContent.trim() : '') + (gc ? '      ' + gc : ''); chip = null; ccs = cs; }
         if(ri === 0) colW.push(inch(td.getBoundingClientRect().width));
         var tk = kOf(td), fill = rgbHex(cs.backgroundColor) || rgbHex(trcs.backgroundColor), o = Object.assign(runStyle(chip && chip.textContent.trim() === txt ? ccs : cs, txt, tk), {align:cs.textAlign === 'center' ? 'center' : cs.textAlign === 'right' ? 'right' : 'left', valign:'middle'});
         if(fill) o.fill = {color:fill}; if(td.colSpan > 1) o.colspan = td.colSpan;

@@ -12,7 +12,7 @@ UI_ICONS.lockon = UI_ICONS.lock;
 
 /* ---------------- helpers ---------------- */
 function isDeckRec(r){ var dr = deckReg(); return !!(r && dr && r.reg === dr.id); }
-function deckRegs(test){ return allRegs().filter(function(r){ return !isPrivate(r) && (!test || test(r)); }); }
+function deckRegs(test){ var lg = typeof libReg === 'function' ? libReg() : null; return allRegs().concat(lg ? [lg] : []).filter(function(r){ return !isPrivate(r) && (!test || test(r)); }); }
 function meetingRecs(){ var out = []; allRegs().forEach(function(reg){ if(!reg.d.meeting || isPrivate(reg)) return; recsOf(reg.id).forEach(function(r){ out.push({reg:reg, r:r, date:r.d[rolesOf(reg).start] || ''}); }); }); return out.sort(function(a, b){ return String(b.date).localeCompare(String(a.date)); }); }
 function deckTitle(d){ return (S.lang === 'zh' ? (d.titleZh || d.title) : (d.title || d.titleZh)) || T('Untitled presentation', '未命名演示文稿'); }
 function deckChips(deck){
@@ -167,7 +167,13 @@ function slideProps(deck, s, ed, region){
         var fxn = Object.keys(f0.fx || {}).filter(function(k){ return (f0.fx[k] || []).length; }).length + (f0.q ? 1 : 0) + (f0.from || f0.to ? 1 : 0);
         if(fxn) h += '<p class="note">' + L(fxn + ' more filter(s) carried over from the register view.', '另有 ' + fxn + ' 个从台账视图带过来的筛选条件。') + (ed ? ' <button type="button" class="lnk" data-act="dkClearFx">' + L('Clear them', '清除') + '</button>' : '') + '</p>';
         h += pRow(L('Sort by', '排序'), pSel('cfg.sort.k', (c.sort && c.sort.k) || rolesOf(reg).no || '', dataFields(reg).filter(function(f){ return ['files','sub','link','section','long'].indexOf(f.type) < 0; }).map(function(f){ return [f.key, T1(f.en, f.zh)]; }), ed) + pSel('cfg.sort.d', (c.sort && c.sort.d) || 1, [[1, T('ascending', '升序')], [-1, T('descending', '降序')]], ed, 'num'));
-        h += pRow(L('Rows per page', '每页行数'), pSel('cfg.per', c.per || 10, [6, 8, 10, 12, 14].map(function(n){ return [n, String(n)]; }), ed, 'num'), L('More rows continue on extra pages automatically.', '超出部分自动分页。'));
+        var gfs = dataFields(reg).filter(function(f){ return f.type === 'tree' || f.type === 'select'; }), gf0 = c.group && fieldOf(reg, c.group);
+        h += pRow(L('Group by', '分组'), pSel('cfg.group', gf0 ? c.group : '', [['', T('No grouping', '不分组')]].concat(gfs.map(function(f){ return [f.key, T1(f.en, f.zh)]; })), ed) +
+          (gf0 && gf0.type === 'tree' ? pSel('cfg.glvl', c.glvl === 2 ? 2 : 1, [[1, T('Top level', '第一级')], [2, T('Second level', '第二级')]], ed, 'num') : ''),
+          gf0 ? L('Each group gets a heading with its count. Hover a heading on the slide and click × to leave that group out.', '每组有小标题和数量；鼠标移到页面上的小标题点 × 可隐藏整组。') : '');
+        h += '<div class="fl"><span class="flab">' + L('Show', '显示') + '</span>' + (gf0 ? pChk('cfg.gst', c.gst !== false, L('Status counts in group headings', '小标题显示各状态数量'), ed) : '') +
+          pChk('cfg.sum', !!c.sum, L('Status summary bar at the top', '顶部状态汇总条'), ed) + pChk('cfg.dense', !!c.dense, L('Compact rows (more per page)', '紧凑行距（每页更多行）'), ed) + '</div>';
+        h += pRow(L('Rows per page', '每页行数'), pSel('cfg.per', c.per || 10, [6, 8, 10, 12, 14, 16, 18, 20, 24].map(function(n){ return [n, String(n)]; }), ed, 'num'), L('More rows continue on extra pages automatically. 16 or more work best with compact rows.', '超出部分自动分页；16 行以上建议配合紧凑行距。'));
       }
       break;
     case 'breakdown':

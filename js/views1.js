@@ -128,7 +128,7 @@ function viewTable(reg, list){
   if(selIds.length && ed){
     h += '<div class="bulk"><b>' + L(selIds.length + ' selected', '已选 ' + selIds.length) + '</b><select class="in" id="bulkField"><option value="">' + esc(T('Set a field…', '批量设置字段…')) + '</option>' + dataFields(reg).filter(function(f){ return ['text','number','percent','date','select','tree','check','long'].indexOf(f.type) >= 0 && !(f.type === 'percent' && f.auto); }).map(function(f){ return '<option value="' + esc(f.key) + '">' + esc(T1(f.en, f.zh)) + '</option>'; }).join('') + '</select>' +
       (S.bulkF ? bulkInput(reg, fieldOf(reg, S.bulkF)) : '') +
-      (reg.d.ownerPublish && !isPrivate(reg) ? '<button type="button" class="btn sm" data-act="bulkExt" data-v="1">' + L('Show in Owner plan', '显示于业主计划') + '</button>' : '') +
+      (reg.d.ownerPublish && !isPrivate(reg) ? '<button type="button" class="btn sm" data-act="bulkExt" data-v="1">' + L('Show in Owner plan', '显示于业主计划') + '</button><button type="button" class="btn sm" data-act="bulkExt" data-v="0">' + L('Remove from Owner plan', '移出业主计划') + '</button>' : '') +
       (S.bulkDel ? '<button type="button" class="btn sm danger" data-act="bulkDelYes">' + L('Confirm delete ' + selIds.length, '确认删除 ' + selIds.length + ' 项') + '</button>' : '<button type="button" class="btn sm danger-o" data-act="bulkDel">' + L('Delete', '删除') + '</button>') +
       '<button type="button" class="btn sm" data-act="selClear">' + L('Clear selection', '取消选择') + '</button></div>';
   }

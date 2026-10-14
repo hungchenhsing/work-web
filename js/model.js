@@ -47,6 +47,8 @@ function regNameL(reg){ return reg ? L(reg.d.en || '', reg.d.zh || '') : ''; }
 function fieldsOf(reg){ return (reg && reg.d.fields) || []; }
 function dataFields(reg){ return fieldsOf(reg).filter(function(f){ return f.type !== 'section'; }); }
 function fieldOf(reg, key){ return fieldsOf(reg).filter(function(f){ return f.key === key; })[0] || null; }
+/* registers whose records reach the Owner only when marked “Show in Owner plan” (ext): published registers and the document library */
+function ownerGated(reg){ return !!reg && (!!reg.d.ownerPublish || reg.d.kind === 'library'); }
 function rolesOf(reg){ return (reg && reg.d.roles) || {}; }
 function rf(reg, roleName){ var k = rolesOf(reg)[roleName]; return k ? fieldOf(reg, k) : null; }
 function optsOf(f){ if(!f) return []; if(f.list){ var l = lists()[f.list]; return (l && l.opts) || []; } return f.opts || []; }

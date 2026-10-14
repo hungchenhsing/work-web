@@ -18,10 +18,24 @@ UI_ICONS.layers = '<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/>';
 var DK_GAL = [
   ['status', 'Status', '状态', ['summary', 'kpi', 'matrix', 'breakdown', 'punch']],
   ['plan', 'Schedule', '进度', ['timeline', 'gantt', 'mstable', 'scurve', 'lookahead']],
-  ['site', 'Site & records', '现场与记录', ['photos', 'table', 'actions']],
+  ['docs', 'Lists & documents', '清单与文件', ['p:doclist', 'p:liblist', 'table']],
+  ['site', 'Site & meetings', '现场与会议', ['photos', 'actions']],
   ['free', 'Text & layout', '文字与版式', ['cover', 'section', 'text', 'etable', 'blank', 'combo']]
 ];
 /* DATA_EL_TYPES (what a data block may show) is defined in deckels.js */
+/* presets: a ready-made register table (gallery key p:<name>); make() returns null when the source is missing */
+var SL_PRESETS = {
+  doclist:{type:'table', en:'Document list', zh:'文件清单', desc:['Turnover documents grouped by package, with a status summary', '移交文件按文件包分组，含状态汇总'],
+    make:function(){ var reg = getReg(tplReg('turnover')) || deckRegs(function(r){ return fieldOf(r, 'docNo') && r.d.kind !== 'library'; })[0]; if(!reg) return null; var ro = rolesOf(reg);
+      return newSlide('table', {reg:reg.id, cols:[ro.no, 'docNo', ro.title, 'rev', ro.status, 'ownerResult'].filter(function(k, i, a){ return k && fieldOf(reg, k) && a.indexOf(k) === i; }), filter:{}, group:ro.tree || '', sum:true, dense:true, per:18, sort:{k:ro.no, d:1}}, {en:'Document list', zh:'文件清单'}); }},
+  liblist:{type:'table', en:'Library documents', zh:'文件库清单', desc:['Documents from the library grouped by discipline', '文件库文件按专业分组'],
+    make:function(){ var reg = typeof libReg === 'function' ? libReg() : null; if(!reg || !recsOf(reg.id).length) return null;
+      return newSlide('table', {reg:reg.id, cols:['no', 'docNo', 'title', 'rev', 'disc', 'status', 'date'].filter(function(k){ return fieldOf(reg, k); }), filter:{}, group:fieldOf(reg, 'disc') ? 'disc' : '', sum:true, dense:true, per:18, sort:{k:'no', d:1}}, {en:'Documents', zh:'文件清单'}); }}
+};
+function galSlide(t){ if(t.indexOf('p:') === 0){ var p = SL_PRESETS[t.slice(2)]; try{ return p ? p.make() : null; }catch(e){ console.error(e); return null; } } return SLIDES[t] ? newSlide(t) : null; }
+function galType(t){ return t.indexOf('p:') === 0 ? (SL_PRESETS[t.slice(2)] || {}).type : t; }
+function galName(t){ var p = t.indexOf('p:') === 0 ? SL_PRESETS[t.slice(2)] : SLIDES[t]; return p ? T1(p.en, p.zh) : t; }
+function galDesc(t){ var p = SL_PRESETS[t.slice(2)], ds = t.indexOf('p:') === 0 ? (p ? p.desc : ['', '']) : (DK_DESC[t] || ['', '']); return T1(ds[0], ds[1]); }
 var DK_DESC = {
   summary:['Status light, plan vs actual, milestones, issues and decisions', '总体状态、计划 vs 实际、里程碑、问题与决策'],
   kpi:['Headline figures and progress per register', '关键数字与各台账进度'],
@@ -34,7 +48,7 @@ var DK_DESC = {
   scurve:['Planned vs actual progress curve', '计划 vs 实际进度曲线'],
   lookahead:['What is planned in the next weeks', '未来几周的计划工作'],
   photos:['Newest or hand-picked site photos', '最新或挑选的现场照片'],
-  table:['Any register as a table, filtered or picked', '任意台账表格（筛选或挑选）'],
+  table:['Any register as a table or list: filter, group, pick', '任意台账做成表格或清单：筛选、分组、挑选'],
   actions:['Open actions from the latest meeting', '最近会议的未完成待办'],
   cover:['Title page', '封面'], section:['Divider; fills the agenda bar', '分节页，同时生成议程条'], text:['Bullet points, one or two columns', '要点，一栏或两栏'],
   etable:['A table you type into', '可直接输入的表格'], blank:['Empty page for free layout', '空白页，自由排版'], combo:['Two blocks side by side', '左右两个区块']
@@ -200,7 +214,7 @@ function suggestHead(s, d){
     if(d.val === 'progress' && cs.length > 1){ cs.sort(function(a, b){ return b.v - a.v; }); var hi = cs[0], lo = cs[cs.length - 1]; return {en:'Block ' + hi.c.v + ' leads at ' + hi.v + '%; Block ' + lo.c.v + ' trails at ' + lo.v + '%', zh:hi.c.v + ' 区进度领先（' + hi.v + '%），' + lo.c.v + ' 区落后（' + lo.v + '%）'}; }
     return d.total.all ? {en:(d.reg ? tEn(d.reg) + ': ' : '') + d.total.all.t + (d.val === 'open' ? ' open items' : d.val === 'count' ? ' items' : ' complete'), zh:(d.reg ? tZh(d.reg) + '：' : '') + (d.val === 'open' ? '未完成 ' : d.val === 'count' ? '共 ' : '完成 ') + d.total.all.t + (d.val === 'progress' ? '' : ' 项')} : null; }
   if(t === 'lookahead'){ var n = d.rows.length, od = d.rows.filter(function(r){ return r.od; }).length, w = Math.round((d.to - d.from + 1) / 7); return {en:n + ' ' + pl(n, 'activity', 'activities') + ' in the ' + w + '-week look-ahead' + (od ? '; ' + od + ' already overdue' : ''), zh:'未来 ' + w + ' 周共 ' + n + ' 项工作' + (od ? '，其中 ' + od + ' 项已逾期' : '')}; }
-  if(t === 'table'){ var n2 = d.rows.length, od2 = d.rows.filter(function(r){ return r.od; }).length; return {en:tEn(d.reg) + ': ' + n2 + ' ' + pl(n2, 'item') + (od2 ? ', ' + od2 + ' overdue' : ''), zh:tZh(d.reg) + '共 ' + n2 + ' 项' + (od2 ? '，其中 ' + od2 + ' 项逾期' : '')}; }
+  if(t === 'table'){ var rr2 = d.rows.filter(function(r){ return !r.g; }), n2 = rr2.length, od2 = rr2.filter(function(r){ return r.od; }).length; return {en:tEn(d.reg) + ': ' + n2 + ' ' + pl(n2, 'item') + (od2 ? ', ' + od2 + ' overdue' : ''), zh:tZh(d.reg) + '共 ' + n2 + ' 项' + (od2 ? '，其中 ' + od2 + ' 项逾期' : '')}; }
   if(t === 'breakdown'){ var all = 0, dn = 0, worst = null; d.groups.forEach(function(g){ all += g.n; dn += g.done; if(!worst || g.n - g.done > worst.n - worst.done) worst = g; }); if(!all) return null; return {en:dn + ' of ' + all + ' complete' + (worst && worst.n > worst.done ? '; most open in ' + worst.label + ' (' + (worst.n - worst.done) + ')' : ''), zh:'共 ' + all + ' 项，已完成 ' + dn + ' 项' + (worst && worst.n > worst.done ? '；' + worst.label + ' 未完成最多（' + (worst.n - worst.done) + ' 项）' : '')}; }
   if(t === 'punch') return {en:d.open + ' punch ' + pl(d.open, 'item') + ' open' + (d.od ? ', ' + d.od + ' past due' : '') + (d.closedWk != null ? '; ' + d.closedWk + ' closed this week' : ''), zh:'尾项未关闭 ' + d.open + ' 项' + (d.od ? '，超期 ' + d.od + ' 项' : '') + (d.closedWk != null ? '；本周关闭 ' + d.closedWk + ' 项' : '')};
   if(t === 'actions'){ if(!d.meeting) return null; var op = d.rows.filter(function(r){ return !r.done; }).length, od3 = d.rows.filter(function(r){ return r.od; }).length; return {en:op + ' open ' + pl(op, 'action') + ' from ' + d.meeting.no + (od3 ? '; ' + od3 + ' overdue' : ''), zh:d.meeting.no + ' 尚有 ' + op + ' 项待办' + (od3 ? '，其中 ' + od3 + ' 项逾期' : '')}; }
@@ -217,16 +231,16 @@ function suggestHead(s, d){
 /* ================= add-slide / data-block gallery (live previews) ================= */
 function galleryModal(m){
   var deck = curDeck(); if(!deck) return {title:'', html:''};
-  if(!m.thumbs){ m.thumbs = {}; DK_GAL.forEach(function(g){ g[3].forEach(function(t){ if(!SLIDES[t] || (m.mode === 'el' && DATA_EL_TYPES.indexOf(t) < 0)) return; try{ var s = newSlide(t), b = deckBuild({id:deck.id, d:Object.assign({}, deck.d, {slides:[s], status:'draft', snap:null})}); m.thumbs[t] = b[0] ? b[0].pages[0] : ''; }catch(e){ console.error(e); m.thumbs[t] = ''; } }); }); }
+  if(!m.thumbs){ m.thumbs = {}; DK_GAL.forEach(function(g){ g[3].forEach(function(t){ if(!SLIDES[galType(t)] || (m.mode === 'el' && DATA_EL_TYPES.indexOf(galType(t)) < 0)) return; try{ var s = galSlide(t); if(!s) return; var b = deckBuild({id:deck.id, d:Object.assign({}, deck.d, {slides:[s], status:'draft', snap:null})}); m.thumbs[t] = b[0] ? b[0].pages[0] : ''; }catch(e){ console.error(e); m.thumbs[t] = ''; } }); }); }
   var h = DK_GAL.map(function(g){ var ts = g[3].filter(function(t){ return m.thumbs[t] != null; }); if(!ts.length) return '';
-    return '<h3 class="dk-galh">' + L(g[1], g[2]) + '</h3><div class="dk-gal">' + ts.map(function(t){ var ds = DK_DESC[t] || ['', '']; return '<button type="button" class="dk-galc" data-act="dkGalAdd" data-v="' + t + '">' + scaled(m.thumbs[t]) + '<b>' + esc(T1(SLIDES[t].en, SLIDES[t].zh)) + '</b><span class="note">' + esc(T1(ds[0], ds[1])) + '</span></button>'; }).join('') + '</div>'; }).join('');
+    return '<h3 class="dk-galh">' + L(g[1], g[2]) + '</h3><div class="dk-gal">' + ts.map(function(t){ return '<button type="button" class="dk-galc" data-act="dkGalAdd" data-v="' + esc(t) + '">' + scaled(m.thumbs[t]) + '<b>' + esc(galName(t)) + '</b><span class="note">' + esc(galDesc(t)) + '</span></button>'; }).join('') + '</div>'; }).join('');
   return {title:m.mode === 'el' ? L('Insert a data block', '插入数据区块') : L('Add a slide', '添加页面'), wide:true, html:(m.mode === 'el' ? '<p class="note" style="margin-top:0">' + L('A data block is placed on the current slide next to its content; drag and resize it like any element. It follows the registers until the presentation is issued.', '数据区块会放在当前页内容旁边，可像其他元素一样拖动和缩放；在定稿前一直跟随台账更新。') + '</p>' : '<p class="note" style="margin-top:0">' + L('Previews use your live data. The new slide goes after the current one.', '预览使用实时数据；新页面会放在当前页之后。') + '</p>') + h,
     foot:'<button type="button" class="btn" data-act="mclose">' + L('Cancel', '取消') + '</button>'};
 }
 DECK_MODALS.dkGallery = galleryModal;
 function insertDataEl(type){
-  var deck = curDeck(), s = curSlide(); if(!deck || !s || !SLIDES[type]) return;
-  var e = {id:uid('e'), k:'data', type:type, cfg:SLIDES[type].def(), ttl:{en:SLIDES[type].t[0], zh:SLIDES[type].t[1]}}, r = mainRect(s), box = null;
+  var deck = curDeck(), s = curSlide(), ps = type && type.indexOf('p:') === 0 ? galSlide(type) : null; if(ps) type = ps.type; if(!deck || !s || !SLIDES[type]) return;
+  var e = {id:uid('e'), k:'data', type:type, cfg:ps ? ps.cfg : SLIDES[type].def(), ttl:ps ? ps.title : {en:SLIDES[type].t[0], zh:SLIDES[type].t[1]}}, r = mainRect(s), box = null;
   if(hasMain(s) && !s.box && s.type !== 'blank'){ var lw = Math.round(r.w * 0.56); box = {x:r.x, y:r.y, w:lw - 14, h:r.h}; e.x = r.x + lw + 14; e.y = r.y; e.w = r.w - lw - 14; e.h = r.h; }
   else { var area = ['cover', 'section'].indexOf(s.type) >= 0 ? {x:52, y:150, w:1176, h:470} : s.box && hasMain(s) ? freeArea(s) : r, n = (s.els || []).filter(isDataEl).length;
     if(area.free){ e.x = area.x; e.y = area.y; e.w = area.w; e.h = area.h; }
@@ -267,7 +281,7 @@ document.addEventListener('click', function(ev){
     case 'dkTab': S.dkTab = v; S.dkInsp = true; closePop(); renderMain(); break;
     case 'dkInsp': S.dkInsp = !S.dkInsp; renderMain(); break;
     case 'dkGal': closePop(); if(deck) openModal({kind:'dkGallery', mode:v}); break;
-    case 'dkGalAdd': (function(){ var m = S.modal; closeModal(); if(!deck) return; if(m && m.mode === 'el'){ insertDataEl(v); return; } var s = newSlide(v); addSlideTo(deck, s, S.dslide).then(function(){ S.dslide = s.id; S.dpage = 0; S.elSel = null; renderMain(); var on = $('.dk-t.on'); if(on && on.scrollIntoView) on.scrollIntoView({block:'nearest'}); }); })(); break;
+    case 'dkGalAdd': (function(){ var m = S.modal; closeModal(); if(!deck) return; if(m && m.mode === 'el'){ insertDataEl(v); return; } var s = galSlide(v); if(!s) return; addSlideTo(deck, s, S.dslide).then(function(){ S.dslide = s.id; S.dpage = 0; S.elSel = null; renderMain(); var on = $('.dk-t.on'); if(on && on.scrollIntoView) on.scrollIntoView({block:'nearest'}); }); })(); break;
     case 'dkSuggest': (function(){ var s = curSlide(), x = s && builtOf(s.id), sug = x && suggestHead(s, x.data); if(!sug) return; var sl = clone(deck.d.slides || []); sl.forEach(function(q){ if(q.id === s.id) q.title = {en:sug.en, zh:sug.zh}; }); saveSlides(deck, sl, true); toast(T('Headline applied', '已套用标题'), {act:'dkUndo', label:T('Undo', '撤销')}); })(); break;
     case 'dkSize': (function(){ var p = el.dataset.p; if(!p) return; var sl = clone(deck.d.slides || []), s = sl.filter(function(q){ return q.id === S.dslide; })[0]; if(!s) return; setPath(s, p, v || null); saveSlides(deck, sl, true); })(); break;
     case 'dkBoxPreset': boxPreset(v === 'full' ? null : v); break;

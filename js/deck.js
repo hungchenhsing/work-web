@@ -49,7 +49,7 @@ function dctx(deck){ return {deck:deck, owner:(deck.d.aud || 'owner') !== 'inter
 function regOk(ctx, reg){ return !!reg && reg.d.kind !== 'decks' && !isPrivate(reg); }
 /* ctx.focus (present mode “Focus”): only one block, only overdue, only key items */
 function focusOk(f, reg, r){ if(f.blk){ var bf = rf(reg, 'block'); if(bf && asArr(r.d[bf.key]).indexOf(f.blk) < 0) return false; } if(f.od && !isOverdue(reg, r)) return false; if(f.star && !r.d.star) return false; return true; }
-function recOk(ctx, reg, r){ if(ctx.focus && !focusOk(ctx.focus, reg, r)) return false; if(!ctx.owner) return true; if(isPrivate(reg)) return false; return !reg.d.ownerPublish || !!r.d.ext; }
+function recOk(ctx, reg, r){ if(ctx.focus && !focusOk(ctx.focus, reg, r)) return false; if(!ctx.owner) return true; if(isPrivate(reg)) return false; return !ownerGated(reg) || !!r.d.ext; }
 /* registers on a slide that Owner mode cuts down: published-to-Owner registers show only records marked “Show in Owner plan” */
 function slideRegIds(s){
   var out = [];
@@ -60,7 +60,7 @@ function slideRegIds(s){
 }
 function ownerGaps(deck, s){
   if(!deck || !s || !dctx(deck).owner) return [];
-  return slideRegIds(s).map(getReg).filter(function(r){ return r && !isPrivate(r) && r.d.ownerPublish; }).map(function(r){
+  return slideRegIds(s).map(getReg).filter(function(r){ return r && !isPrivate(r) && ownerGated(r); }).map(function(r){
     var rs = recsOf(r.id), n = 0; rs.forEach(function(x){ if(x.d.ext) n++; }); return {reg:r, ext:n, total:rs.length};
   }).filter(function(g){ return g.total > 0 && g.ext < g.total; });
 }
@@ -72,8 +72,17 @@ function ownerGapHtml(gaps, ed, strong){
     (ed ? '<button type="button" class="btn sm" data-act="dkSet" data-k="aud" data-v="internal">' + L('Use Internal', '改为内部') + '</button>' +
       gaps.map(function(g){ return '<button type="button" class="btn sm" data-act="reg" data-v="' + esc(g.reg.id) + '" title="' + esc(T('Open the register, tick rows and use “Show in Owner plan”', '打开台账，勾选记录后点「显示于业主计划」')) + '">' + L('Choose records', '选择记录') + (gaps.length > 1 ? ' · ' + esc(regName(g.reg)) : '') + ' →</button>'; }).join('') : '') + '</div>';
 }
-function fieldOk(ctx, reg, f){ if(!ctx.owner) return true; var ro = rolesOf(reg); return !!f.ext || [ro.title, ro.title2, ro.no].indexOf(f.key) >= 0; }
+function fieldOk(ctx, reg, f){ if(!ctx.owner) return true; var ro = rolesOf(reg); if(reg.d.kind === 'library' && LIB_OWNER_KEYS.indexOf(f.key) >= 0) return true; return !!f.ext || [ro.title, ro.title2, ro.no].indexOf(f.key) >= 0; }
 function defCols(reg){ var ro = rolesOf(reg); return [ro.no, ro.title, ro.block, ro.start, ro.finish, ro.progress, ro.status].filter(function(k, i, a){ return k && fieldOf(reg, k) && a.indexOf(k) === i; }); }
+/* a table row's group: a select option, or a package (tree) at level 1 or 2 — bilingual, with a sort order */
+function tblGroup(reg, r, f, lvl){
+  var v = r.d[f.key];
+  if(f.type === 'tree'){ var path = treePath(f, v), n = path[Math.min(lvl, path.length) - 1]; if(!n) return {k:'_n', en:'Unclassified', zh:'未分类', o:1e9};
+    var ord = 0, i = 0; treeDfs(f, function(x){ if(x.id === n.id) ord = i; i++; }); var cd = n.code ? n.code + ' ' : ''; return {k:'t:' + n.id, en:cd + (n.en || n.zh || ''), zh:cd + (n.zh || n.en || ''), o:ord}; }
+  if(f.type === 'select'){ var x = asArr(v)[0]; if(x == null || x === '') return {k:'_n', en:'(empty)', zh:'（空）', o:1e9}; var o = optOf(f, x), opts = optsOf(f);
+    return {k:'v:' + x, en:o ? o.en || x : x, zh:o ? o.zh || o.en || x : x, o:o ? opts.indexOf(o) : 5e8}; }
+  var t = String(v == null ? '' : textOf(reg, f, r)).trim(); return t ? {k:'x:' + t, en:t, zh:t, o:0} : {k:'_n', en:'(empty)', zh:'（空）', o:1e9};
+}
 function usable(ctx, ids){ return (ids || []).map(getReg).filter(function(r){ return regOk(ctx, r); }); }
 
 /* ---------------- slide types ---------------- */
@@ -82,7 +91,7 @@ var SLIDES = {
   kpi:{en:'Key figures', zh:'关键数据', t:['Progress overview','进度总览'], def:function(){ return {regs:allRegs().filter(function(r){ return !isPrivate(r) && !r.d.meeting && !r.d.allMs && r.d.tpl !== 'issues' && rf(r, 'status'); }).map(function(r){ return r.id; })}; }},
   matrix:{en:'Block progress matrix', zh:'区域进度矩阵', t:['Progress by block','分区施工进度'], def:function(){ return {reg:tplReg('site'), row:'', col:'', val:'progress'}; }},
   lookahead:{en:'Look-ahead', zh:'近期计划', t:['Look-ahead','近期工作计划'], def:function(){ return {regs:[tplReg('site'), tplReg('turnover')].filter(Boolean), weeks:3, overdue:true}; }},
-  table:{en:'Register table', zh:'台账表格', t:['Register','台账'], def:function(){ return {reg:tplReg('turnover'), cols:null, filter:{open:true, due:0}, per:10}; }},
+  table:{en:'Register table / list', zh:'台账表格 / 清单', t:['Register','台账'], def:function(){ return {reg:tplReg('turnover'), cols:null, filter:{}, per:10}; }},
   breakdown:{en:'Status breakdown', zh:'状态分布', t:['Status by package','按分类的状态分布'], def:function(){ return {reg:tplReg('turnover'), by:''}; }},
   punch:{en:'Punch-list summary', zh:'尾项汇总', t:['Punch list','尾项 / 缺陷'], def:function(){ return {reg:tplReg('punch')}; }},
   photos:{en:'Site photos', zh:'现场照片', t:['Site photos','现场照片'], def:function(){ return {mode:'auto', days:7, regs:[], picks:[], layout:'2x2'}; }},
@@ -139,14 +148,25 @@ var SLIDE_DATA = {
       list.sort(function(a, b){ var x = sortValue(reg, a, sk), y = sortValue(reg, b, sk); return (x < y ? -1 : x > y ? 1 : 0) * sd; }); }
     var keys = c.cols && c.cols.length ? c.cols : defCols(reg);
     var fs = keys.map(function(k){ return fieldOf(reg, k); }).filter(function(x){ return x && fieldOk(ctx, reg, x); });
-    return {reg:regLab(reg), cols:fs.map(function(x){ return {en:x.en, zh:x.zh || '', type:x.type, key:x.key, title:x.key === ro.title}; }), per:c.per || 12,
-      rows:list.map(function(r){ return {id:r.id, hl:recNo(reg, r) + ' ' + (r.d[ro.title] || ''), od:isOverdue(reg, r), dep:c.mode === 'pick' ? 0 : depthOf(r), c:fs.map(function(x){
+    var gf = c.group && fieldOf(reg, c.group), gl = c.glvl === 2 ? 2 : 1, gof = {};
+    if(gf){ list.forEach(function(r){ gof[r.id] = tblGroup(reg, r, gf, gl); }); list = list.filter(function(r){ return hd.indexOf('g:' + gof[r.id].k) < 0; });
+      var pos = {}; list.forEach(function(r, i){ pos[r.id] = i; }); list.sort(function(a, b){ return (gof[a.id].o - gof[b.id].o) || (pos[a.id] - pos[b.id]); }); }
+    var sf2 = rf(reg, 'status');
+    function stCounts(rs){ if(!sf2) return []; return optsOf(sf2).map(function(o){ return {en:o.en, zh:o.zh || '', color:o.color, n:rs.filter(function(r){ return r.d[sf2.key] === o.v; }).length}; }).filter(function(x){ return x.n; }); }
+    function rowOf(r){ return {id:r.id, hl:recNo(reg, r) + ' ' + (r.d[ro.title] || ''), od:isOverdue(reg, r), dep:c.mode === 'pick' || gf ? 0 : depthOf(r), c:fs.map(function(x){
         if(x.key === ro.title) return {t:recPair(reg, r)};
         if(x.type === 'select' && !x.multi && !x.list){ var o = optOf(x, r.d[x.key]); return o ? {s:{en:o.en, zh:o.zh || '', color:o.color}} : {v:''}; }
         if(x.type === 'percent' || (x.type === 'calc' && x.calc && x.calc.op === 'pct')){ var pv = val(r, x); if(pv == null && x.key === ro.progress) pv = progressOf(reg, r); return {p:pv == null ? null : Math.round(pv)}; }
         if(x.type === 'tree'){ var n = treeNode(x, r.d[x.key]); return {v: n ? treeLabel(n) : ''}; }
         if(x.type === 'select' && x.list === 'blocks') return {b:asArr(r.d[x.key])};
-        return {v:textOf(reg, x, r), m:x.type === 'date' || x.type === 'number' || x.key === ro.no}; })}; })}; },
+        return {v:textOf(reg, x, r), m:x.type === 'date' || x.type === 'number' || x.key === ro.no}; })}; }
+    var rows = [];
+    if(gf){ var cur = null, grs = [];
+      list.forEach(function(r){ var g = gof[r.id]; if(!cur || cur.k !== g.k){ cur = {k:g.k, en:g.en, zh:g.zh, items:[]}; grs.push(cur); } cur.items.push(r); });
+      grs.forEach(function(g){ rows.push({g:1, k:g.k, en:g.en, zh:g.zh, n:g.items.length, st:c.gst === false ? [] : stCounts(g.items)}); g.items.forEach(function(r){ rows.push(rowOf(r)); }); }); }
+    else rows = list.map(rowOf);
+    return {reg:regLab(reg), cols:fs.map(function(x){ return {en:x.en, zh:x.zh || '', type:x.type, key:x.key, title:x.key === ro.title}; }), per:c.per || 12, dense:!!c.dense,
+      sum:c.sum ? {n:list.length, od:list.filter(function(r){ return isOverdue(reg, r); }).length, st:stCounts(list)} : null, rows:rows}; },
   breakdown:function(c, ctx){ var reg = getReg(c.reg); if(!regOk(ctx, reg)) return {err:'reg'};
     var ro = rolesOf(reg), by = c.by || ro.tree || ro.block, sf = rf(reg, 'status'); if(!fieldOf(reg, by) || !sf) return {err:'cfg'};
     var list = recsOf(reg.id).filter(function(r){ return recOk(ctx, reg, r) && isLeaf(r); }), opts = optsOf(sf);
@@ -200,7 +220,7 @@ function slRender(type, data, s, box){ SL_WHY = data && data._on ? 1 : 0; try{ r
 function ownerNone(c, ctx){
   if(!ctx || !ctx.owner) return false;
   var regs = slideRegIds({cfg:c}).map(getReg).filter(function(r){ return r && !isPrivate(r); });
-  return regs.length > 0 && regs.some(function(r){ return recsOf(r.id).length; }) && regs.every(function(r){ return r.d.ownerPublish && !recsOf(r.id).some(function(x){ return x.d.ext; }); });
+  return regs.length > 0 && regs.some(function(r){ return recsOf(r.id).length; }) && regs.every(function(r){ return ownerGated(r) && !recsOf(r.id).some(function(x){ return x.d.ext; }); });
 }
 var SLIDE_RENDER = {
   cover:function(d){
@@ -246,10 +266,22 @@ var SLIDE_RENDER = {
   table:function(d, s){
     if(d.err) return [slEmpty('Choose a register.', '请选择台账。')];
     if(!d.rows.length) return [slEmpty('No items match this slide’s filter.', '没有符合此页筛选条件的记录。')];
-    return chunk(d.rows, room(s, d.per || 10)).map(function(part){ return '<table class="sl-t"><thead><tr>' + d.cols.map(function(c){ return '<th data-hk="c:' + esc(c.key) + '" data-hl="' + esc(c.en) + '">' + bil(c) + '</th>'; }).join('') + '</tr></thead><tbody>' + part.map(function(r){ return '<tr data-hk="r:' + esc(r.id) + '" data-hl="' + esc(r.hl || '') + '"' + (r.od ? ' class="sl-od"' : '') + '>' + r.c.map(function(c, i){
+    var nc = d.cols.length, per = room(s, d.per || 10), pages = [], cur = [], g = null;
+    function cell(r){ return r.c.map(function(c){
       if(c.t) return '<td class="sl-tt"' + (r.dep ? ' style="padding-left:' + (10 + r.dep * 18) + 'px"' : '') + '>' + (r.dep ? '└ ' : '') + bil(c.t) + '</td>';
       if(c.s) return '<td>' + slChip(c.s) + '</td>'; if(c.p !== undefined) return '<td>' + (c.p == null ? '—' : slBar(c.p) + ' <span class="n">' + c.p + '%</span>') + '</td>'; if(c.b) return '<td>' + slBlk(c.b) + '</td>';
-      return '<td' + (c.m ? ' class="n"' : '') + '>' + esc(c.v || '—') + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table>'; });
+      return '<td' + (c.m ? ' class="n"' : '') + '>' + esc(c.v || '—') + '</td>'; }).join(''); }
+    function stc(st){ return (st || []).map(function(x){ return '<span class="sl-tsc">' + slChip(x) + '<b>' + x.n + '</b></span>'; }).join(''); }
+    function grow(x, cont){ return '<tr class="sl-grp"' + (cont ? '' : ' data-hk="g:' + esc(x.k) + '" data-hl="' + esc(x.en) + '"') + '><td colspan="' + nc + '"><b>' + bil(x) + '</b>' + (cont ? ' <span class="sl-gc">' + bil({en:'(continued)', zh:'（续）'}) + '</span>' : ' <span class="sl-gn">' + x.n + '</span>' + stc(x.st)) + '</td></tr>'; }
+    function cap(){ return per - (d.sum && !pages.length ? 1 : 0); }
+    d.rows.forEach(function(r){
+      if(r.g){ if(cur.length && cur.length >= cap() - 1){ pages.push(cur); cur = []; } g = r; cur.push(grow(r)); return; }
+      if(cur.length >= cap()){ pages.push(cur); cur = []; if(g) cur.push(grow(g, true)); }
+      cur.push('<tr data-hk="r:' + esc(r.id) + '" data-hl="' + esc(r.hl || '') + '"' + (r.od ? ' class="sl-od"' : '') + '>' + cell(r) + '</tr>'); });
+    if(cur.length) pages.push(cur);
+    var head = '<thead><tr>' + d.cols.map(function(c){ return '<th data-hk="c:' + esc(c.key) + '" data-hl="' + esc(c.en) + '">' + bil(c) + '</th>'; }).join('') + '</tr></thead>';
+    var sum = d.sum ? '<div class="sl-tsum"><span class="sl-tsn"><b>' + d.sum.n + '</b> ' + bil({en:d.sum.n === 1 ? 'item' : 'items', zh:'项'}) + '</span>' + stc(d.sum.st) + (d.sum.od ? '<span class="sl-tso">' + bil({en:d.sum.od + ' overdue', zh:'逾期 ' + d.sum.od}) + '</span>' : '') + '</div>' : '';
+    return pages.map(function(part, i){ return (i === 0 ? sum : '') + '<table class="sl-t' + (d.dense ? ' sl-dense' : '') + '">' + head + '<tbody>' + part.join('') + '</tbody></table>'; });
   },
   breakdown:function(d, s){
     if(d.err) return [slEmpty('Choose a register with a status field.', '请选择有状态字段的台账。')];
@@ -457,6 +489,12 @@ var SLIDE_CSS = [
 '.sl-t tr.sl-od td:first-child{border-left:4px solid #C8372D}.sl-t td.bad{color:#C8372D;font-weight:600}',
 '.sl-t .n{white-space:nowrap;font-size:.92em}',
 '.sl-t td.sl-tt .sl-zh{display:inline;margin-left:8px;font-size:.85em}',
+'.sl-t.sl-dense{font-size:15px}.sl-t.sl-dense td{padding:5px 10px}.sl-t.sl-dense th{font-size:12.5px;padding-bottom:6px}',
+'.sl-t tr.sl-grp td{background:var(--sl-soft,#F2F4F7);padding-top:7px;padding-bottom:7px;border-bottom:1px solid var(--sl-line)}.sl-t tr.sl-grp b{font-weight:700}.sl-t tr.sl-grp b .sl-zh{display:inline;margin-left:6px;font-weight:500}',
+'.sl-t.sl-dense tr.sl-grp td{padding-top:4px;padding-bottom:4px}',
+'.sl-gn{display:inline-block;min-width:1.6em;text-align:center;margin:0 10px 0 8px;padding:0 6px;border-radius:9px;background:var(--sl-ink);color:#fff;font-size:.78em;font-weight:600}.sl-gc{color:var(--sl-mut);font-size:.85em}',
+'.sl-tsc{display:inline-flex;align-items:center;gap:5px;margin-right:12px;font-size:.85em}.sl-tsc b{font-weight:700}',
+'.sl-tsum{display:flex;flex-wrap:wrap;align-items:center;gap:6px 4px;margin:0 0 12px;padding:8px 12px;border:1px solid var(--sl-line);border-radius:4px;font-size:17px}.sl-tsn{margin-right:16px}.sl-tsn b{font-size:1.3em}.sl-tso{color:#C8372D;font-weight:600;font-size:.9em}',
 '.sl-kt td{font-size:19px}',
 '.sl-mx th,.sl-mx td{text-align:center;border:1px solid var(--sl-line)}.sl-mx thead th{text-align:center;border-bottom:1.5px solid var(--sl-ink)}.sl-mx tbody th{text-align:left;font-size:16px;color:var(--sl-ink);background:#fff;font-weight:600;width:280px;padding:8px 12px}',
 '.sl-mx td b{display:block;font-size:20px;font-weight:600}.sl-mx td small{display:block;font-size:12px;color:var(--sl-mut)}.sl-mx td.na{color:#C8CBC5}.sl-mx tr.sl-sum th,.sl-mx tr.sl-sum td{border-top:1.5px solid var(--sl-ink)}',
