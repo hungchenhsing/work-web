@@ -81,6 +81,7 @@ document.addEventListener('click', function(e){
     case 'impOpen': impOpen(getReg(v)); break;
     case 'impRun': impRun(); break;
     case 'expReg': exportReg(getReg(v)); break;
+    case 'bMore': S.bmore = S.bmore || {}; S.bmore[v] = 1; renderMain(); break;
     case 'regHist': S.act = {reg:v, who:'', type:''}; goPage('activity'); break;
     case 'fToggle': S.fOpen = !S.fOpen; renderMain(); break;
     case 'fx': (function(){ var f = rfil(S.reg), k = el.dataset.k, a = (f.fx[k] = f.fx[k] || []), i = a.indexOf(v); if(i >= 0) a.splice(i, 1); else a.push(v); renderMain(); })(); break;
@@ -158,8 +159,8 @@ document.addEventListener('click', function(e){
     case 'mclose': closeModal(); S.ldraft = null; if(S.page === 'settings') renderMain(); break;
     // owner
     case 'otab': S.otab = v; renderMain(); break;
-    case 'publish': (function(){ var rg = getReg(S.oreg), snap = ownerSnapshot(rg), max = 0; (STORE.pubs || []).forEach(function(p){ var mm = /PUB-(\d+)/.exec(p.no || ''); if(mm) max = Math.max(max, +mm[1]); });
-      var no = 'PUB-' + String(max + 1).padStart(3, '0'); STORE.createPub(no, Object.assign(snap, {no:no, at:new Date().toISOString(), by:(STORE.me && (STORE.me.name || STORE.me.email)) || '', note:($('#snapNote') || {}).value || ''})).then(function(){ toast(T('Published ', '已发布 ') + no); S.otab = 'snaps'; renderMain(); }).catch(function(er){ toast(errText(er)); }); })(); break;
+    case 'publish': (STORE.ensurePubs ? STORE.ensurePubs() : Promise.resolve()).then(function(){ var rg = getReg(S.oreg), snap = ownerSnapshot(rg), max = 0; (STORE.pubs || []).forEach(function(p){ var mm = /PUB-(\d+)/.exec(p.no || ''); if(mm) max = Math.max(max, +mm[1]); });
+      var no = 'PUB-' + String(max + 1).padStart(3, '0'); STORE.createPub(no, Object.assign(snap, {no:no, at:new Date().toISOString(), by:(STORE.me && (STORE.me.name || STORE.me.email)) || '', note:($('#snapNote') || {}).value || ''})).then(function(){ toast(T('Published ', '已发布 ') + no); S.otab = 'snaps'; renderMain(); }).catch(function(er){ toast(errText(er)); }); }); break;
     case 'pubDel': if(confirm(T('Withdraw this publication? The Owner will no longer see it.', '撤回此发布？业主将无法再看到。'))) STORE.deletePub(v).catch(function(er){ toast(errText(er)); }); break;
     case 'fbOpen': S.fbFor = S.fbFor === v ? null : v; renderMain(); break;
     case 'fbSend': (function(){ var body = (($('#fbBody') || {}).value || '').trim(); if(!body) return; var p = (STORE.pubs || []).filter(function(x){ return x.id === S.pubSel; })[0] || (STORE.pubs || [])[0]; STORE.addFeedback({pub_id:p && p.id, item_id:v, reg_no:el.dataset.no, body:body}).then(function(){ S.fbFor = null; toast(T('Sent', '已提交')); renderMain(); }).catch(function(er){ toast(errText(er)); }); })(); break;
@@ -336,6 +337,7 @@ document.addEventListener('change', function(e){
 });
 function upload(rec, key, files){
   var reg = getReg(rec.reg); if(!files || !files.length || !canWrite(reg)) return;
+  if(libRoute(reg)){ uploadDocs(files, {link:rec}); return; }
   S.uploading = true; renderDrawer();
   var jobs = Array.prototype.map.call(files, function(f){ if(f.size > 50 * 1024 * 1024){ toast(T('Over 50 MB: ', '超过 50 MB：') + f.name); return Promise.resolve(null); } return STORE.upload(f, reg.id, rec.id).catch(function(er){ toast(errText(er)); return null; }); });
   Promise.all(jobs).then(function(res){

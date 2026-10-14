@@ -87,6 +87,7 @@ function viewOwnerPortal(){
   var pubs = STORE.pubs || [];
   if(!pubs.length) return '<div class="card empty">' + L('Nothing has been published yet.', '尚未发布内容。') + '</div>';
   var p = pubs.filter(function(x){ return x.id === S.pubSel; })[0] || pubs[0];
+  if(p._light){ STORE.pubFull(p.id).catch(function(e){ toast(errText(e)); }); return '<div class="card empty">' + L('Loading ' + esc(p.no) + '…', '正在加载 ' + esc(p.no) + '…') + '</div>'; }
   if(p.kind === 'deck') return ownerDeckView(p, pubs);
   var fbc = function(id){ return (STORE.fb || []).filter(function(f){ return f.item_id === id; }).length; };
   return '<div class="ph"><div><h1 class="vtitle">' + esc(p.reg ? T1(p.reg.en, p.reg.zh) : T('Submission plan', '提交计划')) + '</h1><span class="muted">' + esc(p.no + ' · ' + fmtTime(p.at) + (p.note ? ' · ' + p.note : '')) + '</span></div><select class="in" id="pubSel">' + pubs.map(function(x){ return '<option value="' + esc(x.id) + '"' + (x.id === p.id ? ' selected' : '') + '>' + esc(x.no + ' · ' + fmtTime(x.at).slice(0, 10) + (x.kind === 'deck' ? ' · ' + T1(x.title.en, x.title.zh) : x.reg ? ' · ' + T1(x.reg.en, x.reg.zh) : '')) + '</option>'; }).join('') + '</select></div>' + ownerTable(p, {fb:true, fbCount:fbc});

@@ -47,7 +47,9 @@ function mxDef(reg, c){ var ro = rolesOf(reg); return {row:(c && c.row) || (reg.
 function dctx(deck){ return {deck:deck, owner:(deck.d.aud || 'owner') !== 'internal', asOf:d2n(deck.d.date) != null ? d2n(deck.d.date) : asOfN(), lang:deck.d.lang || 'en'}; }
 /* decks are team-visible, so private (Only me) registers never feed a slide — not even an internal deck. */
 function regOk(ctx, reg){ return !!reg && reg.d.kind !== 'decks' && !isPrivate(reg); }
-function recOk(ctx, reg, r){ if(!ctx.owner) return true; if(isPrivate(reg)) return false; return !reg.d.ownerPublish || !!r.d.ext; }
+/* ctx.focus (present mode “Focus”): only one block, only overdue, only key items */
+function focusOk(f, reg, r){ if(f.blk){ var bf = rf(reg, 'block'); if(bf && asArr(r.d[bf.key]).indexOf(f.blk) < 0) return false; } if(f.od && !isOverdue(reg, r)) return false; if(f.star && !r.d.star) return false; return true; }
+function recOk(ctx, reg, r){ if(ctx.focus && !focusOk(ctx.focus, reg, r)) return false; if(!ctx.owner) return true; if(isPrivate(reg)) return false; return !reg.d.ownerPublish || !!r.d.ext; }
 function fieldOk(ctx, reg, f){ if(!ctx.owner) return true; var ro = rolesOf(reg); return !!f.ext || [ro.title, ro.title2, ro.no].indexOf(f.key) >= 0; }
 function defCols(reg){ var ro = rolesOf(reg); return [ro.no, ro.title, ro.block, ro.start, ro.finish, ro.progress, ro.status].filter(function(k, i, a){ return k && fieldOf(reg, k) && a.indexOf(k) === i; }); }
 function usable(ctx, ids){ return (ids || []).map(getReg).filter(function(r){ return regOk(ctx, r); }); }
@@ -141,9 +143,10 @@ var SLIDE_DATA = {
       top:top.map(function(r){ var p = planOf(reg, r), po2 = pf && optOf(pf, r.d[pf.key]); return {id:r.id, no:recNo(reg, r), t:recPair(reg, r), b:bf ? asArr(r.d[bf.key]) : [], loc:r.d.loc || '', due:p ? n2d(p.f) : '', od:isOverdue(reg, r), prio:po2 ? {v:po2.v, color:po2.color} : null, who:rf2 ? textOf(reg, rf2, r) : ''}; })}; },
   photos:function(c, ctx){ var A = ctx.asOf, out = [];
     function push(reg, r, x, f){ var bf = rf(reg, 'block'); out.push({path:x.path, name:x.name || '', no:recNo(reg, r), t:recPair(reg, r), f:{en:f.en, zh:f.zh || ''}, b:bf ? asArr(r.d[bf.key]) : [], date:String(x.at || r.ua || '').slice(0, 10)}); }
-    if(c.mode === 'pick'){ (c.picks || []).forEach(function(pk){ var r = getRec(pk.rec), reg = r && getReg(r.reg); if(!r || !regOk(ctx, reg) || !recOk(ctx, reg, r)) return; dataFields(reg).forEach(function(f){ if(f.type !== 'files') return; asArr(r.d[f.key]).forEach(function(x){ if(x.path === pk.path) push(reg, r, x, f); }); }); }); }
-    else { var regs = c.regs && c.regs.length ? usable(ctx, c.regs) : allRegs().filter(function(r){ return regOk(ctx, r); });
-      regs.forEach(function(reg){ var ffs = dataFields(reg).filter(function(f){ return f.type === 'files'; }); recsOf(reg.id).forEach(function(r){ if(!recOk(ctx, reg, r)) return; ffs.forEach(function(f){ asArr(r.d[f.key]).forEach(function(x){ if(!/^image\//.test(x.type || '')) return; var n = d2n(String(x.at || r.ua || '').slice(0, 10)); if(n == null || n < A - (c.days || 7) || n > A + 1) return; push(reg, r, x, f); }); }); }); });
+    /* a record's photos = its own attachments + photos of library documents linked to it (recFiles) */
+    if(c.mode === 'pick'){ (c.picks || []).forEach(function(pk){ var r = getRec(pk.rec), reg = r && getReg(r.reg); if(!r || !regOk(ctx, reg) || !recOk(ctx, reg, r)) return; recFiles(r).forEach(function(fx){ if(fx.x.path === pk.path) push(reg, r, fx.x, fx.f); }); }); }
+    else { var regs = c.regs && c.regs.length ? usable(ctx, c.regs) : allRegs().filter(function(r){ return regOk(ctx, r); }), seen = {};
+      regs.forEach(function(reg){ recsOf(reg.id).forEach(function(r){ if(!recOk(ctx, reg, r)) return; recFiles(r).forEach(function(fx){ var x = fx.x; if(!/^image\//.test(x.type || '') || seen[x.path]) return; var n = d2n(String(x.at || r.ua || '').slice(0, 10)); if(n == null || n < A - (c.days || 7) || n > A + 1) return; seen[x.path] = 1; push(reg, r, x, fx.f); }); }); });
       out.sort(function(a, b){ return String(b.date).localeCompare(String(a.date)); }); out = out.slice(0, 24); }
     out = out.filter(function(p){ return (c.hide || []).indexOf('p:' + p.path) < 0; });
     return {photos:out, layout:c.layout || '2x2'}; },
@@ -248,10 +251,19 @@ var SLIDE_RENDER = {
 };
 
 /* ---------------- deck → pages ---------------- */
-function slideData(deck, s, ctx){ var snap = deck.d.status === 'issued' && deck.d.snap && deck.d.snap[s.id]; if(snap) return snap; try{ return SLIDE_DATA[s.type](s.cfg || {}, ctx); }catch(e){ console.error(e); return {err:'x'}; } }
+/* slide data is cached until register data changes (REC_VER); presentation edits alone keep the cache */
+var SD_CACHE = {ver:-1, m:null};
+function sdCached(type, c, ctx){
+  if(type === 'cover') return SLIDE_DATA.cover(c, ctx);   // depends on the deck itself (title, date, presenter)
+  if(SD_CACHE.ver !== REC_VER || !SD_CACHE.m) SD_CACHE = {ver:REC_VER, m:new Map()};
+  var k = type + '|' + ctx.lang + '|' + ctx.owner + '|' + ctx.asOf + '|' + JSON.stringify(ctx.focus || null) + '|' + JSON.stringify(c), v = SD_CACHE.m.get(k);
+  if(v === undefined){ v = SLIDE_DATA[type](c, ctx); if(!(v && v.loading)) SD_CACHE.m.set(k, v); }
+  return v;
+}
+function slideData(deck, s, ctx){ var snap = deck.d.status === 'issued' && deck.d.snap && deck.d.snap[s.id]; if(snap) return snap; try{ return sdCached(s.type, s.cfg || {}, ctx); }catch(e){ console.error(e); return {err:'x'}; } }
 /* a data block placed on a slide like any other element: its data is keyed slideId#elementId (frozen on issue, carried to the Owner) */
 function elKey(s, e){ return s.id + '#' + e.id; }
-function elData(deck, s, e, ctx){ var snap = deck.d.status === 'issued' && deck.d.snap && deck.d.snap[elKey(s, e)]; if(snap) return snap; try{ return SLIDE_DATA[e.type](e.cfg || {}, ctx); }catch(err){ console.error(err); return {err:'x'}; } }
+function elData(deck, s, e, ctx){ var snap = deck.d.status === 'issued' && deck.d.snap && deck.d.snap[elKey(s, e)]; if(snap) return snap; try{ return sdCached(e.type, e.cfg || {}, ctx); }catch(err){ console.error(err); return {err:'x'}; } }
 function isDataEl(e){ return !!(e && e.k === 'data' && SLIDE_DATA[e.type] && SLIDE_RENDER[e.type]); }
 function slideTitle(s){ return s.title || {en:'', zh:''}; }
 /* text size: auto fits the content to its box (scaled between 66 % and 120 %); L / M / S are fixed */
@@ -296,7 +308,7 @@ function wrapPage(deck, s, body, pi, pn, n, total, hdr, x){
 }
 function deckBuild(deck, opts){
   opts = opts || {};
-  var ctx = dctx(deck), outer = DK_CACHE, oldSt = DK_STYLE; DK_CACHE = outer || {};
+  var ctx = dctx(deck), outer = DK_CACHE, oldSt = DK_STYLE; DK_CACHE = outer || {}; if(opts.focus) ctx.focus = opts.focus;
   try{ return withLang(ctx.lang, function(){
     var pc = cfg(), th = themeOf(deck); DK_STYLE = th.style;
     var hdr = {theme:th, proj:S.lang === 'zh' ? (pc.projectZh || pc.projectEn) : pc.projectEn, title:S.lang === 'zh' ? (deck.d.titleZh || deck.d.title || '') : (deck.d.title || deck.d.titleZh || ''), no:deck.d.no || '', date:deck.d.date || '', aud:deck.d.aud || 'owner', secs:[]};

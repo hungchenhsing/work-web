@@ -31,7 +31,10 @@ function undoOf(id){ return UNDO[id] || (UNDO[id] = {u:[], r:[]}); }
 function deckEdit(deck, patch, quiet, noHist){
   if(Object.keys(patch).every(function(k){ return same(deck.d[k], patch[k]); })) return Promise.resolve();
   if(!noHist && canDeckEdit()){ var st = undoOf(deck.id), old = {}; Object.keys(patch).forEach(function(k){ old[k] = deck.d[k] === undefined ? null : clone(deck.d[k]); }); st.u.push(old); if(st.u.length > 80) st.u.shift(); st.r = []; }
-  return setRec(deck, patch, quiet ? {silent:true} : undefined);
+  DECK_ONLY = true;
+  var pr = setRec(deck, patch, quiet ? {silent:true} : undefined);
+  DECK_ONLY = false;   // consumed by notify() when the write happened; cleared if nothing was written
+  return pr;
 }
 function saveSlides(deck, slides, quiet){ return deckEdit(deck, {slides:slides}, quiet); }
 function deckUndo(redo){
@@ -47,7 +50,7 @@ function photoPaths(built){ var out = []; built.forEach(function(x){ [x.data].co
 function signFor(built, deck){ if(deck) built.theme = themeOf(deck); return STORE && STORE.signUrls ? STORE.signUrls(photoPaths(built)) : Promise.resolve(); }
 function openDeck(id, sid){ S.elSel = null; S.page = 'decks'; if(S.deck !== id) S.dkBar = null; S.deck = id; S.dslide = sid || null; S.dpage = 0; S.open = null; S.sideOpen = false; closePop(); saveUI(); renderAll(); var m = $('#main'); if(m) m.scrollTop = 0; }
 function scaled(html, cls){ return '<div class="dk-fit' + (cls ? ' ' + cls : '') + '"><div class="dk-sc">' + html + '</div></div>'; }
-function fitSlides(){ if(typeof fitStage === 'function') fitStage(); $$('.dk-fit').forEach(function(el){ var w = el.clientWidth, inner = el.firstElementChild; if(inner && w) inner.style.transform = 'scale(' + (w / 1280) + ')'; }); slFitAll(document); }
+function fitSlides(){ if(typeof fitStage === 'function') fitStage(); if(typeof thumbFill === 'function' && $('.dke-film [data-thumb]:empty')) thumbFill(); $$('.dk-fit').forEach(function(el){ var w = el.clientWidth, inner = el.firstElementChild; if(inner && w) inner.style.transform = 'scale(' + (w / 1280) + ')'; }); slFitAll(document); }
 if(document.fonts && document.fonts.ready) document.fonts.ready.then(function(){ SL_FIT = {}; if(typeof fitSlides === 'function') fitSlides(); });
 
 /* ---------------- templates ---------------- */
@@ -226,7 +229,7 @@ function pickerHtml(reg, c, ed){
 }
 function photoPicker(c, ed){
   var picks = c.picks || [], all = [];
-  deckRegs().forEach(function(reg){ var ffs = dataFields(reg).filter(function(f){ return f.type === 'files'; }); recsOf(reg.id).forEach(function(r){ ffs.forEach(function(f){ asArr(r.d[f.key]).forEach(function(x){ if(/^image\//.test(x.type || '')) all.push({reg:reg, r:r, x:x}); }); }); }); });
+  var seenP = {}; deckRegs().forEach(function(reg){ recsOf(reg.id).forEach(function(r){ recFiles(r).forEach(function(fx){ var x = fx.x; if(/^image\//.test(x.type || '') && !seenP[x.path]){ seenP[x.path] = 1; all.push({reg:reg, r:r, x:x}); } }); }); });
   all.sort(function(a, b){ return String(b.x.at || b.r.ua || '').localeCompare(String(a.x.at || a.r.ua || '')); });
   if(!all.length) return '<p class="note">' + L('No photos yet. Upload photos to records (Files tab or “Take photo”), then pick them here.', '还没有照片。请先在记录的「文件」里上传或拍照，再回来挑选。') + '</p>';
   return '<div class="fl"><span class="flab">' + L('Pick photos', '挑选照片') + ' <span class="muted mono">' + picks.length + '</span></span><div class="dk-pick">' + all.slice(0, 80).map(function(e){ var on = picks.some(function(p){ return p.path === e.x.path; }), u = STORE.fileUrl(e.x.path);
@@ -289,50 +292,10 @@ function createDeck(m){
   });
 }
 
-/* ================= present mode ================= */
-function presRoot(){ var r = $('#present-root'); if(!r){ r = document.createElement('div'); r.id = 'present-root'; document.body.appendChild(r); } return r; }
-function startPresent(pages, at, title){
-  if(!pages.length){ toast(T('Nothing to present — all slides are hidden.', '没有可演示的页面（全部已隐藏）。')); return; }
-  S.present = {pages:pages, i:clamp(at || 0, 0, pages.length - 1), title:title || '', note:false, fs:false};
-  try{ var de = document.documentElement; if(de.requestFullscreen) de.requestFullscreen().catch(function(){}); }catch(e){}
-  renderPresent();
-}
+/* ================= present mode: see present.js ================= */
 /* everything a deck needs before it is shown outside the editor: progress history for S-curves, then signed photo links */
 function deckNeedsHist(deck){ var ids = []; (deck.d.slides || []).forEach(function(s){ [s].concat(s.cfg && s.cfg.L ? [s.cfg.L, s.cfg.R] : []).concat((s.els || []).filter(function(e){ return e && e.k === 'data'; })).forEach(function(x){ if(x && x.type === 'scurve' || x && x.type === 'summary') (x.cfg && x.cfg.regs || []).forEach(function(id){ if(ids.indexOf(id) < 0) ids.push(id); }); }); }); return deck.d.status === 'issued' && deck.d.snap ? [] : ids; }
 function deckPrepare(deck){ return loadHistory(deckNeedsHist(deck)).then(function(){ return signFor(deckBuild(deck), deck); }); }
-function presentDeck(deck, sid){
-  var built = deckBuild(deck);
-  var go = function(){ var pages = []; deckBuild(deck).forEach(function(x){ x.pages.forEach(function(h){ pages.push({sid:x.s.id, html:h, note:x.s.note || ''}); }); }); var at = 0; if(sid) pages.some(function(p, i){ if(p.sid === sid){ at = i + (S.dpage || 0); return true; } return false; }); startPresent(pages, at, deckTitle(deck.d)); };
-  var paths = photoPaths(built); if(!paths.length && !deckNeedsHist(deck).some(function(id){ return !histFor(id); })){ go(); return; }
-  S.present = {pages:[{html:'<div class="sl"><div class="sl-empty">' + esc(T('Loading photos…', '正在加载照片…')) + '</div></div>'}], i:0, note:false}; renderPresent();
-  try{ var de = document.documentElement; if(de.requestFullscreen) de.requestFullscreen().catch(function(){}); }catch(e){}
-  deckPrepare(deck).then(function(){ var fs = S.present && S.present.fs; go(); if(S.present) S.present.fs = fs; });
-}
-function renderPresent(){
-  var r = presRoot(), p = S.present;
-  if(!p){ r.innerHTML = ''; document.body.classList.remove('presenting'); return; }
-  document.body.classList.add('presenting');
-  var vw = window.innerWidth, vh = window.innerHeight - 44, sc = Math.min(vw / 1280, vh / 720), pg = p.pages[p.i];
-  r.innerHTML = '<div class="pres" role="dialog" aria-modal="true" aria-label="' + esc(p.title) + '"><div class="pres-stage" data-act="presNext"><div class="pres-sc" style="width:' + (1280 * sc) + 'px;height:' + (720 * sc) + 'px"><div class="dk-sc" style="transform:scale(' + sc + ')">' + pg.html + '</div></div></div>' +
-    (p.note && pg.note ? '<div class="pres-note">' + esc(pg.note) + '</div>' : '') +
-    '<div class="pres-bar"><button type="button" class="ib" data-act="presPrev" aria-label="Previous">' + uic('left', 20) + '</button><span class="mono">' + (p.i + 1) + ' / ' + p.pages.length + '</span><button type="button" class="ib" data-act="presNext" aria-label="Next">' + uic('right', 20) + '</button><span class="pres-t">' + esc(p.title) + '</span>' +
-    (p.pages.some(function(x){ return x.note; }) ? '<button type="button" class="btn sm" data-act="presNote" aria-pressed="' + !!p.note + '">' + L('Notes (N)', '备注 (N)') + '</button>' : '') + '<button type="button" class="btn sm" data-act="presExit">' + L('Exit (Esc)', '退出 (Esc)') + '</button></div></div>';
-  slFitAll(r);
-}
-function presGo(d){ var p = S.present; if(!p) return; p.i = clamp(p.i + d, 0, p.pages.length - 1); renderPresent(); }
-function presExit(){ S.present = null; renderPresent(); try{ if(document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(function(){}); }catch(e){} }
-document.addEventListener('fullscreenchange', function(){ var p = S.present; if(!p) return; if(document.fullscreenElement) p.fs = true; else if(p.fs) presExit(); else renderPresent(); });
-document.addEventListener('keydown', function(e){
-  if(!S.present) return;
-  var k = e.key, used = true;
-  if(k === 'ArrowRight' || k === 'ArrowDown' || k === 'PageDown' || k === ' ' || k === 'Enter') presGo(1);
-  else if(k === 'ArrowLeft' || k === 'ArrowUp' || k === 'PageUp' || k === 'Backspace') presGo(-1);
-  else if(k === 'Home') presGo(-1e4); else if(k === 'End') presGo(1e4);
-  else if(k === 'Escape') presExit();
-  else if(k === 'n' || k === 'N'){ S.present.note = !S.present.note; renderPresent(); }
-  else used = false;
-  if(used){ e.preventDefault(); e.stopImmediatePropagation(); }
-}, true);
 
 /* ================= PDF (browser print → Save as PDF, vector text) ================= */
 function pdfHtml(pages, title){
@@ -370,6 +333,7 @@ async function shareDeck(deck){
   if(deck.d.status !== 'issued'){ if(!confirm(T('Sharing issues the presentation: its figures are frozen as they are now, and the Owner sees exactly this version. Continue?', '发给业主会同时定稿：数据按当前冻结，业主看到的就是这一版。继续？'))) return; await issueDeck(deck); deck = getRec(deck.id); if(!deck || deck.d.status !== 'issued' || !deck.d.snap){ toast(T('Could not issue the presentation, so nothing was shared.', '无法定稿，因此没有发出。')); return; } }
   else if(!confirm(T('Publish this issued presentation to the Owner?', '把这份已定稿的演示文稿发布给业主？'))) return;
   toast(T('Preparing the Owner copy…', '正在准备业主版本…'));
+  if(STORE.ensurePubs) await STORE.ensurePubs();
   function pubEl(e){ if(!e || !okId(e.id)) return null; if(e.k === 'data') return {id:e.id, k:'data', type:e.type, ttl:e.ttl || null, x:e.x, y:e.y, w:e.w, h:e.h, cfg:{hide:clone((e.cfg && e.cfg.hide) || []), size:(e.cfg && e.cfg.size) || ''}}; return clone(e); }
   function pubPart(x){ return x ? {type:x.type, title:x.title || null, cfg:{hide:clone(x.cfg && x.cfg.hide || [])}} : undefined; }
   var data = clone(deck.d.snap || deckData(deck)), slides = (deck.d.slides || []).filter(function(s){ return !s.hidden; }).map(function(s){ var c = s.cfg || {}; return {id:s.id, type:s.type, title:s.title, box:cleanBox(s.box), cfg:{msg:c.msg || '', side:c.side || '', sub:s.type === 'section' ? (c.sub || '') : undefined, noHead:!!c.noHead, size:c.size || '', hide:clone(c.hide || []), L:pubPart(c.L), R:pubPart(c.R)}, els:(s.els || []).map(pubEl).filter(Boolean)}; });
@@ -408,7 +372,7 @@ function meetingDeckStrip(rec){
 }
 function recPhotoBtn(rec){
   var reg = getReg(rec.reg); if(!reg || isPrivate(reg) || !canDeckEdit()) return '';
-  var n = 0; dataFields(reg).forEach(function(f){ if(f.type === 'files') n += asArr(rec.d[f.key]).filter(function(x){ return /^image\//.test(x.type || ''); }).length; });
+  var n = recFiles(rec).filter(function(fx){ return /^image\//.test(fx.x.type || ''); }).length;
   return n ? '<button type="button" class="btn sm dk-recph" data-act="dkRecPhotos" data-v="' + esc(rec.id) + '">' + uic('present', 13) + ' ' + L('Add these ' + n + ' photos to a presentation', '把这 ' + n + ' 张照片加入演示文稿') + '</button>' : '';
 }
 function regMenuItem(reg){ return !isPrivate(reg) && canDeckEdit() && reg.d.kind !== 'decks' ? '<button type="button" data-act="dkAddView" data-v="' + esc(reg.id) + '">' + L('Add this view to a presentation…', '把当前视图加入演示文稿…') + '</button>' : ''; }
@@ -466,7 +430,7 @@ document.addEventListener('click', function(e){
     case 'dkDel': if(deck && confirm(T('Delete this presentation? You can restore it from the Change log.', '删除此演示文稿？可在修改记录中恢复。'))){ var id0 = deck.id; S.deck = null; STORE.deleteRec(id0).then(function(){ toast(T('Deleted — restore it from the Change log', '已删除，可在修改记录中恢复')); }).catch(function(er){ toast(errText(er)); }); renderAll(); } break;
     case 'regHistDeck': S.act = {reg:deckReg().id, who:'', type:''}; goPage('activity'); break;
     case 'dkAddView': (function(){ var reg = getReg(v); if(!reg) return; var c = viewCands(reg); el.closest('details') && el.closest('details').removeAttribute('open'); openModal({kind:'addToDeck', cands:c.cands, pick:c.pick}); })(); break;
-    case 'dkRecPhotos': (function(){ var r = getRec(v), reg = r && getReg(r.reg); if(!reg) return; var picks = []; dataFields(reg).forEach(function(f){ if(f.type === 'files') asArr(r.d[f.key]).forEach(function(x){ if(/^image\//.test(x.type || '')) picks.push({rec:r.id, path:x.path}); }); });
+    case 'dkRecPhotos': (function(){ var r = getRec(v), reg = r && getReg(r.reg); if(!reg) return; var picks = []; recFiles(r).forEach(function(fx){ if(/^image\//.test(fx.x.type || '')) picks.push({rec:r.id, path:fx.x.path}); });
       var t = {en:'Photos – ' + (recNo(reg, r) ? recNo(reg, r) + ' ' : '') + (r.d[rolesOf(reg).title] || ''), zh:'照片 – ' + (recNo(reg, r) ? recNo(reg, r) + ' ' : '') + (r.d[rolesOf(reg).title2] || r.d[rolesOf(reg).title] || '')};
       openModal({kind:'addToDeck', cands:[{key:'photos', s:newSlide('photos', {mode:'pick', picks:picks, layout:picks.length === 1 ? '1' : picks.length <= 4 ? '2x2' : '3x2'}, t), note:T(picks.length + ' photo(s) of ' + recLabel(r) + ' on one slide (more pages if needed).', '把 ' + recLabel(r) + ' 的 ' + picks.length + ' 张照片放在一页（需要时自动分页）。')}], pick:0}); })(); break;
     case 'dkCand': S.modal.pick = +v; renderModal(); break;
@@ -474,10 +438,6 @@ document.addEventListener('click', function(e){
       if(sel === '__new'){ openModal({kind:'newDeck', tpl:'blank', lang:'en', aud:'owner', date:n2d(asOfN()), slide:c.s}); return; }
       var d0 = getRec(sel); if(!d0) return; closeModal(); addSlideTo(d0, c.s).then(function(){ toast(T('Slide added to ', '已添加到 ') + (d0.d.no || ''), {act:'dkOpen', v:d0.id + '|' + c.s.id, label:T('Open', '打开')}); }); })(); break;
     case 'dkForMeeting': (function(){ var r = getRec(v); if(r){ S.open = null; renderDrawer(); newDeckFromMeeting(r); } })(); break;
-    case 'presNext': presGo(1); break;
-    case 'presPrev': presGo(-1); break;
-    case 'presNote': S.present.note = !S.present.note; renderPresent(); break;
-    case 'presExit': presExit(); break;
     case 'pubPresent': (function(){ var p = curPub(); if(p) startPresent(pubPages(p), 0, T1(p.title.en, p.title.zh)); })(); break;
     case 'pubPdf': (function(){ var p = curPub(); if(p) exportPdf(function(){ return pubPages(p); }, [p.deckNo || p.no, T1(p.title.en, p.title.zh), p.date].filter(Boolean).join(' · ')); })(); break;
     case 'dkOfb': S.fbFor = S.fbFor === v ? null : v; renderAll(); setTimeout(function(){ var b = $('#fbBody'); if(b) b.focus(); }, 30); break;
@@ -537,6 +497,7 @@ document.addEventListener('keydown', function(e){
 }, true);
 document.addEventListener('focusout', function(e){
   var el = e.target; if(S.inRender || !el || !el.dataset || !el.dataset.ed || !el.isContentEditable) return;
+  RG.parts = {};   // the slide was typed into: redraw it from the data even if its HTML string is unchanged
   var deck = S.deck && getRec(S.deck), path = el.dataset.ed, cancel = el.dataset.cancel; delete el.dataset.cancel;
   if(!deck || deck.d.status === 'issued'){ return; }
   var v = el.innerText.replace(/\u00a0/g, ' '); if(!el.dataset.raw) v = v.replace(/\s*\n\s*/g, ' ').trim(); else v = v.replace(/\s+$/, '');

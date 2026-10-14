@@ -22,8 +22,10 @@ function guessField(reg, header){
   if(/实际提交|actualsubmission/.test(n) && fieldOf(reg, 'actualStart') && fieldOf(reg, 'actualEnd')) return '__actual';
   return best;
 }
+/* SheetJS (880 KB) is loaded only when a spreadsheet is imported or exported */
+function xlsxLib(){ if(window.XLSX) return Promise.resolve(); return new Promise(function(res, rej){ var s = document.createElement('script'); s.src = 'vendor/xlsx-0.18.5.full.min.js'; s.onload = function(){ res(); }; s.onerror = function(){ rej(new Error('Could not load the spreadsheet library')); }; document.head.appendChild(s); }); }
 function readSheet(file){
-  return file.arrayBuffer().then(function(buf){
+  return xlsxLib().then(function(){ return file.arrayBuffer(); }).then(function(buf){
     var wb = XLSX.read(buf, {type:'array', cellDates:true}), best = null;
     wb.SheetNames.forEach(function(sn){
       var aoa = XLSX.utils.sheet_to_json(wb.Sheets[sn], {header:1, defval:'', raw:true, blankrows:false});
@@ -186,14 +188,16 @@ function regSheet(reg, list){
   return ws;
 }
 function fname(base){ return slug(cfg().projectEn || 'work-web') + '_' + base + '_' + TODAY_S + '.xlsx'; }
-function exportReg(reg){
+function exportReg(reg){ xlsxLib().then(function(){ exportReg0(reg); }).catch(function(e){ toast(errText(e)); }); }
+function exportReg0(reg){
   var wb = XLSX.utils.book_new(), list = sortRecs(reg, filteredRecs(reg));
   XLSX.utils.book_append_sheet(wb, regSheet(reg, list), String(reg.d.en || 'Register').replace(/[\\\/?*\[\]:]/g, ' ').slice(0, 31));
   XLSX.writeFile(wb, fname(slug(reg.d.en) || 'register'));
 }
-function backupXlsx(){
+function backupXlsx(){ xlsxLib().then(backupXlsx0).catch(function(e){ toast(errText(e)); }); }
+function backupXlsx0(){
   var wb = XLSX.utils.book_new(), names = {};
-  allRegs().forEach(function(reg){ var n = String(reg.d.en || reg.id).replace(/[\\\/?*\[\]:]/g, ' ').slice(0, 28), k = n, i = 1; while(names[k]) k = n.slice(0, 26) + ' ' + (++i); names[k] = 1; XLSX.utils.book_append_sheet(wb, regSheet(reg, sortRecs(reg, recsOf(reg.id))), k); });
+  allRegs().concat(libReg() ? [libReg()] : []).forEach(function(reg){ var n = String(reg.d.en || reg.id).replace(/[\\\/?*\[\]:]/g, ' ').slice(0, 28), k = n, i = 1; while(names[k]) k = n.slice(0, 26) + ' ' + (++i); names[k] = 1; XLSX.utils.book_append_sheet(wb, regSheet(reg, sortRecs(reg, recsOf(reg.id))), k); });
   XLSX.writeFile(wb, fname('backup'));
 }
 function backupJson(){

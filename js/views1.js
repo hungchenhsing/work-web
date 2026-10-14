@@ -145,7 +145,10 @@ function viewTable(reg, list){
   });
   if(!list.length) body += '<tr><td colspan="' + span + '" class="empty">' + (recsOf(reg.id).length ? L('No items match the filters.', '没有符合筛选条件的记录。') : L('No items yet.', '还没有记录。')) + '</td></tr>';
   if(ed) body += '<tr class="qadd"><td colspan="' + span + '"><input class="in" id="qadd" data-fk="qadd:' + esc(reg.id) + '" placeholder="' + esc(T('+ Type a title and press Enter to add', '+ 输入标题后按 Enter 新增')) + '"></td></tr>';
-  return h + '<div class="card tbl-wrap"><table class="tbl"><thead>' + th + '</thead><tbody>' + body + '</tbody></table></div>';
+  var vkey = 'tbl:' + reg.id, rowsA = vwSplit(body, 'tr'), long = rowsA.length > VW_MIN;
+  var cg = long ? '<colgroup>' + (ed ? '<col style="width:34px">' : '') + cols.map(function(f){ return '<col style="width:' + colWidth(reg, f) + 'px">'; }).join('') + (canSchemaEdit(reg) ? '<col style="width:40px">' : '') + '</colgroup>' : '';
+  var tw = long ? (ed ? 34 : 0) + cols.reduce(function(s0, f){ return s0 + colWidth(reg, f); }, 0) + (canSchemaEdit(reg) ? 40 : 0) : 0;
+  return h + '<div class="card tbl-wrap"' + (long ? ' data-vw="' + esc(vkey) + '"' : '') + '><table class="tbl' + (long ? ' vwt' : '') + '"' + (long ? ' style="min-width:' + tw + 'px"' : '') + '>' + cg + '<thead>' + th + '</thead><tbody data-vwb="' + esc(vkey) + '">' + vwHtml(vkey, rowsA, 'tr', span) + '</tbody></table></div>';
 }
 function hierRows(reg, items, cols, ed){
   var ids = {}, kids = {}, roots = [], all = kidsIndex(reg.id), out = '';
@@ -153,7 +156,8 @@ function hierRows(reg, items, cols, ed){
   items.forEach(function(r){ var p = r.d.parent; if(p && p !== r.id && ids[p]) (kids[p] = kids[p] || []).push(r); else roots.push(r); });
   (function w(list, depth){ list.forEach(function(r){
     var k = kids[r.id] || [], tot = all[r.id] || [], open = !!S.rexp[r.id];
-    out += tableRow(reg, r, cols, ed, {depth:depth, kids:tot, open:open, orphan: depth === 0 && r.d.parent && !ids[r.d.parent] ? getRec(r.d.parent) : null});
+    var hh = {depth:depth, kids:tot, open:open, orphan: depth === 0 && r.d.parent && !ids[r.d.parent] ? getRec(r.d.parent) : null};
+    out += lzRow(function(){ return tableRow(reg, r, cols, ed, hh); });
     if(open && depth < 6){ if(k.length) w(k, depth + 1); if(ed) out += '<tr class="kadd"><td colspan="' + (cols.length + (ed ? 1 : 0) + (canSchemaEdit(reg) ? 1 : 0)) + '"><input class="in" data-kadd="' + esc(r.id) + '" data-fk="kadd:' + esc(r.id) + '" placeholder="' + esc(T('+ Add a sub-item under ', '+ 在此项下新增子项：') + recNo(reg, r) + T(' (Enter)', '（按 Enter）')) + '" style="margin-left:' + (28 + (depth + 1) * 22) + 'px"></td></tr>'; }
   }); })(roots, 0);
   return out;
@@ -168,7 +172,7 @@ function tableRow(reg, r, cols, ed, h){
       inner = f.type === 'long' ? '<textarea class="in ie" data-ie="1" data-fk="ie" rows="3">' + esc(v) + '</textarea>' : '<input class="in ie" data-ie="1" data-fk="ie" type="' + (f.type === 'date' ? 'date' : f.type === 'number' || f.type === 'percent' ? 'number' : 'text') + '" value="' + esc(v) + '">';
       return '<td class="editing">' + inner + '</td>';
     }
-    if(f.key === ro.no) return '<td class="no"><button type="button" class="lnk mono" data-act="openRec" data-id="' + esc(r.id) + '">' + esc(r.d[f.key] || '—') + '</button>' + (r.d.star ? ' <span class="kst">★</span>' : '') + (cm ? '<span class="rdot"></span>' : '') + '</td>';
+    if(f.key === ro.no) return '<td class="no"><button type="button" class="lnk mono" data-act="openRec" data-id="' + esc(r.id) + '">' + esc(r.d[f.key] || '—') + '</button>' + (r.d.star ? ' <span class="kst">★</span>' : '') + (cm ? '<span class="rdot"></span>' : '') + (function(){ var n = relCount(r); return n ? '<button type="button" class="rlk" data-act="openRecTab" data-v="' + esc(r.id) + '" title="' + esc(T(n + ' linked', n + ' 项关联')) + '">' + uic('link', 11) + n + '</button>' : ''; })() + '</td>';
     if(f.key === ro.title){ var lead = '<span class="ind" style="width:' + (h.depth * 22) + 'px"></span>' + (h.kids.length ? '<button type="button" class="cx" data-act="rexp" data-v="' + esc(r.id) + '" aria-expanded="' + !!h.open + '" title="' + esc(T('Show sub-items', '展开子项')) + '">' + (h.open ? '▾' : '▸') + '</button>' : (h.depth ? '<span class="cx0">└</span>' : ''));
       return '<td class="tt' + (ce ? ' ce' : '') + '"' + (ce ? ' data-ce="1" data-id="' + esc(r.id) + '" data-k="' + esc(f.key) + '"' : '') + '><div class="ttw">' + lead + '<div class="ttx">' + (h.orphan ? '<span class="pp">↳ ' + esc(recNo(reg, h.orphan) || recTitle(reg, h.orphan)) + '</span>' : '') + '<span class="tt1">' + esc(r.d[f.key] || recTitle(reg, r) || '—') + '</span>' + (recTitle2(reg, r) && !tableCols(reg).some(function(c){ return c.key === ro.title2; }) ? '<span class="tt2">' + esc(recTitle2(reg, r)) + '</span>' : '') + (ru ? '<button type="button" class="kc" data-act="rexp" data-v="' + esc(r.id) + '">' + L(ru.done + '/' + ru.n + ' sub-items done', ru.n + ' 个子项，已完成 ' + ru.done) + '</button>' : '') + '</div></div></td>'; }
     if(f.key === ro.progress && ru && (r.d[f.key] == null || r.d[f.key] === '') && !isAutoNow(r, f)) return '<td class="t-percent">' + pbar(ru.pct, '<span class="auto" title="' + esc(T('Rolled up from sub-items', '由子项汇总')) + '">Σ</span>') + '</td>';
@@ -206,7 +210,7 @@ function viewBoard(reg, list){
   var none = list.filter(function(r){ return !optOf(bf, r.d[bf.key]); });
   if(none.length) cols.unshift({v:'', o:null, items:none});
   return h + '<div class="board">' + cols.map(function(c){
-    return '<section class="bcol" data-drop="' + esc(c.v) + '" data-k="' + esc(bf.key) + '"><div class="bch">' + (c.o ? '<span class="sw c-' + esc(c.o.color) + '"></span><b>' + esc(nm(c.o)) + '</b>' : '<b class="muted">' + L('(empty)', '（空）') + '</b>') + '<span class="mono muted">' + c.items.length + '</span>' + (ed && c.o ? '<button type="button" class="ib" data-act="boardAdd" data-v="' + esc(c.v) + '" title="' + esc(T('Add', '新增')) + '">' + uic('plus', 14) + '</button>' : '') + '</div><div class="bcl">' + c.items.map(function(r){ return recCard(reg, r, ed); }).join('') + '</div></section>';
+    return '<section class="bcol" data-drop="' + esc(c.v) + '" data-k="' + esc(bf.key) + '"><div class="bch">' + (c.o ? '<span class="sw c-' + esc(c.o.color) + '"></span><b>' + esc(nm(c.o)) + '</b>' : '<b class="muted">' + L('(empty)', '（空）') + '</b>') + '<span class="mono muted">' + c.items.length + '</span>' + (ed && c.o ? '<button type="button" class="ib" data-act="boardAdd" data-v="' + esc(c.v) + '" title="' + esc(T('Add', '新增')) + '">' + uic('plus', 14) + '</button>' : '') + '</div><div class="bcl">' + (function(){ var mk0 = reg.id + ':' + c.v, lim = (S.bmore || {})[mk0] ? 1e9 : 40; return c.items.slice(0, lim).map(function(r){ return recCard(reg, r, ed); }).join('') + (c.items.length > lim ? '<button type="button" class="btn sm bmore" data-act="bMore" data-v="' + esc(mk0) + '">' + L('Show ' + (c.items.length - lim) + ' more', '再显示 ' + (c.items.length - lim) + ' 项') + '</button>' : ''); })() + '</div></section>';
   }).join('') + '</div>';
 }
 
@@ -299,14 +303,15 @@ function ganttHtml(sets, o){
   if(o.multi){
     sets.forEach(function(s){ var its = sortByStart(s.items.map(function(r){ return {reg:s.reg, rec:r}; })); if(!its.length) return;
       if(grpRow('sched:' + s.reg.id, icon(s.reg.d.icon, 13) + ' ' + esc(regName(s.reg)), its, s.reg, s.reg.d.color)) return;
-      its.forEach(function(x){ body += ganttRow(x.reg, x.rec, mn, px, grid, lines, LC, LW, tpl, A); }); });
+      its.forEach(function(x){ body += lzRow(function(){ return ganttRow(x.reg, x.rec, mn, px, grid, lines, LC, LW, tpl, A); }, 'div'); }); });
   } else {
     var reg = o.reg, its = sortByStart(rows);
-    if(o.group && o.group !== 'none'){ groupRecs(reg, its.map(function(x){ return x.rec; }), o.group).forEach(function(gr){ var gi = gr.items.map(function(r){ return {reg:reg, rec:r}; }); if(grpRow(reg.id + ':' + gr.k, esc(gr.label), gi, reg, gr.color, gr.set)) return; gi.forEach(function(x){ body += ganttRow(reg, x.rec, mn, px, grid, lines, LC, LW, tpl, A); }); }); }
-    else its.forEach(function(x){ body += ganttRow(reg, x.rec, mn, px, grid, lines, LC, LW, tpl, A); });
+    if(o.group && o.group !== 'none'){ groupRecs(reg, its.map(function(x){ return x.rec; }), o.group).forEach(function(gr){ var gi = gr.items.map(function(r){ return {reg:reg, rec:r}; }); if(grpRow(reg.id + ':' + gr.k, esc(gr.label), gi, reg, gr.color, gr.set)) return; gi.forEach(function(x){ body += lzRow(function(){ return ganttRow(reg, x.rec, mn, px, grid, lines, LC, LW, tpl, A); }, 'div'); }); }); }
+    else its.forEach(function(x){ body += lzRow(function(){ return ganttRow(reg, x.rec, mn, px, grid, lines, LC, LW, tpl, A); }, 'div'); });
     if(canWrite(reg)) body += '<div class="grow"><div class="gleft" style="width:' + LW + 'px"><div class="gspan"><input class="in" id="qadd" data-fk="qadd:' + esc(reg.id) + '" data-gantt="1" placeholder="' + esc(T('+ Type a new item and press Enter', '+ 输入新事项后按 Enter')) + '" style="flex:1;min-width:0"></div></div><div class="gt" style="' + grid + '">' + lines + '</div></div>';
   }
-  return h + '<div class="card gwrap" id="gwrap"><div class="gin">' + body + '</div></div>';
+  var gkey = 'g:' + (o.multi ? 'sched' : o.reg.id), grows = vwSplit(body, 'div'), ghead = grows.shift() || '';
+  return h + '<div class="card gwrap" id="gwrap"' + (grows.length > VW_MIN ? ' data-vw="' + esc(gkey) + '"' : '') + '><div class="gin">' + ghead + '<div class="gbody" data-vwb="' + esc(gkey) + '">' + vwHtml(gkey, grows, 'div') + '</div></div></div>';
 }
 function ganttRow(reg, rec, mn, px, grid, lines, LC, LW, tpl, A){
   var p = planOf(reg, rec), ed = canWrite(reg), od = isOverdue(reg, rec), pr = progressOf(reg, rec), fb = openFb(rec.id) > 0, st = statusOpt(reg, rec), ro = rolesOf(reg);

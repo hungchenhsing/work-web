@@ -54,18 +54,18 @@ function viewDeckEditor(deck){
   if(sel && S.elSel && S.elSel !== '@main' && !elById(sel.s, S.elSel)) S.elSel = null;
   var h = '<div class="dke' + (S.dkInsp ? ' insp' : '') + '">' + dkBar(deck, ed);
   if(issued) h += '<div class="dke-issued">' + uic('lock', 13) + ' ' + L('Issued ' + fmtTime(d.issuedAt) + ' — figures frozen as presented. Use “Issue & share → Back to draft” to edit, or “Copy for next week”.', '定稿于 ' + fmtTime(d.issuedAt) + '：数据按汇报时冻结。要修改请用「定稿与分享 → 退回草稿」，或「复制为下周」。') + '</div>';
-  h += '<div class="dke-main"><aside class="dke-film" aria-label="' + esc(T('Slides', '页面')) + '">' + built.map(function(x){
-      return '<div class="dk-t' + (x.s.id === S.dslide ? ' on' : '') + (x.s.hidden ? ' hid' : '') + '" data-act="dkSlide" data-v="' + esc(x.s.id) + '"' + (ed ? ' draggable="true" data-sdrag="' + esc(x.s.id) + '"' : '') + ' role="button" tabindex="0" title="' + esc(T1(SLIDES[x.s.type].en, SLIDES[x.s.type].zh)) + '"><span class="dk-tn">' + (x.s.hidden ? uic('hide', 11) : x.first) + (x.pages.length > 1 && !x.s.hidden ? '<small>+' + (x.pages.length - 1) + '</small>' : '') + '</span>' + scaled(x.pages[0], 'dk-tw') + (ed ? '<button type="button" class="dk-tm" data-act="dkThumbMenu" data-v="' + esc(x.s.id) + '" aria-label="' + esc(T('Slide actions', '页面操作')) + '">' + uic('dots', 16) + '</button>' : '') + '</div>'; }).join('') +
+  h += '<div class="dke-main"><aside class="dke-film" data-rg="film" aria-label="' + esc(T('Slides', '页面')) + '">' + built.map(function(x){
+      return '<div class="dk-t' + (x.s.hidden ? ' hid' : '') + '" data-act="dkSlide" data-v="' + esc(x.s.id) + '"' + (ed ? ' draggable="true" data-sdrag="' + esc(x.s.id) + '"' : '') + ' role="button" tabindex="0" title="' + esc(T1(SLIDES[x.s.type].en, SLIDES[x.s.type].zh)) + '"><span class="dk-tn">' + (x.s.hidden ? uic('hide', 11) : x.first) + (x.pages.length > 1 && !x.s.hidden ? '<small>+' + (x.pages.length - 1) + '</small>' : '') + '</span>' + thumbSlot(x.pages[0], x.s.id) + (ed ? '<button type="button" class="dk-tm" data-act="dkThumbMenu" data-v="' + esc(x.s.id) + '" aria-label="' + esc(T('Slide actions', '页面操作')) + '">' + uic('dots', 16) + '</button>' : '') + '</div>'; }).join('') +
     (ed ? '<button type="button" class="dk-add" data-act="dkGal" data-v="slide">' + uic('plus', 15) + ' ' + L('Add slide', '添加页面') + '</button>' : '') + '</aside>';
-  h += '<section class="dke-cv"><div class="dke-ctx"><div class="dk-fmt">' + elFormat(ed) + '</div></div>' +
-    '<div class="dke-sw">' + (sel ? '<div class="dk-stage"><div class="dk-sc">' + sel.pages[pi] + '</div></div>' : '<div class="card empty">' + L('This presentation has no slides yet.', '此演示文稿还没有页面。') + (ed ? ' <button type="button" class="btn pri" data-act="dkGal" data-v="slide">' + L('Add slide', '添加页面') + '</button>' : '') + '</div>') + '</div>' +
+  h += '<section class="dke-cv"><div class="dke-ctx" data-rg="ctx"><div class="dk-fmt">' + elFormat(ed) + '</div></div>' +
+    '<div class="dke-sw" data-rg="sw">' + (sel ? '<div class="dk-stage"><div class="dk-sc">' + sel.pages[pi] + '</div></div>' : '<div class="card empty">' + L('This presentation has no slides yet.', '此演示文稿还没有页面。') + (ed ? ' <button type="button" class="btn pri" data-act="dkGal" data-v="slide">' + L('Add slide', '添加页面') + '</button>' : '') + '</div>') + '</div>' +
     (sel && sel.pages.length > 1 ? '<div class="dke-pg"><span class="note">' + L('Continues on ' + sel.pages.length + ' pages', '自动分为 ' + sel.pages.length + ' 页') + '</span><div class="seg">' + sel.pages.map(function(_, i){ return '<button type="button" data-act="dkPage" data-v="' + i + '" aria-pressed="' + (i === pi) + '">' + (i + 1) + '</button>'; }).join('') + '</div></div>' : '') + '</section>';
-  if(S.dkInsp) h += '<aside class="dke-insp">' + inspHtml(deck) + '</aside>';
+  if(S.dkInsp) h += '<aside class="dke-insp" data-rg="insp">' + inspHtml(deck) + '</aside>';
   return h + '</div></div>';
 }
 function dkBar(deck, ed){
   var d = deck.d, sy = dkSync(), fbOpen = ((STORE && STORE.fb) || []).filter(function(x){ return x.item_id === deck.id && x.status === 'open'; }).length;
-  return '<header class="dke-bar"><button type="button" class="ib" data-act="dkBack" title="' + esc(T('All presentations', '全部演示文稿')) + '">' + uic('left', 18) + '</button>' +
+  return '<header class="dke-bar" data-rg="bar"><button type="button" class="ib" data-act="dkBack" title="' + esc(T('All presentations', '全部演示文稿')) + '">' + uic('left', 18) + '</button>' +
     '<div class="dke-tt"><button type="button" class="dke-name" data-act="dkTab" data-v="deck" title="' + esc(T('Presentation settings', '文稿设置')) + '">' + esc(deckTitle(d)) + '</button><span class="dke-sub">' + (sy ? '<span class="dot ' + sy[2] + '" title="' + esc(T(sy[0], sy[1])) + '"></span>' : '') + '<span class="mono">' + esc(d.no || '') + '</span> ' + (d.status === 'issued' ? chip('green', uic('lock', 10) + ' ' + L('Issued', '已定稿')) : chip('amber', L('Draft · live', '草稿 · 实时'))) + ' ' + ((d.aud || 'owner') === 'internal' ? chip('grey', L('Internal', '内部')) : chip('violet', L('Owner', '业主'))) + (fbOpen ? ' <button type="button" class="lnk" data-act="dkTab" data-v="notes">' + chip('red', fbOpen + ' ' + L('comments', '条意见')) + '</button>' : '') + '</span></div>' +
     (ed ? '<div class="dke-g"><button type="button" class="ib" data-act="dkUndo" title="' + esc(T('Undo (Cmd+Z)', '撤销（Cmd+Z）')) + '">' + uic('undo', 17) + '</button><button type="button" class="ib dk-redo" data-act="dkRedo" title="' + esc(T('Redo (Cmd+Shift+Z)', '重做（Cmd+Shift+Z）')) + '">' + uic('undo', 17) + '</button></div>' +
       '<div class="dke-g"><button type="button" class="btn" data-act="dkGal" data-v="slide">' + uic('plus', 14) + ' ' + L('Slide', '页面') + '</button><button type="button" class="btn" data-act="dkMenu" data-v="insert">' + L('Insert', '插入') + ' ' + uic('chev', 13) + '</button></div>' : '') +
@@ -99,6 +99,17 @@ function dkMenuHtml(kind, deck, el){
       '<hr>' + popt('dkDelSlide', null, L('Delete slide', '删除此页'), 'trash') : '');
   }
   return '<div class="plist dk-menu">' + h + '</div>';
+}
+
+/* ---------------- filmstrip thumbnails are kept between redraws: a slide whose page did not change reuses its node ---------------- */
+var THUMBS = {}, THUMB_NEXT = {};
+function thumbSlot(html, sid){ var k = sid + '.' + slHash(html); THUMB_NEXT[k] = html; return '<div class="dk-fit dk-tw" data-thumb="' + k + '"></div>'; }
+function thumbFill(){
+  var keep = {};
+  $$('.dke-film [data-thumb]').forEach(function(slot){ var k = slot.dataset.thumb, n = THUMBS[k];
+    if(!n){ n = document.createElement('div'); n.className = 'dk-sc'; n.innerHTML = THUMB_NEXT[k] || ''; }
+    slot.appendChild(n); keep[k] = n; var w = slot.clientWidth; if(w) n.style.transform = 'scale(' + (w / 1280) + ')'; });
+  THUMBS = keep; THUMB_NEXT = {};
 }
 
 /* ================= inspector ================= */

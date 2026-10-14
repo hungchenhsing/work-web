@@ -6,19 +6,36 @@ function role(){ return (STORE && STORE.me && STORE.me.role) || 'none'; }
 function myId(){ return (STORE && STORE.me && STORE.me.id) || ''; }
 function isInternal(){ return ['admin','editor','viewer'].indexOf(role()) >= 0; }
 function canTeamEdit(){ return role() === 'admin' || role() === 'editor'; }
-function cfg(){ var c = (STORE && STORE.cfg) || {}, o = {}; for(var k in DEF_CFG) o[k] = (c[k] !== undefined && c[k] !== null ? c[k] : clone(DEF_CFG[k])); return o; }
-function lists(){ var l = cfg().lists || {}, o = {}; Object.keys(DEF_LISTS).forEach(function(k){ o[k] = l[k] || clone(DEF_LISTS[k]); }); Object.keys(l).forEach(function(k){ o[k] = l[k]; }); return o; }
+/* ---------- lookup indexes ----------
+   DATA_VER goes up on every data change (notify() bumps it synchronously, right after the store mutates), so lookups
+   are rebuilt once per change instead of scanning all records on every call. */
+var DATA_VER = 0, IX = {ver:-1};
+/* REC_VER moves on every change except edits to a presentation itself (deckEdit sets DECK_ONLY), so slide data can be cached */
+var REC_VER = 0, DECK_ONLY = false;
+function ix(){
+  var recs = (STORE && STORE.recs) || [], regs = (STORE && STORE.regs) || [], c = STORE && STORE.cfg;
+  if(IX.ver === DATA_VER && IX.recs === recs && IX.n === recs.length && IX.regs === regs && IX.rn === regs.length && IX.cfg === c) return IX;
+  var byId = new Map(), byReg = new Map(), regById = new Map();
+  for(var i = 0; i < recs.length; i++){ var r = recs[i]; byId.set(r.id, r); var a = byReg.get(r.reg); if(!a){ a = []; byReg.set(r.reg, a); } a.push(r); }
+  for(var j = 0; j < regs.length; j++) regById.set(regs[j].id, regs[j]);
+  IX = {ver:DATA_VER, recs:recs, n:recs.length, regs:regs, rn:regs.length, cfg:c, byId:byId, byReg:byReg, regById:regById, memo:{}};
+  return IX;
+}
+function memo(key, fn){ var x = ix(); if(!(key in x.memo)) x.memo[key] = fn(); return x.memo[key]; }
+function cfgBase(){ return memo('cfg', function(){ var c = (STORE && STORE.cfg) || {}, o = {}; for(var k in DEF_CFG) o[k] = (c[k] !== undefined && c[k] !== null ? c[k] : clone(DEF_CFG[k])); return o; }); }
+function cfg(){ return Object.assign({}, cfgBase()); }
+function lists(){ return Object.assign({}, memo('lists', function(){ var l = cfgBase().lists || {}, o = {}; Object.keys(DEF_LISTS).forEach(function(k){ o[k] = l[k] || clone(DEF_LISTS[k]); }); Object.keys(l).forEach(function(k){ o[k] = l[k]; }); return o; })); }
 
 /* registers */
 function allRegs(){
-  var order = cfg().regOrder || [], regs = ((STORE && STORE.regs) || []).filter(function(r){ return r.d.kind !== 'decks' && r.d.kind !== 'snaps'; });
-  regs.sort(function(a, b){ var ia = order.indexOf(a.id), ib = order.indexOf(b.id); if(ia < 0) ia = 999; if(ib < 0) ib = 999; return ia - ib || String(a.d.en || '').localeCompare(String(b.d.en || '')); });
-  return regs;
+  return memo('allRegs', function(){ var order = cfgBase().regOrder || [], regs = ((STORE && STORE.regs) || []).filter(function(r){ return r.d.kind !== 'decks' && r.d.kind !== 'snaps' && r.d.kind !== 'library'; });
+    regs.sort(function(a, b){ var ia = order.indexOf(a.id), ib = order.indexOf(b.id); if(ia < 0) ia = 999; if(ib < 0) ib = 999; return ia - ib || String(a.d.en || '').localeCompare(String(b.d.en || '')); });
+    return regs; }).slice();
 }
-function getReg(id){ return ((STORE && STORE.regs) || []).filter(function(r){ return r.id === id; })[0] || null; }
+function getReg(id){ var r = ix().regById.get(id); if(r) return r; return ((STORE && STORE.regs) || []).filter(function(x){ return x.id === id; })[0] || null; }
 function allRecs(){ return (STORE && STORE.recs) || []; }
-function recsOf(regId){ return allRecs().filter(function(r){ return r.reg === regId; }); }
-function getRec(id){ return allRecs().filter(function(r){ return r.id === id; })[0] || null; }
+function recsOf(regId){ var a = ix().byReg.get(regId); return a ? a.slice() : []; }
+function getRec(id){ if(id == null) return null; var r = ix().byId.get(id); if(r && r.id === id) return r; for(var i = 0, a = allRecs(); i < a.length; i++) if(a[i].id === id){ IX.ver = -1; return a[i]; } return null; }
 function isPrivate(reg){ return reg && reg.vis === 'private'; }
 function canWrite(reg){ if(!reg) return false; if(reg.vis === 'private') return reg.owner === myId(); return canTeamEdit(); }
 function canDeleteReg(reg){ if(!reg) return false; if(reg.vis === 'private') return reg.owner === myId(); return role() === 'admin'; }
@@ -95,8 +112,8 @@ function blocksOf(reg, rec){ var f = rf(reg, 'block'); return f ? asArr(rec.d[f.
 function openFb(id){ return ((STORE && STORE.fb) || []).filter(function(f){ return f.item_id === id && f.status === 'open'; }).length; }
 
 /* sub-items (a record can hold child records, e.g. a drawing list under one as-built package) */
-function kidsIndex(regId){ var m = {}; recsOf(regId).forEach(function(r){ var p = r.d.parent; if(p && p !== r.id) (m[p] = m[p] || []).push(r); }); return m; }
-function childrenOf(rec){ return recsOf(rec.reg).filter(function(r){ return r.d.parent === rec.id && r.id !== rec.id; }); }
+function kidsIndex(regId){ return memo('kids:' + regId, function(){ var m = {}; (ix().byReg.get(regId) || []).forEach(function(r){ var p = r.d.parent; if(p && p !== r.id) (m[p] = m[p] || []).push(r); }); return m; }); }
+function childrenOf(rec){ return (kidsIndex(rec.reg)[rec.id] || []).slice(); }
 function parentRec(rec){ return rec && rec.d.parent && rec.d.parent !== rec.id ? getRec(rec.d.parent) : null; }
 function depthOf(rec){ var d = 0, p = parentRec(rec), g = 0; while(p && g++ < 10){ d++; p = parentRec(p); } return d; }
 function descendantsOf(rec){ var out = [], idx = kidsIndex(rec.reg); (function w(id, g){ if(g > 10) return; (idx[id] || []).forEach(function(k){ out.push(k); w(k.id, g + 1); }); })(rec.id, 0); return out; }
@@ -180,6 +197,7 @@ function auditUndoable(a){
 }
 async function undoAudit(a){
   try{
+    if(a && a._light){ var full = await STORE.auditRow(a.id); if(!full){ toast(T('That change could not be found.', '找不到这条修改记录。')); return; } a = full; }
     if(a.action === 'update'){
       var rec = getRec(a.record_id); if(!rec){ toast(T('That record no longer exists.', '该记录已不存在。')); return; }
       var cur = pick(rec.d, a.keys || []), conflict = (a.keys || []).filter(function(k){ return !same(cur[k], (a.new || {})[k]); });

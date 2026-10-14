@@ -36,6 +36,9 @@ function DemoStore(){
     patchRec: function(id, p){ var r = rec(id); if(!r) return Promise.resolve(); var old = clone(r.d); Object.assign(r.d, clone(p)); var k = auditDiff(old, r.d); if(k.length) log({register_id:r.reg, record_id:id, action:'update', keys:k, old:pick(old, k), new:pick(r.d, k)}); r.ua = new Date().toISOString(); r.ub = 'Demo'; api.save(); return Promise.resolve(); },
     deleteRec: function(id){ var r = rec(id); if(!r) return Promise.resolve(); st.recs = st.recs.filter(function(x){ return x.id !== id; }); log({register_id:r.reg, record_id:id, action:'delete', old:clone(r.d)}); api.save(); return Promise.resolve(); },
     restoreRec: function(r){ var ex = rec(r.id); if(ex) return api.patchRec(r.id, r.d); return api.createRec(r); },
+    ensurePubs: function(){ return Promise.resolve(); },
+    auditRow: function(id){ return Promise.resolve(st.audit.filter(function(a){ return a.id === id; })[0] || null); },
+    pubFull: function(id){ return Promise.resolve(st.pubs.filter(function(x){ return x.id === id; })[0] || null); },
     loadAudit: function(o){ o = o || {}; var rows = st.audit.filter(function(a){ return (!o.reg || a.register_id === o.reg) && (!o.rec || a.record_id === o.rec) && (!o.before || a.id < o.before) && (!o.since || a.at >= o.since); }); return Promise.resolve(rows.slice(0, o.limit || 200)); },
     createPub: function(id, data){ st.pubs.unshift(Object.assign({id:id}, clone(data))); api.save(); return Promise.resolve(); },
     deletePub: function(id){ st.pubs = st.pubs.filter(function(x){ return x.id !== id; }); api.save(); return Promise.resolve(); },
@@ -89,32 +92,56 @@ function CloudStore(url, key){
     var role = api.me.role, internal = ['admin','editor','viewer'].indexOf(role) >= 0;
     try{
       if(internal){
-        var c = check(await sb.from('app_config').select('id,data'));
+        /* the three things the first screen needs, in parallel; everything else loads after the site is shown */
+        var three = await Promise.all([sb.from('app_config').select('id,data'), pageAll('registers', 'id,owner,visibility,data,updated_at'), pageAll('records', 'id,register_id,data,created_at,updated_at,updated_by')]);
+        var c = check(three[0]);
         c.data.forEach(function(r){ if(r.id === 'main') api.cfg = r.data; });
-        api.regs = (await pageAll('registers', 'id,owner,visibility,data,updated_at')).map(rowReg);
-        api.recs = (await pageAll('records', 'id,register_id,data,created_at,updated_at,updated_by')).map(rowRec);
-        var a = await sb.from('audit_log').select('*').order('id', {ascending:false}).limit(300);
-        api.audit = a.data || [];
+        api.regs = three[1].map(rowReg);
+        api.recs = three[2].map(rowRec);
         if(!(api.cfg && api.cfg.v2)){
           var tr = c.data.filter(function(r){ return r.id === 'tree'; })[0];
           api.v1 = {cfg:api.cfg, tree: tr && tr.data && tr.data.nodes || null, items: (await pageAll('items', 'id,data')).map(function(r){ return Object.assign({}, r.data, {id:r.id}); })};
         }
       }
-      if(internal || role === 'owner'){
-        var p = check(await sb.from('publications').select('id,data,created_at').order('created_at', {ascending:false}));
-        api.pubs = p.data.map(function(r){ return Object.assign({}, r.data, {id:r.id}); });
-        api.fb = check(await sb.from('feedback').select('*').order('created_at')).data;
-        if(role === 'owner'){ var cc = await sb.from('app_config').select('id,data').eq('id', 'main'); if(cc.data && cc.data[0]) api.cfg = cc.data[0].data; }
+      if(role === 'owner'){
+        var oo = await Promise.all([sb.from('app_config').select('id,data').eq('id', 'main'), pubList(), sb.from('feedback').select('*').order('created_at')]);
+        if(oo[0].data && oo[0].data[0]) api.cfg = oo[0].data[0].data; api.pubs = oo[1]; api.fb = check(oo[2]).data || [];
       }
-      if(role === 'admin'){ var us = await sb.from('profiles').select('*').order('created_at'); api.users = us.data || []; }
     }catch(e){ if(/registers|records|audit_log/.test(String(e && e.message)) || e && (e.code === '42P01' || e.code === 'PGRST205')) api.needSchema = true; else fail(e); }
     api.ready = true; subscribe(); notify();
+    if(internal && !api.needSchema) loadRest(role);
   };
+  /* after the first screen: recent changes (light: no before/after values), publication list (light: no slides or photos),
+     Owner comments and, for admins, the user list. A publication's full content is fetched when it is opened. */
+  var PUB_COLS = 'id,created_at,kind:data->>kind,no:data->>no,at:data->>at,by:data->>by,note:data->>note,deckId:data->>deckId,deckNo:data->>deckNo,title:data->title,date:data->>date,reg:data->reg,count:data->count,lang:data->>lang,presenter:data->>presenter';
+  function pubList(){ return sb.from('publications').select(PUB_COLS).order('created_at', {ascending:false}).then(function(r){ if(r.error) throw r.error; return (r.data || []).map(function(x){ var o = Object.assign({}, x, {_light:true}); delete o.created_at; return o; }); }); }
+  api.ensurePubs = function(){ return api._pubsLoaded ? Promise.resolve() : pubList().then(function(list){ var have = {}; api.pubs.forEach(function(x){ have[x.id] = 1; }); api.pubs = api.pubs.concat(list.filter(function(x){ return !have[x.id]; })); api._pubsLoaded = true; }); };
+  function loadRest(role){
+    var jobs = [sb.from('audit_log').select(AUD_LIGHT).order('id', {ascending:false}).limit(40), pubList(), sb.from('feedback').select('*').order('created_at')];
+    if(role === 'admin') jobs.push(sb.from('profiles').select('*').order('created_at'));
+    Promise.all(jobs).then(function(r){
+      var seen = {}; api.audit.forEach(function(x){ seen[x.id] = 1; });
+      api.audit = api.audit.concat((r[0].data || []).filter(function(x){ return !seen[x.id]; }).map(function(x){ x._light = true; return x; })).sort(function(a, b){ return b.id - a.id; });
+      var have = {}; api.pubs.forEach(function(x){ have[x.id] = 1; }); api.pubs = api.pubs.concat(r[1].filter(function(x){ return !have[x.id]; })); api._pubsLoaded = true;
+      api.fb = (r[2] && r[2].data) || []; if(r[3]) api.users = r[3].data || [];
+      notify();
+    }).catch(fail);
+  }
+  var AUD_LIGHT = 'id,at,actor,actor_name,register_id,record_id,action,keys';
+  /* one audit row with its before / after values (undo needs them) */
+  api.auditRow = function(id){ return sb.from('audit_log').select('*').eq('id', id).maybeSingle().then(function(r){ if(r.error) throw r.error; return r.data; }); };
+  /* one publication in full (slides, data, photos) */
+  api.pubFull = function(id){ var p = api.pubs.filter(function(x){ return x.id === id; })[0]; if(p && !p._light) return Promise.resolve(p);
+    if(api._pubLoading && api._pubLoading[id]) return api._pubLoading[id]; api._pubLoading = api._pubLoading || {};
+    return (api._pubLoading[id] = sb.from('publications').select('id,data').eq('id', id).maybeSingle().then(function(r){ delete api._pubLoading[id]; if(r.error) throw r.error; if(!r.data) return null; var o = Object.assign({}, r.data.data, {id:r.data.id}), i = findI(api.pubs, id); if(i >= 0) api.pubs[i] = o; else api.pubs.unshift(o); notify(); return o; })); };
   function subscribe(){
     channel = sb.channel('ww2-' + Date.now());
     channel.on('postgres_changes', {event:'*', schema:'public', table:'records'}, function(p){
       if(p.eventType === 'DELETE'){ var i0 = findI(api.recs, p.old.id); if(i0 >= 0) api.recs.splice(i0, 1); }
-      else { var r = rowRec(p.new), i = findI(api.recs, r.id); if(i >= 0) api.recs[i] = r; else api.recs.push(r); }
+      else { var r = rowRec(p.new), i = findI(api.recs, r.id);
+        /* the echo of our own change: the data is already on screen, so no redraw */
+        if(i >= 0 && api.recs[i].reg === r.reg && same(api.recs[i].d, r.d)){ api.recs[i].ua = r.ua; api.recs[i].ub = r.ub; return; }
+        if(i >= 0) api.recs[i] = r; else api.recs.push(r); }
       notify();
     }).on('postgres_changes', {event:'*', schema:'public', table:'registers'}, function(p){
       if(p.eventType === 'DELETE'){ var i0 = findI(api.regs, p.old.id); if(i0 >= 0) api.regs.splice(i0, 1); api.recs = api.recs.filter(function(x){ return x.reg !== p.old.id; }); }
@@ -168,7 +195,7 @@ function CloudStore(url, key){
     return sb.from('records').delete().eq('id', id).select('id').then(function(r){ if(r.error) throw r.error; if(!r.data || !r.data.length) throw new Error('permission'); }).catch(function(e){ if(keep){ api.recs.push(keep); notify(); } throw e; }); };
   api.restoreRec = function(r){ return findI(api.recs, r.id) >= 0 ? api.patchRec(r.id, r.d) : api.createRec(r); };
   api.loadAudit = function(o){
-    o = o || {}; var q = sb.from('audit_log').select('*').order('id', {ascending:false}).limit(o.limit || 200);
+    o = o || {}; var q = sb.from('audit_log').select(o.light ? AUD_LIGHT : '*').order('id', {ascending:false}).limit(o.limit || 200);
     if(o.reg) q = q.eq('register_id', o.reg); if(o.rec) q = q.eq('record_id', o.rec); if(o.before) q = q.lt('id', o.before); if(o.since) q = q.gte('at', o.since); if(o.action) q = q.eq('action', o.action);
     return q.then(function(r){ if(r.error) throw r.error; return r.data; });
   };
