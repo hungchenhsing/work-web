@@ -36,6 +36,7 @@ document.addEventListener('click', function(e){
     case 'close': S.open = null; S.delAsk = false; renderDrawer(); break;
     case 'dtab': S.dtab = v; renderDrawer(); break;
     case 'star': setRec(rec, {star:!rec.d.star}, {silent:true}); break;
+    case 'msTog': setRec(rec, {ms:!rec.d.ms}); break;
     case 'printMom': printMinutes(rec); break;
     case 'dupRec': (function(){ var d = clone(rec.d); var ro = rolesOf(drReg); if(ro.no) d[ro.no] = nextNo(drReg); dataFields(drReg).forEach(function(f){ if(f.type === 'files') delete d[f.key]; }); var id = uid('r'); STORE.createRec({id:id, reg:drReg.id, d:d}).then(function(){ openRec(id); toast(T('Duplicated', '已复制')); }).catch(function(er){ toast(errText(er)); }); })(); break;
     case 'delAsk': S.delAsk = true; renderDrawer(); break;
@@ -127,7 +128,7 @@ document.addEventListener('click', function(e){
     case 'regCreate': (function(){ var m = S.modal, en = ($('#nrEn') || {}).value || '', zh = ($('#nrZh') || {}).value || '', vis = ($('#nrVis') || {}).value || 'team', sec = ($('#nrSec') || {}).value || 'other';
       if(!en.trim() && !zh.trim()){ toast(T('Give the register a name', '请填写台账名称')); return; }
       var r = regFromTemplate(m.tpl, {vis:canTeamEdit() ? vis : 'private', d:{en:en.trim() || zh.trim(), zh:zh.trim(), sec:sec}});
-      STORE.createReg(r).then(function(){ var order = (cfg().regOrder || []).concat([r.id]); if(canTeamEdit()) STORE.saveCfg({regOrder:order}).catch(function(){}); closeModal(); goReg(r.id); toast(T('Register created', '台账已建立')); }).catch(function(er){ toast(errText(er)); }); })(); break;
+      STORE.createReg(r).then(function(){ var sd = (TEMPLATES[m.tpl] || {}).seed; if(sd && sd.length){ var k = 0; STORE.createRecs(sd.map(function(x){ k++; var d = blankData(r, {en:x[0], zh:x[1], cat:x[2]}); d.regNo = (r.d.prefix || 'MS') + '-' + String(k).padStart(3, '0'); return {id:uid('r'), reg:r.id, d:d}; })).catch(function(){}); } var order = (cfg().regOrder || []).concat([r.id]); if(canTeamEdit()) STORE.saveCfg({regOrder:order}).catch(function(){}); closeModal(); goReg(r.id); toast(T('Register created', '台账已建立')); }).catch(function(er){ toast(errText(er)); }); })(); break;
     case 'regSettings': openModal({kind:'regSettings', reg:v}); break;
     case 'rsIcon': S.modal.d.icon = v; renderModal(); break;
     case 'regSave': (function(){ var m = S.modal, rg = getReg(m.reg), d = m.d, p = {en:d.en, zh:d.zh, icon:d.icon, color:d.color, sec:d.sec, prefix:String(d.prefix || '').toUpperCase().replace(/[^A-Z0-9]/g, ''), ownerPublish:d.vis === 'private' ? false : !!d.ownerPublish, view:d.view, meeting:!!d.meeting};

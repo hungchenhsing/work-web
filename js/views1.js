@@ -68,7 +68,7 @@ function viewRegister(reg){
       (canSchemaEdit(reg) ? '<button type="button" data-act="fieldsOpen" data-v="' + esc(reg.id) + '">' + L('Fields & columns', '字段与列') + '</button><button type="button" data-act="regSettings" data-v="' + esc(reg.id) + '">' + L('Register settings', '台账设置') + '</button>' : '') +
       (ed ? '<button type="button" data-act="impOpen" data-v="' + esc(reg.id) + '">' + L('Import Excel…', '导入 Excel…') + '</button>' : '') +
       '<button type="button" data-act="expReg" data-v="' + esc(reg.id) + '">' + L('Export Excel (filtered)', '导出 Excel（当前筛选）') + '</button>' +
-      '<button type="button" data-act="regHist" data-v="' + esc(reg.id) + '">' + L('Change log of this register', '本台账修改记录') + '</button>' + regMenuItem(reg) +
+      '<button type="button" data-act="regHist" data-v="' + esc(reg.id) + '">' + L('Change log of this register', '本台账修改记录') + '</button>' + regPlanMenu(reg) + regMenuItem(reg) +
     '</div></details></div></div>';
   h += regFilters(reg);
   var body;
@@ -323,8 +323,8 @@ function ganttRow(reg, rec, mn, px, grid, lines, LC, LW, tpl, A){
     return '<div class="gc"></div>';
   }).join('');
   var tr = lines;
-  if(rec.d.baseStart && rec.d.baseFinish){ var bs = d2n(rec.d.baseStart), bfn = d2n(rec.d.baseFinish); tr += '<div class="bsl" style="left:' + ((bs - mn) * px) + 'px;width:' + Math.max(3, (bfn - bs + 1) * px) + 'px"></div>'; }
-  var as = d2n(rec.d.actualStart), ae = d2n(rec.d.actualEnd || rec.d.actualFinish);
+  var bo = baseOf(reg, rec); if(bo){ var bs = bo.s, bfn = bo.f; tr += '<div class="bsl" style="left:' + ((bs - mn) * px) + 'px;width:' + Math.max(3, (bfn - bs + 1) * px) + 'px"></div>'; }
+  var ao = actOf(reg, rec), as = ao ? ao.s : null, ae = ao ? ao.f : null;
   if(as != null){ if(ae == null) ae = isDone(reg, rec) ? as : A; tr += '<div class="act" style="left:' + ((as - mn) * px) + 'px;width:' + Math.max(3, (ae - as + 1) * px) + 'px"></div>'; }
   if(!p) tr += '<span class="bl" style="left:8px">' + L('No dates', '未设日期') + '</span>';
   else {

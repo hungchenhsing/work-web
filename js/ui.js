@@ -23,6 +23,7 @@ function renderAll(){
   renderMain();
   renderDrawer(); renderPop(); renderModal();
   restoreFocus(fk);
+  if(STORE.ready && canTeamEdit() && !S.snapT){ S.snapT = 1; setTimeout(function(){ S.snapT = 0; takeSnapshotIfDue(); }, 4000); }
 }
 
 /* ---------------- top bar & side navigation ---------------- */
@@ -220,6 +221,7 @@ function renderDrawer(){
   if(((STORE && STORE.fb) || []).some(function(x){ return x.item_id === rec.id; })) tabs.push(['comments','Owner comments','业主意见', openFb(rec.id)]);
   var h = '<div class="scrim" data-act="close"></div><aside class="drawer" role="dialog" aria-modal="true" aria-label="' + esc(recLabel(rec)) + '">' +
     '<div class="dh"><div class="dhr"><span class="crumb">' + icon(reg.d.icon, 14) + ' ' + esc(regName(reg)) + (isPrivate(reg) ? ' ' + uic('lock', 12) : '') + ' · ' + (parentRec(rec) ? '<button type="button" class="lnk mono" data-act="openRec" data-id="' + esc(parentRec(rec).id) + '">' + esc(recNo(reg, parentRec(rec)) || '↑') + '</button> › ' : '') + '<span class="mono">' + esc(recNo(reg, rec)) + '</span></span><span class="dha">' +
+    (ed && !reg.d.allMs ? '<button type="button" class="ib' + (rec.d.ms ? ' on' : '') + '" data-act="msTog" title="' + esc(T('Milestone (shows as a diamond on timelines)', '里程碑（在时间轴上显示为菱形）')) + '">' + icon('flag', 16) + '</button>' : '') +
     (ed ? '<button type="button" class="ib' + (rec.d.star ? ' on' : '') + '" data-act="star" title="' + esc(T('Key item', '重点')) + '">' + uic('star', 16) + '</button>' : '') +
     (reg.d.meeting ? '<button type="button" class="ib" data-act="printMom" title="' + esc(T('Print minutes', '打印纪要')) + '">' + uic('print', 16) + '</button>' : '') +
     '<button type="button" class="ib" data-act="close" aria-label="Close">' + uic('x', 18) + '</button></span></div>' +
@@ -264,6 +266,7 @@ function drawerForm(reg, rec, ed){
     h += '<div class="fl' + (wide ? ' full' : '') + '"><span class="flab">' + L(f.en, f.zh) + (f.help ? ' <span class="note">' + esc(f.help) + '</span>' : '') + '</span>' + fieldInput(reg, f, rec, ed) + '</div>';
   });
   h += '</div>';
+  h += baseInfo(reg, rec);
   h += '<div class="note" style="margin-top:14px">' + L('Created', '创建') + ' ' + esc(fmtTime(rec.ca)) + ' · ' + L('last change', '最后修改') + ' ' + esc(fmtTime(rec.ua)) + (canSchemaEdit(reg) ? ' · <button type="button" class="lnk" data-act="fieldsOpen" data-v="' + esc(reg.id) + '">' + L('Add or change fields', '增删 / 修改字段') + '</button>' : '') + '</div>';
   return h;
 }
@@ -321,7 +324,7 @@ function auditRowHtml(a, opts){
   if(!a.record_id){ var nmx = (a.new || a.old || {}); recName = '<b>' + esc(T1(nmx.en, nmx.zh)) + '</b>'; }
   var diff = '';
   if(a.action === 'update' && reg){
-    diff = '<div class="diff">' + (a.keys || []).map(function(k){ var f = fieldOf(reg, k) || (k === 'parent' ? {key:k, en:'Belongs to', zh:'上级', type:'link'} : {key:k, en:k === 'star' ? 'Key' : k === 'ext' ? 'External' : k, zh:k === 'star' ? '重点' : k === 'ext' ? '对外' : '', type: k === 'star' || k === 'ext' ? 'check' : 'text'});
+    diff = '<div class="diff">' + (a.keys || []).map(function(k){ var f = fieldOf(reg, k) || (k === 'parent' ? {key:k, en:'Belongs to', zh:'上级', type:'link'} : {key:k, en:({star:'Key', ext:'External', ms:'Milestone', baseStart:'Baseline start', baseFinish:'Baseline finish'})[k] || k, zh:({star:'重点', ext:'对外', ms:'里程碑', baseStart:'基准开始', baseFinish:'基准结束'})[k] || '', type: k === 'star' || k === 'ext' || k === 'ms' ? 'check' : 'text'});
       var ov = textOf(reg, f, null, (a.old || {})[k]), nv = textOf(reg, f, null, (a.new || {})[k]);
       if(f.type === 'sub' || f.type === 'files' || f.type === 'link'){ ov = textOf(reg, f, null, (a.old || {})[k]) || '—'; nv = textOf(reg, f, null, (a.new || {})[k]) || '—'; }
       if(f.type === 'long'){ ov = String(ov).slice(0, 80); nv = String(nv).slice(0, 80); }

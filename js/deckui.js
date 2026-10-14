@@ -23,11 +23,27 @@ function deckChips(deck){
 }
 function getPath(o, p){ return p.split('.').reduce(function(a, k){ return a == null ? undefined : a[k]; }, o); }
 function setPath(o, p, v){ var ks = p.split('.'), last = ks.pop(), t = o; ks.forEach(function(k){ if(t[k] == null || typeof t[k] !== 'object') t[k] = {}; t = t[k]; }); t[last] = v; }
-function saveSlides(deck, slides, quiet){ return setRec(deck, {slides:slides}, quiet ? {silent:true} : undefined); }
+/* every change made in the editor goes through deckEdit, which keeps an undo / redo history per deck (Cmd+Z / Cmd+Shift+Z) */
+var UNDO = {};
+function undoOf(id){ return UNDO[id] || (UNDO[id] = {u:[], r:[]}); }
+function deckEdit(deck, patch, quiet, noHist){
+  if(Object.keys(patch).every(function(k){ return same(deck.d[k], patch[k]); })) return Promise.resolve();
+  if(!noHist && canDeckEdit()){ var st = undoOf(deck.id), old = {}; Object.keys(patch).forEach(function(k){ old[k] = deck.d[k] === undefined ? null : clone(deck.d[k]); }); st.u.push(old); if(st.u.length > 80) st.u.shift(); st.r = []; }
+  return setRec(deck, patch, quiet ? {silent:true} : undefined);
+}
+function saveSlides(deck, slides, quiet){ return deckEdit(deck, {slides:slides}, quiet); }
+function deckUndo(redo){
+  var deck = S.deck && getRec(S.deck); if(!deck || deck.d.status === 'issued' || !canDeckEdit()) return;
+  var st = undoOf(deck.id), from = redo ? st.r : st.u, to = redo ? st.u : st.r, snap = from.pop(); if(!snap){ toast(redo ? T('Nothing to redo', '没有可重做的操作') : T('Nothing to undo', '没有可撤销的操作')); return; }
+  var cur = {}; Object.keys(snap).forEach(function(k){ cur[k] = deck.d[k] === undefined ? null : clone(deck.d[k]); }); to.push(cur);
+  if(snap.slides && !(snap.slides || []).some(function(x){ return x.id === S.dslide; })) S.dslide = null;
+  deckEdit(deck, snap, true, true); toast(redo ? T('Redone', '已重做') : T('Undone', '已撤销'));
+}
 function slideById(deck, id){ return (deck.d.slides || []).filter(function(s){ return s.id === id; })[0] || null; }
-function photoPaths(built){ var out = []; built.forEach(function(x){ if(x.data && x.data.photos) x.data.photos.forEach(function(p){ if(p.path && !p.src) out.push(p.path); }); }); return out; }
-function signFor(built){ return STORE && STORE.signUrls ? STORE.signUrls(photoPaths(built)) : Promise.resolve(); }
-function openDeck(id, sid){ S.page = 'decks'; if(S.deck !== id) S.dkBar = null; S.deck = id; S.dslide = sid || null; S.dpage = 0; S.open = null; S.sideOpen = false; closePop(); saveUI(); renderAll(); var m = $('#main'); if(m) m.scrollTop = 0; }
+function photoLists(d){ var out = []; if(!d) return out; if(d.photos) out.push(d.photos); if(d.L && d.L.photos) out.push(d.L.photos); if(d.R && d.R.photos) out.push(d.R.photos); return out; }
+function photoPaths(built){ var out = []; built.forEach(function(x){ photoLists(x.data).forEach(function(list){ list.forEach(function(p){ if(p.path && !p.src) out.push(p.path); }); }); (x.s.els || []).forEach(function(e){ if(e.path && !e.src) out.push(e.path); }); }); var th = built.theme; if(th){ [th.logoL, th.logoR].forEach(function(l){ if(l && l.path && !l.src) out.push(l.path); }); } return out; }
+function signFor(built, deck){ if(deck) built.theme = themeOf(deck); return STORE && STORE.signUrls ? STORE.signUrls(photoPaths(built)) : Promise.resolve(); }
+function openDeck(id, sid){ S.elSel = null; S.page = 'decks'; if(S.deck !== id) S.dkBar = null; S.deck = id; S.dslide = sid || null; S.dpage = 0; S.open = null; S.sideOpen = false; closePop(); saveUI(); renderAll(); var m = $('#main'); if(m) m.scrollTop = 0; }
 function scaled(html, cls){ return '<div class="dk-fit' + (cls ? ' ' + cls : '') + '"><div class="dk-sc">' + html + '</div></div>'; }
 function fitSlides(){ $$('.dk-fit').forEach(function(el){ var w = el.clientWidth, inner = el.firstElementChild; if(inner && w) inner.style.transform = 'scale(' + (w / 1280) + ')'; }); }
 
@@ -40,8 +56,11 @@ var DECK_TPLS = [
 function tplSlides(tpl){
   var site = tplReg('site'), doc = tplReg('turnover'), pun = tplReg('punch'), mtg = tplReg('meetings'), A = [newSlide('cover')];
   if(tpl === 'blank') return A;
+  A.push(newSlide('summary', site ? {regs:[site]} : {}));
   A.push(newSlide('kpi'));
   if(site) A.push(newSlide('matrix', {reg:site}, {en:'Site works – progress by block', zh:'现场施工 – 分区进度'}));
+  if(site) A.push(newSlide('scurve', {regs:[site]}, {en:'Site works – S-curve', zh:'现场施工 – S 曲线'}));
+  if(msRegId()) A.push(newSlide('timeline'));
   A.push(newSlide('lookahead', {regs:[site, doc].filter(Boolean), weeks:3, overdue:true}, {en:'3-week look-ahead', zh:'未来三周工作计划'}));
   if(doc){
     A.push(newSlide('breakdown', {reg:doc}, {en:'Turnover documents – status by package', zh:'移交文件 – 各文件包状态'}));
@@ -71,7 +90,7 @@ function viewDeckList(){
     var m = deck.d.meeting && getRec(deck.d.meeting);
     return '<article class="card dk-card"><button type="button" class="dk-cthumb" data-act="dkOpen" data-v="' + esc(deck.id) + '" aria-label="' + esc(T('Open', '打开')) + '">' + scaled(thumb) + '</button><div class="dk-cbody"><div class="dk-cno mono muted">' + esc(deck.d.no || '') + ' · ' + esc(deck.d.date || '') + '</div><h3><button type="button" class="lnk" data-act="dkOpen" data-v="' + esc(deck.id) + '">' + esc(deckTitle(deck.d)) + '</button></h3><div class="dk-cchips">' + deckChips(deck) + '</div>' +
       (m ? '<div class="note">' + uic('link', 12) + ' <button type="button" class="lnk" data-act="openRec" data-id="' + esc(m.id) + '">' + esc(recLabel(m)) + '</button></div>' : '') +
-      '<div class="row dk-cact"><button type="button" class="btn sm pri" data-act="dkPresent" data-v="' + esc(deck.id) + '">' + uic('play', 13) + ' ' + L('Present', '演示') + '</button><button type="button" class="btn sm" data-act="dkPdf" data-v="' + esc(deck.id) + '">' + uic('pdf', 14) + ' PDF</button>' + (ed ? '<button type="button" class="btn sm" data-act="dkCopy" data-v="' + esc(deck.id) + '">' + uic('copy', 13) + ' ' + L('Copy for next week', '复制为下周') + '</button>' : '') + '</div></div></article>';
+      '<div class="row dk-cact"><button type="button" class="btn sm pri" data-act="dkPresent" data-v="' + esc(deck.id) + '">' + uic('play', 13) + ' ' + L('Present', '演示') + '</button><button type="button" class="btn sm" data-act="dkPdf" data-v="' + esc(deck.id) + '">' + uic('pdf', 14) + ' PDF</button><button type="button" class="btn sm" data-act="dkPptx" data-v="' + esc(deck.id) + '">' + uic('pdf', 14) + ' PPTX</button>' + (ed ? '<button type="button" class="btn sm" data-act="dkCopy" data-v="' + esc(deck.id) + '">' + uic('copy', 13) + ' ' + L('Copy for next week', '复制为下周') + '</button>' : '') + '</div></div></article>';
   }).join('') + '</div>';
 }
 
@@ -82,7 +101,7 @@ function viewDeckEditor(deck){
   var pi = sel ? clamp(S.dpage || 0, 0, sel.pages.length - 1) : 0; S.dpage = pi;
   var fbs = ((STORE && STORE.fb) || []).filter(function(x){ return x.item_id === deck.id; }), fbOpen = fbs.filter(function(x){ return x.status === 'open'; }).length;
   var h = '<button type="button" class="lnk dk-back" data-act="dkBack">' + uic('left', 13) + ' ' + L('All presentations', '全部演示文稿') + '</button><div class="ph dk-ph"><div class="dk-title"><h1 class="vtitle">' + esc(deckTitle(d)) + '</h1><div class="dk-cchips"><span class="muted mono">' + esc(d.no || '') + '</span> ' + deckChips(deck) + '</div></div>' +
-    '<div class="pha"><button type="button" class="btn pri" data-act="dkPresent" data-v="' + esc(deck.id) + '">' + uic('play', 14) + ' ' + L('Present', '演示') + '</button><button type="button" class="btn" data-act="dkPdf" data-v="' + esc(deck.id) + '">' + uic('pdf', 15) + ' ' + L('Export PDF', '导出 PDF') + '</button>' +
+    '<div class="pha">' + (ed ? '<button type="button" class="ib" data-act="dkUndo" title="' + esc(T('Undo (Cmd+Z)', '撤销（Cmd+Z）')) + '">' + uic('undo', 16) + '</button><button type="button" class="ib dk-redo" data-act="dkRedo" title="' + esc(T('Redo (Cmd+Shift+Z)', '重做（Cmd+Shift+Z）')) + '">' + uic('undo', 16) + '</button>' : '') + '<button type="button" class="btn pri" data-act="dkPresent" data-v="' + esc(deck.id) + '">' + uic('play', 14) + ' ' + L('Present', '演示') + '</button><button type="button" class="btn" data-act="dkPdf" data-v="' + esc(deck.id) + '">' + uic('pdf', 15) + ' ' + L('Export PDF', '导出 PDF') + '</button><button type="button" class="btn" data-act="dkPptx" data-v="' + esc(deck.id) + '" title="' + esc(T('Editable PowerPoint file', '可编辑的 PowerPoint 文件')) + '">' + uic('pdf', 15) + ' PPTX</button>' +
     (canDeckEdit() ? (issued ? '<button type="button" class="btn" data-act="dkReopen">' + L('Back to draft', '退回草稿') + '</button>' : '<button type="button" class="btn" data-act="dkIssue">' + uic('lock', 14) + ' ' + L('Issue', '定稿') + '</button>') +
       '<button type="button" class="btn" data-act="dkShare"' + ((d.aud || 'owner') === 'internal' ? ' disabled title="' + esc(T('Internal decks cannot be shared with the Owner. Switch the audience to Owner mode first.', '内部演示文稿不能发给业主，请先切换到业主模式。')) + '"' : '') + '>' + uic('send', 14) + ' ' + L('Share with Owner', '发给业主') + '</button>' +
       '<details class="menu"><summary class="btn">⋯</summary><div class="pop pop-r"><button type="button" data-act="dkCopy" data-v="' + esc(deck.id) + '">' + L('Copy for next week', '复制为下周') + '</button><button type="button" data-act="regHistDeck">' + L('Change log of this deck', '此文稿修改记录') + '</button><button type="button" data-act="dkDel">' + L('Delete presentation', '删除演示文稿') + '</button></div></details>' : '') + '</div></div>';
@@ -92,9 +111,9 @@ function viewDeckEditor(deck){
       return '<div class="dk-t' + (x.s.id === S.dslide ? ' on' : '') + (x.s.hidden ? ' hid' : '') + '" data-act="dkSlide" data-v="' + esc(x.s.id) + '"' + (ed ? ' draggable="true" data-sdrag="' + esc(x.s.id) + '"' : '') + ' role="button" tabindex="0"><span class="dk-tn mono">' + (x.s.hidden ? uic('hide', 12) : x.first) + (x.pages.length > 1 && !x.s.hidden ? '<small>+' + (x.pages.length - 1) + '</small>' : '') + '</span>' + scaled(x.pages[0], 'dk-tw') + '<span class="dk-tl">' + esc(T1(SLIDES[x.s.type].en, SLIDES[x.s.type].zh)) + '</span></div>'; }).join('') +
     (ed ? '<button type="button" class="btn dk-add" data-act="dkAddMenu">' + uic('plus', 14) + ' ' + L('Add slide', '添加页面') + '</button>' : '') + '</aside>';
   h += '<section class="dk-pv">' + (sel ? (sel.pages.length > 1 ? '<div class="seg dk-pg">' + sel.pages.map(function(_, i){ return '<button type="button" data-act="dkPage" data-v="' + i + '" aria-pressed="' + (i === pi) + '">' + L('Page ' + (i + 1), '第 ' + (i + 1) + ' 页') + '</button>'; }).join('') + '</div><p class="note dk-pgn">' + L('Long content continues automatically on ' + sel.pages.length + ' pages.', '内容较多，自动分为 ' + sel.pages.length + ' 页。') + '</p>' : '') +
-      scaled(sel.pages[pi], 'dk-stage card') +
+      elToolbar(ed) + scaled(sel.pages[pi], 'dk-stage card') +
       (ed ? '<div class="dk-hint note">' + L('Click any text on the slide to change it.', '点击页面上的文字即可直接修改。') + (['cover','section','text'].indexOf(sel.s.type) < 0 ? ' ' + L('Figures and tables come from the registers — change them there and the slide follows.', '数字和表格来自台账：在台账里修改，页面会跟着更新。') : '') + '</div>' : '') +
-      '<div class="row dk-stb"><button type="button" class="btn sm" data-act="dkPresentHere">' + uic('play', 12) + ' ' + L('Present from here', '从此页演示') + '</button>' + (ed && ['cover','section','text'].indexOf(sel.s.type) < 0 ? (sel.s.cfg && sel.s.cfg.msg ? '' : '<button type="button" class="btn sm" data-act="dkAddMsg">' + uic('plus', 12) + ' ' + L('Key message', '重点结论') + '</button>') + (sel.s.cfg && sel.s.cfg.side ? '' : '<button type="button" class="btn sm" data-act="dkAddSide">' + uic('plus', 12) + ' ' + L('Notes box', '说明框') + '</button>') : '') + (ed ? '<span class="dk-sp"></span><button type="button" class="ib" data-act="dkMove" data-v="-1" title="' + esc(T('Move up', '上移')) + '">' + uic('up', 15) + '</button><button type="button" class="ib" data-act="dkMove" data-v="1" title="' + esc(T('Move down', '下移')) + '">' + uic('down', 15) + '</button><button type="button" class="ib" data-act="dkDup" title="' + esc(T('Duplicate', '复制')) + '">' + uic('copy', 15) + '</button><button type="button" class="ib' + (sel.s.hidden ? ' on' : '') + '" data-act="dkHide" title="' + esc(sel.s.hidden ? T('Show this slide', '显示此页') : T('Hide this slide (kept, not presented)', '隐藏此页（保留但不演示）')) + '">' + uic(sel.s.hidden ? 'eye' : 'hide', 15) + '</button><button type="button" class="ib" data-act="dkDelSlide" title="' + esc(T('Delete slide', '删除此页')) + '">' + uic('trash', 15) + '</button>' : '') + '</div>' +
+      '<div class="row dk-stb"><button type="button" class="btn sm" data-act="dkPresentHere">' + uic('play', 12) + ' ' + L('Present from here', '从此页演示') + '</button>' + (ed && ['cover','section','text'].indexOf(sel.s.type) < 0 ? (sel.s.cfg && sel.s.cfg.msg ? '' : '<button type="button" class="btn sm" data-act="dkAddMsg">' + uic('plus', 12) + ' ' + L('Key message', '重点结论') + '</button>') + (sel.s.cfg && sel.s.cfg.side ? '' : '<button type="button" class="btn sm" data-act="dkAddSide">' + uic('plus', 12) + ' ' + L('Notes box', '说明框') + '</button>') : '') + (ed && canFreeze(sel.s) ? '<button type="button" class="btn sm" data-act="dkFreeze" title="' + esc(T('Turn this slide into a table you can type in (stops following the registers)', '把此页变成可直接输入的表格（不再跟随台账更新）')) + '">' + L('Make editable', '转为可编辑') + '</button>' : '') + (ed && sel.s.type === 'etable' && sel.s.cfg && sel.s.cfg.orig ? '<button type="button" class="btn sm" data-act="dkUnfreeze">' + L('Back to live data', '恢复实时数据') + '</button>' : '') + (ed ? '<span class="dk-sp"></span><button type="button" class="ib" data-act="dkCopyTo" title="' + esc(T('Copy this slide to another presentation', '复制此页到其他演示文稿')) + '">' + uic('link', 15) + '</button><button type="button" class="ib" data-act="dkMove" data-v="-1" title="' + esc(T('Move up', '上移')) + '">' + uic('up', 15) + '</button><button type="button" class="ib" data-act="dkMove" data-v="1" title="' + esc(T('Move down', '下移')) + '">' + uic('down', 15) + '</button><button type="button" class="ib" data-act="dkDup" title="' + esc(T('Duplicate', '复制')) + '">' + uic('copy', 15) + '</button><button type="button" class="ib' + (sel.s.hidden ? ' on' : '') + '" data-act="dkHide" title="' + esc(sel.s.hidden ? T('Show this slide', '显示此页') : T('Hide this slide (kept, not presented)', '隐藏此页（保留但不演示）')) + '">' + uic(sel.s.hidden ? 'eye' : 'hide', 15) + '</button><button type="button" class="ib" data-act="dkDelSlide" title="' + esc(T('Delete slide', '删除此页')) + '">' + uic('trash', 15) + '</button>' : '') + '</div>' +
       (sel.s.note ? '<div class="card dk-note"><b>' + L('Speaker notes', '演讲备注') + '</b><div>' + esc(sel.s.note) + '</div></div>' : '')
     : '<div class="card empty">' + L('This presentation has no slides yet.', '此演示文稿还没有页面。') + '</div>') +
     (fbs.length ? '<details class="card dk-fb"' + (fbOpen ? ' open' : '') + '><summary><b>' + L('Owner comments', '业主意见') + '</b> ' + (fbOpen ? chip('red', fbOpen + ' ' + L('open', '待处理')) : '') + '</summary>' + fbs.map(function(x){ return '<div class="fb' + (x.status === 'open' ? ' open' : '') + '"><div class="ahead"><b>' + esc(x.author_name || '') + '</b> <span class="mono muted">' + esc(x.reg_no || '') + '</span> <span class="muted">' + esc(fmtTime(x.created_at)) + '</span></div><div style="white-space:pre-wrap">' + esc(x.body) + '</div>' + (x.reply ? '<div class="note">↳ ' + esc(x.reply) + '</div>' : '') + (canTeamEdit() && x.status === 'open' ? '<div class="row"><input class="in" id="rp_' + esc(x.id) + '" placeholder="' + esc(T('Reply (optional)', '回复（可选）')) + '"><button type="button" class="btn sm" data-act="fbResolve" data-v="' + esc(x.id) + '">' + L('Reply & resolve', '回复并关闭') + '</button></div>' : '') + '</div>'; }).join('') + '</details>' : '') +
@@ -112,21 +131,47 @@ function deckBar(deck, ed){
     '<div class="fl dk-w"><span>' + L('Slide language', '页面语言') + '</span><div class="seg">' + [['en','EN'],['both','EN + 中'],['zh','中文']].map(function(o){ return '<button type="button"' + (ed ? ' data-act="dkSet" data-k="lang" data-v="' + o[0] + '"' : ' disabled') + ' aria-pressed="' + ((d.lang || 'en') === o[0]) + '">' + o[1] + '</button>'; }).join('') + '</div></div>' +
     '<div class="fl dk-w"><span>' + L('Audience', '对象') + '</span><div class="seg">' + [['owner','Owner mode','业主模式'],['internal','Internal','内部']].map(function(o){ return '<button type="button"' + (ed ? ' data-act="dkSet" data-k="aud" data-v="' + o[0] + '"' : ' disabled') + ' aria-pressed="' + ((d.aud || 'owner') === o[0]) + '">' + L(o[1], o[2]) + '</button>'; }).join('') + '</div></div>' +
     '<label class="fl">' + L('For meeting', '对应会议') + '<select class="in" data-dk="meeting"' + dis + '><option value="">' + esc(T('— none —', '— 无 —')) + '</option>' + ms.map(function(x){ return '<option value="' + esc(x.r.id) + '"' + (d.meeting === x.r.id ? ' selected' : '') + '>' + esc(x.date + ' · ' + recLabel(x.r)) + '</option>'; }).join('') + '</select></label>' +
-    '<label class="fl">' + L('Presented by', '汇报人') + '<input class="in" data-dk="presenter" data-fk="dk:presenter" value="' + esc(d.presenter || '') + '"' + dis + '></label>' +
+    '<label class="fl">' + L('Presented by', '汇报人') + '<input class="in" data-dk="presenter" data-fk="dk:presenter" value="' + esc(d.presenter || '') + '"' + dis + '></label>' + themeBar(deck, ed) +
     '<p class="note dk-bnote">' + ((d.aud || 'owner') === 'internal' ? L('Internal: every record and field of the team registers can appear.', '内部：团队台账的全部记录和字段都可出现。') : L('Owner mode: only Owner-visible fields; registers that publish to the Owner show only records marked “Show in Owner plan”.', '业主模式：只显示「业主可见」字段；发布给业主的台账只显示标记「显示于业主计划」的记录。')) + ' ' + L('Registers set to “Only me” are never used in presentations.', '「仅自己可见」的台账不会用于演示文稿。') + '</p></div></details>';
 }
 
 /* ---------------- slide properties ---------------- */
+function themeBar(deck, ed){
+  var th = themeOf(deck), dis = ed ? '' : ' disabled';
+  function logo(k, lab){ var l = th[k], u = logoUrl(l); return '<div class="fl"><span>' + lab + '</span><div class="dk-logo">' + (u ? '<img src="' + esc(u) + '" alt="">' : '<span class="note">' + L('none', '无') + '</span>') + (ed ? '<label class="btn sm">' + L('Upload', '上传') + '<input type="file" accept="image/*" hidden data-logo="' + k + '"></label>' + (l ? '<button type="button" class="ib" data-act="dkLogoDel" data-v="' + k + '">' + uic('x', 13) + '</button>' : '') : '') + '</div></div>'; }
+  return '<div class="fl dk-wide"><span>' + L('Colours', '配色') + '</span><div class="dk-theme">' + Object.keys(THEMES).map(function(k){ var p = THEMES[k]; return '<button type="button" class="dk-thc' + (th.color === k ? ' on' : '') + '"' + (ed ? ' data-act="dkTheme" data-v="' + k + '"' : ' disabled') + ' title="' + esc(T1(p.en, p.zh)) + '"><i style="background:' + p.p2 + '"></i><i style="background:' + p.acc + '"></i></button>'; }).join('') + '</div></div>' +
+    logo('logoL', L('Logo 1 (e.g. company)', 'Logo 1（如公司）')) + logo('logoR', L('Logo 2 (e.g. Owner)', 'Logo 2（如业主）')) +
+    '<label class="fl">' + L('Footer, left', '页脚左侧') + '<select class="in" data-th="foot"' + dis + '>' + [['title', T('Presentation title', '文稿标题')], ['project', T('Project name', '项目名称')], ['custom', T('Custom text…', '自定义文字…')], ['none', T('Nothing', '不显示')]].map(function(o){ return '<option value="' + o[0] + '"' + (th.foot === o[0] ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select>' + (th.foot === 'custom' ? '<input class="in" data-th="footText" data-fk="th:footText" value="' + esc(th.footText || '') + '"' + dis + '>' : '') + '</label>' +
+    '<label class="fl">' + L('Marking (optional)', '密级标注（可选）') + '<input class="in" data-th="conf" data-fk="th:conf" value="' + esc(th.conf || '') + '" placeholder="Confidential"' + dis + '></label>' +
+    (ed && canTeamEdit() ? '<div class="fl"><span>&nbsp;</span><button type="button" class="btn sm" data-act="dkThemeDef">' + L('Use this look for new presentations', '设为新文稿的默认样式') + '</button></div>' : '');
+}
 function pIn(path, v, ed, ph){ return '<input class="in" data-sp="' + path + '" data-fk="sp:' + esc(S.dslide + ':' + path) + '" value="' + esc(v == null ? '' : v) + '"' + (ph ? ' placeholder="' + esc(ph) + '"' : '') + (ed ? '' : ' disabled') + '>'; }
 function pSel(path, v, opts, ed, t){ return '<select class="in" data-sp="' + path + '"' + (t ? ' data-t="' + t + '"' : '') + (ed ? '' : ' disabled') + '>' + opts.map(function(o){ return '<option value="' + esc(o[0]) + '"' + (String(v) === String(o[0]) ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select>'; }
 function pChk(path, on, label, ed, v, t){ return '<label class="chk"><input type="checkbox" data-sp="' + path + '"' + (v != null ? ' data-v="' + esc(v) + '"' : '') + ' data-t="' + (t || (v != null ? 'list' : 'bool')) + '"' + (on ? ' checked' : '') + (ed ? '' : ' disabled') + '>' + label + '</label>'; }
 function pRow(label, html, note){ return '<div class="fl"><span class="flab">' + label + '</span>' + html + (note ? '<span class="note">' + note + '</span>' : '') + '</div>'; }
 function regOpts(test){ return [['', T('— choose —', '— 选择 —')]].concat(deckRegs(test).map(function(r){ return [r.id, regName(r)]; })); }
-function slideProps(deck, s, ed){
-  var c = s.cfg || {}, t = SLIDES[s.type], h = '<div class="dk-pt">' + esc(T1(t.en, t.zh)) + '</div>';
-  if(s.type !== 'cover') h += pRow(L('Slide title', '页面标题'), pIn('title.en', s.title && s.title.en, ed, 'English') + pIn('title.zh', s.title && s.title.zh, ed, '中文'));
+function slideProps(deck, s, ed, region){
+  var c = s.cfg || {}, t = SLIDES[s.type], h = region ? '' : '<div class="dk-pt">' + esc(T1(t.en, t.zh)) + '</div>';
+  if(s.type !== 'cover' && !region) h += pRow(L('Slide title', '页面标题'), pIn('title.en', s.title && s.title.en, ed, 'English') + pIn('title.zh', s.title && s.title.zh, ed, '中文'));
   var reg = c.reg && getReg(c.reg);
   switch(s.type){
+    case 'summary':
+      h += pRow(L('Progress from', '进度来自'), '<div class="dk-cl">' + deckRegs(function(r){ return (rolesOf(r).start || rolesOf(r).finish) && (rf(r, 'progress') || rf(r, 'status')); }).map(function(r){ return pChk('cfg.regs', (c.regs || []).indexOf(r.id) >= 0, esc(regName(r)), ed, r.id); }).join('') + '</div>', L('Planned vs actual to date, as on the S-curve.', '截至今日计划 vs 实际，与 S 曲线相同。'));
+      h += pRow(L('Milestones from', '里程碑来自'), pSel('cfg.ms', c.ms || '', [['', T('All registers (records marked ◆)', '全部台账（标 ◆ 的记录）')]].concat(deckRegs(function(r){ return rolesOf(r).start || rolesOf(r).finish; }).map(function(r){ return [r.id, regName(r)]; })), ed));
+      h += pRow(L('Issues & decisions from', '问题与决策来自'), pSel('cfg.iss', c.iss || '', [['', T('— none —', '— 无 —')]].concat(deckRegs().map(function(r){ return [r.id, regName(r)]; })), ed), issuesRegId() ? '' : L('Tip: create an “Issues, risks & decisions” register (New register → template).', '提示：可新建「问题、风险与决策事项」台账（新建台账 → 模板）。'));
+      h += pRow(L('Period', '本期'), pSel('cfg.period', c.period || 14, [7, 14, 30].map(function(n){ return [n, T('Last ' + n + ' days', '近 ' + n + ' 天')]; }), ed, 'num'));
+      h += pRow(L('Overall status', '总体状态'), pSel('cfg.rag', c.rag || 'auto', [['auto', T('Automatic (variance ≥ −2 pp green, ≥ −5 pp amber, late milestones → amber)', '自动（偏差 ≥ −2 绿，≥ −5 黄；有延误里程碑 → 黄）')], ['green', T('Green · on track', '绿 · 正常')], ['amber', T('Amber · at risk', '黄 · 有风险')], ['red', T('Red · behind', '红 · 滞后')]], ed));
+      h += pRow(L('Add achievements', '补充完成事项'), '<textarea class="in" rows="3" data-sp="cfg.ach" data-fk="sp:' + esc(s.id) + ':ach"' + (ed ? '' : ' disabled') + '>' + esc(c.ach || '') + '</textarea>') + pRow(L('Add issues & risks', '补充问题与风险'), '<textarea class="in" rows="3" data-sp="cfg.iss2" data-fk="sp:' + esc(s.id) + ':iss2"' + (ed ? '' : ' disabled') + '>' + esc(c.iss2 || '') + '</textarea>') + pRow(L('Add decisions needed', '补充待决策事项'), '<textarea class="in" rows="3" data-sp="cfg.dec" data-fk="sp:' + esc(s.id) + ':dec"' + (ed ? '' : ' disabled') + '>' + esc(c.dec || '') + '</textarea>', L('One per line. Shown after the items taken from the registers.', '每行一条，显示在台账数据之后。'));
+      break;
+    case 'combo':
+      h += pRow(L('Split', '比例'), pSel('cfg.split', c.split || '1:1', [['1:1', T('Half / half', '左右各半')], ['3:2', T('Wider left', '左宽右窄')], ['2:3', T('Wider right', '左窄右宽')]], ed)) + regionProps(deck, s, 'L', ed) + regionProps(deck, s, 'R', ed);
+      break;
+    case 'etable':
+      h += (ed ? '<div class="row"><button type="button" class="btn sm" data-act="etAdd" data-v="row">' + uic('plus', 12) + ' ' + L('Row', '行') + '</button><button type="button" class="btn sm" data-act="etAdd" data-v="col">' + uic('plus', 12) + ' ' + L('Column', '列') + '</button></div>' : '') +
+        '<p class="note">' + L('Click a cell on the slide to type. Hover a row or column header and click × to delete it.', '点页面上的单元格即可输入；鼠标移到行或表头上点 × 可删除。') + (c.orig ? ' ' + L('Made from a live slide — “Back to live data” restores it.', '由实时数据页转换而来，可点「恢复实时数据」还原。') : '') + '</p>' +
+        pRow(L('Rows per page', '每页行数'), pSel('cfg.per', c.per || 10, [6, 8, 10, 12, 14, 16].map(function(n){ return [n, String(n)]; }), ed, 'num'));
+      break;
+    case 'blank': h += pChk('cfg.noHead', c.noHead, L('No title bar (full canvas)', '不要标题栏（整页画布）'), ed) + '<p class="note">' + L('Use Insert above the slide to add text, notes, boxes, arrows and images. Drag to move, pull the handles to resize.', '用页面上方的「插入」添加文字、便签、方框、箭头和图片；拖动可移动，拉动控制点可缩放。') + '</p>'; break;
     case 'cover': h += pRow(L('Subtitle', '副标题'), pIn('cfg.sub', c.sub, ed, T('e.g. Progress report week 42', '如：第 42 周进度报告'))) + '<p class="note">' + L('Title, date, presenter and meeting come from the bar above the slides.', '标题、日期、汇报人和会议取自页面上方的设置栏。') + '</p>'; break;
     case 'section': h += pRow(L('Subtitle', '副标题'), pIn('cfg.sub', c.sub, ed)); break;
     case 'text': h += pRow(L('Points', '要点'), '<textarea class="in" rows="9" data-sp="cfg.body" data-fk="sp:' + esc(S.dslide) + ':cfg.body"' + (ed ? '' : ' disabled') + '>' + esc(c.body || '') + '</textarea>', L('One point per line. Start a line with two spaces or “- ” for a sub-point.', '每行一个要点；以两个空格或「- 」开头为下级要点。')) + pRow(L('Second column (optional)', '第二栏（可选）'), '<textarea class="in" rows="5" data-sp="cfg.body2" data-fk="sp:' + esc(S.dslide) + ':cfg.body2"' + (ed ? '' : ' disabled') + '>' + esc(c.body2 || '') + '</textarea>'); break;
@@ -144,12 +189,15 @@ function slideProps(deck, s, ed){
       h += pRow(L('Register', '台账'), pSel('cfg.reg', c.reg, regOpts(), ed));
       if(reg){ var f0 = c.filter || {}, sf = rf(reg, 'status'), bf = rf(reg, 'block'), tf = rf(reg, 'tree'), cols = c.cols && c.cols.length ? c.cols : defCols(reg), ctx = dctx(deck);
         var hiddenCols = cols.filter(function(k){ var f = fieldOf(reg, k); return f && !fieldOk(ctx, reg, f); });
+        if(!region) h += pRow(L('Rows', '行'), pSel('cfg.mode', c.mode || 'filter', [['filter', T('By filter (updates itself)', '按条件筛选（自动更新）')], ['pick', T('Pick records by hand', '手动挑选记录')]], ed));
+        if(c.mode === 'pick') h += pickerHtml(reg, c, ed);
+        h += pRow(L('Column order', '列顺序'), '<div class="dk-ord">' + cols.map(function(k, i){ var f = fieldOf(reg, k); return f ? '<div class="dk-ordr"><span>' + esc(T1(f.en, f.zh)) + '</span>' + (ed ? '<button type="button" class="ib" data-act="dkColMv" data-v="' + esc(k) + '" data-d="-1"' + (i ? '' : ' disabled') + '>' + uic('up', 12) + '</button><button type="button" class="ib" data-act="dkColMv" data-v="' + esc(k) + '" data-d="1"' + (i < cols.length - 1 ? '' : ' disabled') + '>' + uic('down', 12) + '</button>' : '') + '</div>' : ''; }).join('') + '</div>');
         h += pRow(L('Columns', '列'), '<div class="dk-cl">' + dataFields(reg).filter(function(f){ return ['files','sub','link','section'].indexOf(f.type) < 0; }).map(function(f){ return pChk('cfg.cols', cols.indexOf(f.key) >= 0, esc(T1(f.en, f.zh)) + (ctx.owner && !fieldOk(ctx, reg, f) ? ' <span class="chip c-grey">' + L('internal', '内部') + '</span>' : ''), ed, f.key); }).join('') + '</div>', hiddenCols.length ? L(hiddenCols.length + ' ticked column(s) are internal and are left out in Owner mode. Tick “Owner can see” in Fields & columns to show them.', '有 ' + hiddenCols.length + ' 个勾选的列为内部字段，业主模式下不显示。可在「字段与列」中勾选「业主可见」。') : '');
-        h += '<div class="fl"><span class="flab">' + L('Which items', '哪些记录') + '</span>' + pChk('cfg.filter.open', f0.open, L('Open items only', '只看未完成'), ed) + pChk('cfg.filter.od', f0.od, L('Overdue only', '只看逾期'), ed) + pChk('cfg.filter.star', f0.star, L('Key items only (★)', '只看重点（★）'), ed) +
+        if(c.mode !== 'pick') h += '<div class="fl"><span class="flab">' + L('Which items', '哪些记录') + '</span>' + pChk('cfg.filter.open', f0.open, L('Open items only', '只看未完成'), ed) + pChk('cfg.filter.od', f0.od, L('Overdue only', '只看逾期'), ed) + pChk('cfg.filter.star', f0.star, L('Key items only (★)', '只看重点（★）'), ed) +
           pRow(L('Due within', '到期范围'), pSel('cfg.filter.due', f0.due || 0, [[0, T('any date', '不限')]].concat([1, 2, 3, 4, 6, 8].map(function(n){ return [n, T(n + ' week' + (n > 1 ? 's' : ''), n + ' 周内')]; })), ed, 'num')) + '</div>';
-        if(sf) h += pRow(L(sf.en, sf.zh), '<div class="dk-cl">' + optsOf(sf).map(function(o){ return pChk('cfg.filter.st', (f0.st || []).indexOf(o.v) >= 0, optChip(o), ed, o.v); }).join('') + '</div>', L('None ticked = all', '不勾选 = 全部'));
-        if(bf) h += pRow(L(bf.en, bf.zh), '<div class="dk-cl dk-inl">' + optsOf(bf).map(function(o){ return pChk('cfg.filter.blk', (f0.blk || []).indexOf(o.v) >= 0, esc(o.v), ed, o.v); }).join('') + '</div>');
-        if(tf){ var topts = [['all', T('All', '全部')]]; treeDfs(tf, function(n, dp){ topts.push([n.id, new Array(dp + 1).join('  ') + treeLabel(n)]); }); h += pRow(L(tf.en, tf.zh), pSel('cfg.filter.node', f0.node || 'all', topts, ed)); }
+        if(sf && c.mode !== 'pick') h += pRow(L(sf.en, sf.zh), '<div class="dk-cl">' + optsOf(sf).map(function(o){ return pChk('cfg.filter.st', (f0.st || []).indexOf(o.v) >= 0, optChip(o), ed, o.v); }).join('') + '</div>', L('None ticked = all', '不勾选 = 全部'));
+        if(bf && c.mode !== 'pick') h += pRow(L(bf.en, bf.zh), '<div class="dk-cl dk-inl">' + optsOf(bf).map(function(o){ return pChk('cfg.filter.blk', (f0.blk || []).indexOf(o.v) >= 0, esc(o.v), ed, o.v); }).join('') + '</div>');
+        if(tf && c.mode !== 'pick'){ var topts = [['all', T('All', '全部')]]; treeDfs(tf, function(n, dp){ topts.push([n.id, new Array(dp + 1).join('  ') + treeLabel(n)]); }); h += pRow(L(tf.en, tf.zh), pSel('cfg.filter.node', f0.node || 'all', topts, ed)); }
         var fxn = Object.keys(f0.fx || {}).filter(function(k){ return (f0.fx[k] || []).length; }).length + (f0.q ? 1 : 0) + (f0.from || f0.to ? 1 : 0);
         if(fxn) h += '<p class="note">' + L(fxn + ' more filter(s) carried over from the register view.', '另有 ' + fxn + ' 个从台账视图带过来的筛选条件。') + (ed ? ' <button type="button" class="lnk" data-act="dkClearFx">' + L('Clear them', '清除') + '</button>' : '') + '</p>';
         h += pRow(L('Sort by', '排序'), pSel('cfg.sort.k', (c.sort && c.sort.k) || rolesOf(reg).no || '', dataFields(reg).filter(function(f){ return ['files','sub','link','section','long'].indexOf(f.type) < 0; }).map(function(f){ return [f.key, T1(f.en, f.zh)]; }), ed) + pSel('cfg.sort.d', (c.sort && c.sort.d) || 1, [[1, T('ascending', '升序')], [-1, T('descending', '降序')]], ed, 'num'));
@@ -166,14 +214,52 @@ function slideProps(deck, s, ed){
       if((c.mode || 'auto') === 'auto') h += pRow(L('Taken in the last', '最近'), pSel('cfg.days', c.days || 7, [3, 7, 14, 30].map(function(n){ return [n, T(n + ' days', n + ' 天')]; }), ed, 'num')) + pRow(L('From registers', '来自台账'), '<div class="dk-cl">' + deckRegs(function(r){ return dataFields(r).some(function(f){ return f.type === 'files'; }); }).map(function(r){ return pChk('cfg.regs', (c.regs || []).indexOf(r.id) >= 0, esc(regName(r)), ed, r.id); }).join('') + '</div>', L('None ticked = all registers', '不勾选 = 全部台账'));
       else h += photoPicker(c, ed);
       break;
+    case 'timeline': case 'gantt':
+      h += pRow(L('Registers', '台账'), '<div class="dk-cl">' + deckRegs(function(r){ return rolesOf(r).start || rolesOf(r).finish; }).map(function(r){ return pChk('cfg.regs', (c.regs || []).indexOf(r.id) >= 0, esc(regName(r)), ed, r.id); }).join('') + '</div>');
+      h += pRow(L('Show', '显示'), pSel('cfg.only', c.only || 'ms', [['ms', T('Milestones only (◆)', '只显示里程碑（◆）')], ['all', T('Milestones and activities (bars)', '里程碑和作业（横条）')]], ed));
+      h += pRow(L('Lanes', '泳道'), pSel('cfg.lanes', c.lanes || 'reg', [['reg', T('One lane per register', '每个台账一条泳道')], ['tree', T('By package / category', '按文件包 / 分类')], ['block', T('By block', '按区域')], ['none', T('No lanes', '不分泳道')]], ed));
+      h += pRow(L('Time window', '时间范围'), pSel('cfg.months', c.months == null ? 6 : c.months, [[0, T('Whole programme', '整个工期')]].concat([3, 6, 9, 12, 18, 24].map(function(n){ return [n, T(n + ' months', n + ' 个月')]; })), ed, 'num') + ((c.months == null ? 6 : c.months) > 0 ? pSel('cfg.back', c.back == null ? 1 : c.back, [0, 1, 2, 3].map(function(n){ return [n, T('starting ' + n + ' month(s) before today', '从今天前 ' + n + ' 个月开始')]; }), ed, 'num') : ''), L('Or fix the dates:', '或指定日期：') + ' <input class="in" type="date" data-sp="cfg.from" value="' + esc(c.from || '') + '"' + (ed ? '' : ' disabled') + ' style="width:auto"> – <input class="in" type="date" data-sp="cfg.to" value="' + esc(c.to || '') + '"' + (ed ? '' : ' disabled') + ' style="width:auto">');
+      h += '<div class="fl">' + pChk('cfg.base', c.base !== false, L('Show the baseline (hollow ◇ / grey bar) and the slip in days', '显示基准（空心 ◇ / 灰色条）和延误天数'), ed) + pChk('cfg.hideDone', c.hideDone, L('Hide finished items', '隐藏已完成项'), ed) + '</div>';
+      h += '<p class="note">' + L('No baseline yet? Use “Set baseline…” in the register’s ⋯ menu. Mark single records as milestones with ◆ in the record.', '还没有基准？在台账 ⋯ 菜单点「设定基准计划…」。单条记录可在记录右上角点 ◆ 设为里程碑。') + '</p>';
+      break;
+    case 'mstable':
+      h += pRow(L('Registers', '台账'), '<div class="dk-cl">' + deckRegs(function(r){ return rolesOf(r).start || rolesOf(r).finish; }).map(function(r){ return pChk('cfg.regs', (c.regs || []).indexOf(r.id) >= 0, esc(regName(r)), ed, r.id); }).join('') + '</div>') +
+        pRow(L('Which milestones', '哪些里程碑'), pSel('cfg.show', c.show || 'all', [['all', T('All', '全部')], ['open', T('Not yet achieved', '未达成')], ['next', T('Late + next 60 days', '延误 + 未来 60 天')]], ed));
+      break;
+    case 'scurve':
+      var sregs = deckRegs(function(r){ return (rolesOf(r).start || rolesOf(r).finish) && (rf(r, 'progress') || rf(r, 'status')); }), r0 = getReg((c.regs || [])[0]);
+      h += pRow(L('Registers', '台账'), '<div class="dk-cl">' + sregs.map(function(r){ return pChk('cfg.regs', (c.regs || []).indexOf(r.id) >= 0, esc(regName(r)), ed, r.id); }).join('') + '</div>');
+      h += pRow(L('Block', '区域'), pSel('cfg.blk', c.blk || '', [['', T('Whole site', '全场')]].concat(optsOf({list:'blocks'}).map(function(o){ return [o.v, nm(o)]; })), ed));
+      h += pRow(L('Weight of each item', '每项权重'), pSel('cfg.weight', c.weight || '', [['', T('Equal', '相同')]].concat(r0 ? dataFields(r0).filter(function(f){ return f.type === 'number'; }).map(function(f){ return [f.key, T1(f.en, f.zh)]; }) : []), ed), L('e.g. planned quantity, budget or man-hours', '例如计划工程量、预算或人工时'));
+      h += pRow(L('Earlier actual % (optional)', '早期实际 %（可选）'), '<textarea class="in" rows="4" data-sp="cfg.manual" data-fk="sp:' + esc(S.dslide) + ':manual"' + (ed ? '' : ' disabled') + ' placeholder="2026-08-02	12.5&#10;2026-08-09	14.1">' + esc(c.manual || '') + '</textarea>', L('Paste from Excel: date and actual %, one week per line. Used for weeks before the website’s history and overrides any week.', '从 Excel 贴上：日期与实际 %，每行一周。用于网站有记录之前的周次，也可覆盖任何一周。'));
+      h += '<p class="note">' + L('Planned curve: each item’s weight spread evenly between its start and finish (baseline dates when set). Actual: weekly snapshots and the change log.', '计划曲线：每项权重平均分摊在开始到结束之间（有基准时用基准日期）。实际曲线：每周快照与修改记录。') + '</p>';
+      break;
     case 'actions':
       h += pRow(L('Meetings register', '会议台账'), pSel('cfg.reg', c.reg, regOpts(function(r){ return dataFields(r).some(function(f){ return f.type === 'sub' && (f.cols || []).some(function(x){ return x.type === 'check'; }); }); }), ed));
       if(reg) h += pRow(L('Meeting', '会议'), pSel('cfg.meeting', c.meeting || 'latest', [['latest', T('Latest meeting before the deck date', '演示日期前的最近一次会议')]].concat(recsOf(reg.id).slice().sort(function(a, b){ return String(b.d[rolesOf(reg).start] || '').localeCompare(String(a.d[rolesOf(reg).start] || '')); }).map(function(r){ return [r.id, (r.d[rolesOf(reg).start] || '') + ' · ' + recLabel(r)]; })), ed)) + pChk('cfg.open', c.open, L('Open actions only', '只显示未完成'), ed);
       break;
   }
+  var hd = c.hide || [];
+  if(hd.length) h += '<div class="fl dk-hid"><span class="flab">' + L('Hidden on this slide', '此页已隐藏') + ' <span class="mono">' + hd.length + '</span>' + (ed ? ' <button type="button" class="lnk" data-act="dkUnhide" data-v="*">' + L('Show all', '全部恢复') + '</button>' : '') + '</span><div class="dk-hidl">' + hd.map(function(k){ return '<span class="chip c-grey">' + esc((c.hideLab && c.hideLab[k]) || k.slice(2)) + (ed ? ' <button type="button" class="lnk" data-act="dkUnhide" data-v="' + esc(k) + '" title="' + esc(T('Show again', '恢复显示')) + '">×</button>' : '') + '</span>'; }).join(' ') + '</div></div>';
+  else if(ed && ['cover','section','text','blank','scurve'].indexOf(s.type) < 0) h += '<p class="note">' + L('Hover a row, column, bar, photo or tile on the slide and click × to leave it out of this slide only.', '把鼠标移到页面上的某行、某列、某条、某张照片或某个卡片上，点 × 即可只在此页隐藏它。') + '</p>';
+  if(region) return h;
   if(['cover','section','text'].indexOf(s.type) < 0) h += pRow(L('Key message', '重点结论'), pIn('cfg.msg', c.msg, ed, T('One line shown under the title', '显示在标题下方的一句话')), L('Shown under the title in an orange bar. Leave empty to hide.', '以橙色条显示在标题下方；留空即隐藏。')) + pRow(L('Notes box', '说明框'), '<textarea class="in" rows="3" data-sp="cfg.side" data-fk="sp:' + esc(S.dslide) + ':side"' + (ed ? '' : ' disabled') + ' placeholder="' + esc(T('Your comments on this slide, one point per line', '对此页的说明，每行一条')) + '">' + esc(c.side || '') + '</textarea>', L('Shown at the bottom of the slide. The data above stays live.', '显示在页面底部；上方数据仍实时更新。'));
   h += pRow(L('Speaker notes', '演讲备注'), '<textarea class="in" rows="3" data-sp="note" data-fk="sp:' + esc(S.dslide) + ':note"' + (ed ? '' : ' disabled') + ' placeholder="' + esc(T('Only you see these — in the editor and in present mode (press N).', '只有你能看到：在编辑页和演示时（按 N）显示。')) + '">' + esc(s.note || '') + '</textarea>');
   return h;
+}
+function regionProps(deck, s, key, ed){
+  var x = (s.cfg && s.cfg[key]) || {type:'text', cfg:{}}, pseudo = {id:s.id, type:x.type, cfg:x.cfg || {}, title:x.title};
+  var h = '<div class="dk-region"><div class="dk-pt">' + (key === 'L' ? L('Left part', '左边') : L('Right part', '右边')) + '</div>' +
+    pRow(L('Shows', '内容'), pSel('cfg.' + key + '.type', x.type, COMBO_TYPES.map(function(t){ return [t, T1(SLIDES[t].en, SLIDES[t].zh)]; }), ed)) +
+    pRow(L('Small heading (optional)', '小标题（可选）'), pIn('cfg.' + key + '.title.en', x.title && x.title.en, ed, 'English') + pIn('cfg.' + key + '.title.zh', x.title && x.title.zh, ed, '中文'));
+  var inner = slideProps(deck, pseudo, ed, true).replace(/data-sp="/g, 'data-sp="cfg.' + key + '.').replace(/data-fk="sp:/g, 'data-fk="sp:' + key + ':').replace(/data-act="(dkColMv|dkUnhide|dkClearFx)"/g, 'data-act="$1" data-hp="cfg.' + key + '"');
+  return h + inner + '</div>';
+}
+function pickerHtml(reg, c, ed){
+  var picks = c.picks || [], q = (S.dkPickQ || '').toLowerCase(), ro = rolesOf(reg);
+  var cand = sortRecs(reg, recsOf(reg.id).filter(function(r){ if(picks.indexOf(r.id) >= 0) return false; var t = (recNo(reg, r) + ' ' + (r.d[ro.title] || '') + ' ' + (r.d[ro.title2] || '')).toLowerCase(); return !q || t.indexOf(q) >= 0; })).slice(0, 40);
+  return '<div class="fl"><span class="flab">' + L('Picked', '已选') + ' <span class="mono">' + picks.length + '</span></span><div class="dk-ord">' + picks.map(function(id, i){ var r = getRec(id); return r ? '<div class="dk-ordr"><span>' + esc(recLabel(r)) + '</span>' + (ed ? '<button type="button" class="ib" data-act="dkPickMv" data-v="' + esc(id) + '" data-d="-1"' + (i ? '' : ' disabled') + '>' + uic('up', 12) + '</button><button type="button" class="ib" data-act="dkPickMv" data-v="' + esc(id) + '" data-d="1"' + (i < picks.length - 1 ? '' : ' disabled') + '>' + uic('down', 12) + '</button><button type="button" class="ib" data-act="dkPickDel" data-v="' + esc(id) + '">' + uic('x', 12) + '</button>' : '') + '</div>' : ''; }).join('') + (picks.length ? '' : '<div class="note">' + L('Nothing picked yet.', '还没有选择。') + '</div>') + '</div>' +
+    (ed ? '<input class="in" id="dkPickQ" data-fk="dkPickQ" placeholder="' + esc(T('Search to add…', '搜索并添加…')) + '" value="' + esc(S.dkPickQ || '') + '"><div class="dk-ord dk-cand">' + cand.map(function(r){ return '<button type="button" class="dk-ordr dk-add1" data-act="dkPickAdd" data-v="' + esc(r.id) + '">' + uic('plus', 12) + ' <span>' + esc(recLabel(r)) + '</span></button>'; }).join('') + '</div>' : '') + '</div>';
 }
 function photoPicker(c, ed){
   var picks = c.picks || [], all = [];
@@ -216,7 +302,10 @@ function viewCands(reg){
   var cols = tableCols(reg).filter(function(x){ return ['files','sub','link','section'].indexOf(x.type) < 0; }).map(function(x){ return x.key; });
   out.push({key:'table', s:newSlide('table', {reg:reg.id, cols:cols, filter:{q:f.q || '', fx:fx, st:st, blk:blk, from:f.from || '', to:f.to || '', od:!!f.od, star:!!f.star, ext:!!f.ext, node:f.node || 'all'}, sort:S.rs[reg.id] || null}, name), note:T('Table with the current filters and columns (' + n(filteredRecs(reg)) + ' items now)', '表格，沿用当前筛选和列（目前 ' + n(filteredRecs(reg)) + ' 项）')});
   if(ro.block){ var mc = matrixCfg(reg); out.push({key:'matrix', s:newSlide('matrix', {reg:reg.id, row:mc.row, col:mc.col, val:mc.val}, {en:name.en + ' – by block', zh:(name.zh || name.en) + ' – 分区'}), note:T('Block matrix with the current rows, columns and values', '区域矩阵，沿用当前的行、列和数值')}); }
-  if(ro.start || ro.finish) out.push({key:'gantt', s:newSlide('lookahead', {regs:[reg.id], weeks:3, overdue:true}, {en:name.en + ' – look-ahead', zh:(name.zh || name.en) + ' – 近期计划'}), note:T('3-week look-ahead bars from the Gantt dates', '按甘特日期生成三周计划条形图')});
+  if(ro.start || ro.finish){ out.push({key:'gantt', s:newSlide('gantt', {regs:[reg.id], only:'all', lanes:ro.tree ? 'tree' : 'none', months:0, base:true}, {en:name.en + ' – programme', zh:(name.zh || name.en) + ' – 进度计划'}), note:T('Programme Gantt with baseline and milestones', '含基准和里程碑的进度甘特图')});
+    if(recsOf(reg.id).some(function(r){ return isMilestone(reg, r); })) out.push({key:'ms', s:newSlide('timeline', {regs:[reg.id], only:'ms', lanes:'reg', months:6, back:1, base:true}, {en:name.en + ' – milestones', zh:(name.zh || name.en) + ' – 里程碑'}), note:T('Milestone timeline: baseline vs forecast vs actual', '里程碑时间轴：基准 vs 预测 vs 实际')});
+    if(rf(reg, 'progress') || rf(reg, 'status')) out.push({key:'sc', s:newSlide('scurve', {regs:[reg.id]}, {en:name.en + ' – S-curve', zh:(name.zh || name.en) + ' – S 曲线'}), note:T('Planned vs actual S-curve', '计划 vs 实际 S 曲线')}); }
+  if(ro.start || ro.finish) out.push({key:'la', s:newSlide('lookahead', {regs:[reg.id], weeks:3, overdue:true}, {en:name.en + ' – look-ahead', zh:(name.zh || name.en) + ' – 近期计划'}), note:T('3-week look-ahead bars from the Gantt dates', '按甘特日期生成三周计划条形图')});
   if(sf) out.push({key:'board', s:newSlide('breakdown', {reg:reg.id, by:ro.tree || ro.block || ''}, {en:name.en + ' – status', zh:(name.zh || name.en) + ' – 状态分布'}), note:T('Status bars per category / block', '按分类或区域的状态条形图')});
   if(sf && fieldOf(reg, 'prio')) out.push({key:'punch', s:newSlide('punch', {reg:reg.id}), note:T('Punch-list summary: priority × block, top open items', '尾项汇总：优先级 × 区域，以及最重要的未关闭项')});
   if(dataFields(reg).some(function(x){ return x.type === 'files'; })) out.push({key:'photos', s:newSlide('photos', {mode:'auto', days:7, regs:[reg.id], layout:'2x2'}, {en:name.en + ' – photos', zh:(name.zh || name.en) + ' – 照片'}), note:T('Newest photos of this register (last 7 days)', '本台账最近 7 天的照片')});
@@ -245,13 +334,16 @@ function startPresent(pages, at, title){
   try{ var de = document.documentElement; if(de.requestFullscreen) de.requestFullscreen().catch(function(){}); }catch(e){}
   renderPresent();
 }
+/* everything a deck needs before it is shown outside the editor: progress history for S-curves, then signed photo links */
+function deckNeedsHist(deck){ var ids = []; (deck.d.slides || []).forEach(function(s){ [s].concat(s.cfg && s.cfg.L ? [s.cfg.L, s.cfg.R] : []).forEach(function(x){ if(x && x.type === 'scurve' || x && x.type === 'summary') (x.cfg && x.cfg.regs || []).forEach(function(id){ if(ids.indexOf(id) < 0) ids.push(id); }); }); }); return deck.d.status === 'issued' && deck.d.snap ? [] : ids; }
+function deckPrepare(deck){ return loadHistory(deckNeedsHist(deck)).then(function(){ return signFor(deckBuild(deck), deck); }); }
 function presentDeck(deck, sid){
   var built = deckBuild(deck);
   var go = function(){ var pages = []; deckBuild(deck).forEach(function(x){ x.pages.forEach(function(h){ pages.push({sid:x.s.id, html:h, note:x.s.note || ''}); }); }); var at = 0; if(sid) pages.some(function(p, i){ if(p.sid === sid){ at = i + (S.dpage || 0); return true; } return false; }); startPresent(pages, at, deckTitle(deck.d)); };
-  var paths = photoPaths(built); if(!paths.length){ go(); return; }
+  var paths = photoPaths(built); if(!paths.length && !deckNeedsHist(deck).some(function(id){ return !histFor(id); })){ go(); return; }
   S.present = {pages:[{html:'<div class="sl"><div class="sl-empty">' + esc(T('Loading photos…', '正在加载照片…')) + '</div></div>'}], i:0, note:false}; renderPresent();
   try{ var de = document.documentElement; if(de.requestFullscreen) de.requestFullscreen().catch(function(){}); }catch(e){}
-  signFor(built).then(function(){ var fs = S.present && S.present.fs; go(); if(S.present) S.present.fs = fs; });
+  deckPrepare(deck).then(function(){ var fs = S.present && S.present.fs; go(); if(S.present) S.present.fs = fs; });
 }
 function renderPresent(){
   var r = presRoot(), p = S.present;
@@ -299,38 +391,44 @@ function exportPdf(getPages, title, pre){
   });
 }
 function pdfTitle(d){ return [d.no, (d.title || d.titleZh || 'Presentation'), d.date].filter(Boolean).join(' · ').replace(/[\\\/:*?"<>|]+/g, ' '); }
-function deckPdf(deck){ var built = deckBuild(deck); exportPdf(function(){ return deckPages(deck); }, pdfTitle(deck.d), signFor(built)); }
+function deckPdf(deck){ exportPdf(function(){ return deckPages(deck); }, pdfTitle(deck.d), deckPrepare(deck)); }
 
 /* ================= issue / share ================= */
-function issueDeck(deck){ return setRec(deck, {status:'issued', snap:deckData(deck), issuedAt:new Date().toISOString()}); }
+function issueDeck(deck){ return loadHistory(deckNeedsHist(deck)).then(function(){ deck = getRec(deck.id) || deck; return setRec(deck, {status:'issued', snap:deckData(deck), issuedAt:new Date().toISOString()}); }); }
 function imgToData(url, max){
   return new Promise(function(res){ var im = new Image(); im.crossOrigin = 'anonymous';
     im.onload = function(){ try{ var s = Math.min(1, (max || 1280) / Math.max(im.naturalWidth, im.naturalHeight)), c = document.createElement('canvas'); c.width = Math.round(im.naturalWidth * s); c.height = Math.round(im.naturalHeight * s); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); res(c.toDataURL('image/jpeg', 0.72)); }catch(e){ res(null); } };
     im.onerror = function(){ res(null); }; im.src = url; });
 }
+function imgToDataPng(url){ return new Promise(function(res){ var im = new Image(); im.crossOrigin = 'anonymous'; im.onload = function(){ try{ var s = Math.min(1, 600 / Math.max(im.naturalWidth, im.naturalHeight)), c = document.createElement('canvas'); c.width = Math.round(im.naturalWidth * s); c.height = Math.round(im.naturalHeight * s); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); res(c.toDataURL('image/png')); }catch(e){ res(null); } }; im.onerror = function(){ res(null); }; im.src = url; }); }
 async function shareDeck(deck){
   if((deck.d.aud || 'owner') === 'internal'){ toast(T('Switch the audience to Owner mode before sharing.', '请先切换到业主模式再发给业主。')); return; }
-  if(deck.d.status !== 'issued'){ if(!confirm(T('Sharing issues the presentation: its figures are frozen as they are now, and the Owner sees exactly this version. Continue?', '发给业主会同时定稿：数据按当前冻结，业主看到的就是这一版。继续？'))) return; await issueDeck(deck); deck = getRec(deck.id); }
+  if(deck.d.status !== 'issued'){ if(!confirm(T('Sharing issues the presentation: its figures are frozen as they are now, and the Owner sees exactly this version. Continue?', '发给业主会同时定稿：数据按当前冻结，业主看到的就是这一版。继续？'))) return; await issueDeck(deck); deck = getRec(deck.id); if(!deck || deck.d.status !== 'issued' || !deck.d.snap){ toast(T('Could not issue the presentation, so nothing was shared.', '无法定稿，因此没有发出。')); return; } }
   else if(!confirm(T('Publish this issued presentation to the Owner?', '把这份已定稿的演示文稿发布给业主？'))) return;
   toast(T('Preparing the Owner copy…', '正在准备业主版本…'));
-  var data = clone(deck.d.snap || deckData(deck)), slides = (deck.d.slides || []).filter(function(s){ return !s.hidden; }).map(function(s){ return {id:s.id, type:s.type, title:s.title, cfg:{msg:(s.cfg && s.cfg.msg) || '', side:(s.cfg && s.cfg.side) || ''}}; });
-  var paths = [], bad = 0; slides.forEach(function(s){ var dd = data[s.id]; if(dd && dd.photos) dd.photos.forEach(function(p){ paths.push(p.path); }); });
+  var data = clone(deck.d.snap || deckData(deck)), slides = (deck.d.slides || []).filter(function(s){ return !s.hidden; }).map(function(s){ return {id:s.id, type:s.type, title:s.title, cfg:{msg:(s.cfg && s.cfg.msg) || '', side:(s.cfg && s.cfg.side) || '', noHead:!!(s.cfg && s.cfg.noHead), hide:clone((s.cfg && s.cfg.hide) || []), L:s.cfg && s.cfg.L ? {type:s.cfg.L.type, title:s.cfg.L.title || null, cfg:{hide:clone(s.cfg.L.cfg && s.cfg.L.cfg.hide || [])}} : undefined, R:s.cfg && s.cfg.R ? {type:s.cfg.R.type, title:s.cfg.R.title || null, cfg:{hide:clone(s.cfg.R.cfg && s.cfg.R.cfg.hide || [])}} : undefined}, els:clone(s.els || [])}; });
+  var paths = [], bad = 0; slides.forEach(function(s){ photoLists(data[s.id]).forEach(function(list){ list.forEach(function(p){ if(p.path) paths.push(p.path); }); }); });
   if(paths.length && STORE.signUrls) await STORE.signUrls(paths);
-  for(var i = 0; i < slides.length; i++){ var dd = data[slides[i].id]; if(!dd || !dd.photos) continue; for(var j = 0; j < dd.photos.length; j++){ var p = dd.photos[j], u = STORE.fileUrl(p.path); p.src = u ? await imgToData(u, 1280) : null; if(!p.src) bad++; delete p.path; } }
+  for(var i = 0; i < slides.length; i++){ var lists = photoLists(data[slides[i].id]); for(var q = 0; q < lists.length; q++){ for(var j = 0; j < lists[q].length; j++){ var p = lists[q][j], u = p.path ? STORE.fileUrl(p.path) : null; p.src = u ? await imgToData(u, 1280) : (p.src || null); if(!p.src) bad++; delete p.path; } } }
+  var th = themeOf(deck), theme = {_pub:true, color:th.color, foot:th.foot, footText:th.footText || '', conf:th.conf || '', logoL:null, logoR:null};
+  var elPaths = []; slides.forEach(function(x){ (x.els || []).forEach(function(e){ if(e.path) elPaths.push(e.path); }); }); [th.logoL, th.logoR].forEach(function(l){ if(l && l.path) elPaths.push(l.path); });
+  if(elPaths.length && STORE.signUrls) await STORE.signUrls(elPaths);
+  for(var a = 0; a < slides.length; a++){ var els = slides[a].els || []; for(var b = 0; b < els.length; b++){ if(els[b].path){ var u2 = STORE.fileUrl(els[b].path); els[b].src = u2 ? await imgToData(u2, 1600) : null; delete els[b].path; } } }
+  for(var lk of ['logoL', 'logoR']){ var lg = th[lk]; if(lg && (lg.path || lg.src)){ var u3 = lg.src || STORE.fileUrl(lg.path); theme[lk] = {src:u3 ? await imgToDataPng(u3) : null}; } }
   var keep = {}; slides.forEach(function(s){ keep[s.id] = data[s.id]; });
   var max = 0; (STORE.pubs || []).forEach(function(p){ var mm = /PUB-(\d+)/.exec(p.no || ''); if(mm) max = Math.max(max, +mm[1]); });
   var no = 'PUB-' + String(max + 1).padStart(3, '0'), d = deck.d;
-  var pub = {kind:'deck', no:no, at:new Date().toISOString(), by:(STORE.me && (STORE.me.name || STORE.me.email)) || '', note:(d.no || '') + ' · ' + (d.date || ''), deckId:deck.id, deckNo:d.no || '', title:{en:d.title || '', zh:d.titleZh || ''}, date:d.date || '', lang:d.lang || 'en', presenter:d.presenter || '', slides:slides, data:keep, count:slides.length};
+  var pub = {kind:'deck', no:no, at:new Date().toISOString(), by:(STORE.me && (STORE.me.name || STORE.me.email)) || '', note:(d.no || '') + ' · ' + (d.date || ''), deckId:deck.id, deckNo:d.no || '', title:{en:d.title || '', zh:d.titleZh || ''}, date:d.date || '', lang:d.lang || 'en', presenter:d.presenter || '', slides:slides, data:keep, theme:theme, count:slides.length};
   try{ await STORE.createPub(no, pub); toast(T('Shared with the Owner as ' + no, '已作为 ' + no + ' 发给业主') + (bad ? ' · ' + T(bad + ' photo(s) could not be included', bad + ' 张照片未能附上') : '')); }
   catch(e){ toast(errText(e)); }
 }
-function pubDeck(p){ return {id:p.deckId || p.id, d:{no:p.deckNo, title:p.title && p.title.en, titleZh:p.title && p.title.zh, date:p.date, lang:p.lang, aud:'owner', presenter:p.presenter, status:'issued', slides:p.slides}}; }
+function pubDeck(p){ return {id:p.deckId || p.id, d:{no:p.deckNo, title:p.title && p.title.en, titleZh:p.title && p.title.zh, date:p.date, lang:p.lang, aud:'owner', presenter:p.presenter, status:'issued', slides:p.slides, theme:p.theme || null}}; }
 function pubPages(p){ var out = []; deckBuild(pubDeck(p), {data:p.data}).forEach(function(x){ x.pages.forEach(function(h, i){ out.push({sid:x.s.id, html:h, title:x.s.title, sub:i}); }); }); return out; }
 
 /* Owner portal: a published presentation */
 function ownerDeckView(p, pubs){
   var pages = pubPages(p), fb = (STORE.fb || []).filter(function(x){ return x.pub_id === p.id; });
-  return '<div class="ph"><div><h1 class="vtitle">' + esc(T1(p.title.en, p.title.zh) || T('Presentation', '演示文稿')) + '</h1><span class="muted">' + esc(p.no + ' · ' + (p.date || '') + (p.presenter ? ' · ' + p.presenter : '')) + '</span></div><div class="pha"><select class="in" id="pubSel">' + pubs.map(function(x){ return '<option value="' + esc(x.id) + '"' + (x.id === p.id ? ' selected' : '') + '>' + esc(x.no + ' · ' + fmtTime(x.at).slice(0, 10) + ' · ' + (x.kind === 'deck' ? T1(x.title.en, x.title.zh) : (x.reg ? T1(x.reg.en, x.reg.zh) : ''))) + '</option>'; }).join('') + '</select><button type="button" class="btn pri" data-act="pubPresent">' + uic('play', 14) + ' ' + L('Present', '演示') + '</button><button type="button" class="btn" data-act="pubPdf">' + uic('pdf', 15) + ' ' + L('Download PDF', '下载 PDF') + '</button></div></div>' +
+  return '<div class="ph"><div><h1 class="vtitle">' + esc(T1(p.title.en, p.title.zh) || T('Presentation', '演示文稿')) + '</h1><span class="muted">' + esc(p.no + ' · ' + (p.date || '') + (p.presenter ? ' · ' + p.presenter : '')) + '</span></div><div class="pha"><select class="in" id="pubSel">' + pubs.map(function(x){ return '<option value="' + esc(x.id) + '"' + (x.id === p.id ? ' selected' : '') + '>' + esc(x.no + ' · ' + fmtTime(x.at).slice(0, 10) + ' · ' + (x.kind === 'deck' ? T1(x.title.en, x.title.zh) : (x.reg ? T1(x.reg.en, x.reg.zh) : ''))) + '</option>'; }).join('') + '</select><button type="button" class="btn pri" data-act="pubPresent">' + uic('play', 14) + ' ' + L('Present', '演示') + '</button><button type="button" class="btn" data-act="pubPdf">' + uic('pdf', 15) + ' ' + L('Download PDF', '下载 PDF') + '</button><button type="button" class="btn" data-act="pubPptx">' + uic('pdf', 15) + ' PowerPoint</button></div></div>' +
     '<div class="dk-olist">' + pages.map(function(pg, i){ var key = (p.deckNo || p.no) + ' · p.' + (i + 1), cs = fb.filter(function(x){ return x.reg_no === key; });
       return '<section class="dk-opage">' + scaled(pg.html, 'card') + '<div class="row dk-ofb"><span class="muted mono">' + (i + 1) + ' / ' + pages.length + '</span>' + cs.map(function(x){ return '<span class="chip ' + (x.status === 'open' ? 'c-amber' : 'c-green') + '" title="' + esc(x.body + (x.reply ? '\n↳ ' + x.reply : '')) + '">' + esc(x.body.slice(0, 40)) + '</span>'; }).join('') +
         '<button type="button" class="btn sm" data-act="dkOfb" data-v="' + esc(key) + '">' + L('Comment', '意见') + '</button></div>' + (S.fbFor === key ? '<div class="row"><textarea class="in" id="fbBody" rows="2" style="flex:1" placeholder="' + esc(T('Your comment on page ' + (i + 1), '对第 ' + (i + 1) + ' 页的意见')) + '"></textarea><button type="button" class="btn pri" data-act="dkOfbSend" data-v="' + esc(key) + '">' + L('Send', '提交') + '</button></div>' : '') + '</section>'; }).join('') + '</div>';
@@ -356,7 +454,7 @@ function newDeckFromMeeting(rec){
 /* ================= events ================= */
 document.addEventListener('click', function(e){
   var el = e.target.closest && e.target.closest('[data-act]'); if(!el) return;
-  var act = el.dataset.act, v = el.dataset.v; if(!/^(dk|pres|pub[PD]|regHistDeck)/.test(act) || act === 'pubDel') return;
+  var act = el.dataset.act, v = el.dataset.v; if(!/^(dk|et[A-Z]|pres|pub[PD]|regHistDeck)/.test(act) || act === 'pubDel') return;
   var deck = S.deck && getRec(S.deck);
   switch(act){
     case 'dkNew': openModal({kind:'newDeck', tpl:'weekly', lang:'en', aud:'owner', date:n2d(asOfN())}); break;
@@ -364,21 +462,35 @@ document.addEventListener('click', function(e){
     case 'dkCreate': (function(){ var m = S.modal; closeModal(); createDeck(m).then(function(id){ if(id){ openDeck(id); toast(T('Presentation created — the slides already show live data.', '演示文稿已创建，页面已显示实时数据。')); } }).catch(function(er){ toast(errText(er)); }); })(); break;
     case 'dkOpen': (function(){ var p = String(v).split('|'); openDeck(p[0], p[1]); })(); break;
     case 'dkBack': S.deck = null; saveUI(); renderMain(); break;
-    case 'dkSlide': S.dslide = v; S.dpage = 0; renderMain(); break;
+    case 'dkSlide': S.dslide = v; S.dpage = 0; S.elSel = null; renderMain(); break;
     case 'dkPage': S.dpage = +v; renderMain(); break;
-    case 'dkSet': if(deck) setRec(deck, mk(el.dataset.k, v), {silent:true}); break;
+    case 'dkSet': if(deck) deckEdit(deck, mk(el.dataset.k, v), true); break;
     case 'dkAddMenu': openPick('menu', {html:'<div class="plist">' + SLIDE_ORDER.map(function(t){ return '<button type="button" class="popt" data-act="dkAddType" data-v="' + t + '">' + esc(T1(SLIDES[t].en, SLIDES[t].zh)) + '</button>'; }).join('') + '</div>', w:260}, el); break;
     case 'dkAddType': (function(){ closePop(); if(!deck) return; var s = newSlide(v); addSlideTo(deck, s, S.dslide).then(function(){ S.dslide = s.id; S.dpage = 0; renderMain(); }); })(); break;
     case 'dkMove': (function(){ var sl = clone(deck.d.slides || []), i = sl.map(function(s){ return s.id; }).indexOf(S.dslide), j = i + (+v); if(i < 0 || j < 0 || j >= sl.length) return; var x = sl[i]; sl[i] = sl[j]; sl[j] = x; saveSlides(deck, sl, true); })(); break;
     case 'dkDup': (function(){ var s = slideById(deck, S.dslide); if(!s) return; var c = clone(s); c.id = uid('s'); addSlideTo(deck, c, s.id).then(function(){ S.dslide = c.id; renderMain(); }); })(); break;
     case 'dkHide': (function(){ var sl = clone(deck.d.slides || []); sl.forEach(function(s){ if(s.id === S.dslide) s.hidden = !s.hidden; }); saveSlides(deck, sl, true); })(); break;
     case 'dkDelSlide': (function(){ var sl = deck.d.slides || [], i = sl.map(function(s){ return s.id; }).indexOf(S.dslide); if(i < 0) return; var rest = sl.filter(function(s){ return s.id !== S.dslide; }); S.dslide = rest[Math.min(i, rest.length - 1)] ? rest[Math.min(i, rest.length - 1)].id : null; saveSlides(deck, clone(rest)); })(); break;
+    case 'dkTheme': deckEdit(deck, {theme:Object.assign({}, deck.d.theme || {}, {color:v})}, true); break;
+    case 'dkLogoDel': (function(){ var t0 = Object.assign({}, deck.d.theme || {}); t0[v] = null; deckEdit(deck, {theme:t0}, true); })(); break;
+    case 'dkThemeDef': (function(){ var th = themeOf(deck); STORE.saveCfg({deckTheme:{color:th.color, foot:th.foot, footText:th.footText || '', conf:th.conf || '', logoL:th.logoL || null, logoR:th.logoR || null}}).then(function(){ toast(T('New presentations will use this look', '新文稿将使用此样式')); }).catch(function(er){ toast(errText(er)); }); })(); break;
+    case 'dkUndo': deckUndo(false); break;
+    case 'dkRedo': deckUndo(true); break;
+    case 'dkUnhide': (function(){ var sl = clone(deck.d.slides || []); sl.forEach(function(x0){ if(x0.id !== S.dslide) return; var x = el.dataset.hp ? getPath(x0, el.dataset.hp) : x0; if(!x || !x.cfg) return; if(v === '*'){ x.cfg.hide = []; x.cfg.hideLab = {}; } else { x.cfg.hide = (x.cfg.hide || []).filter(function(k){ return k !== v; }); if(x.cfg.hideLab) delete x.cfg.hideLab[v]; } }); saveSlides(deck, sl, true); })(); break;
+    case 'dkColMv': (function(){ var sl = clone(deck.d.slides || []), s00 = sl.filter(function(x){ return x.id === S.dslide; })[0]; if(!s00) return; var s0 = el.dataset.hp ? getPath(s00, el.dataset.hp) : s00; if(!s0) return; var r0 = getReg(s0.cfg.reg), cols = s0.cfg.cols && s0.cfg.cols.length ? s0.cfg.cols.slice() : (r0 ? defCols(r0) : []), i = cols.indexOf(v), j = i + (+el.dataset.d); if(i < 0 || j < 0 || j >= cols.length) return; cols[i] = cols[j]; cols[j] = v; s0.cfg.cols = cols; saveSlides(deck, sl, true); })(); break;
+    case 'dkPickAdd': case 'dkPickDel': case 'dkPickMv': (function(){ var sl = clone(deck.d.slides || []), s0 = sl.filter(function(x){ return x.id === S.dslide; })[0]; if(!s0) return; var p = (s0.cfg.picks || []).slice(), i = p.indexOf(v);
+      if(act === 'dkPickAdd' && i < 0) p.push(v); if(act === 'dkPickDel' && i >= 0) p.splice(i, 1); if(act === 'dkPickMv'){ var j = i + (+el.dataset.d); if(i < 0 || j < 0 || j >= p.length) return; p[i] = p[j]; p[j] = v; } s0.cfg.picks = p; saveSlides(deck, sl, true); })(); break;
+    case 'dkFreeze': (function(){ var s0 = slideById(deck, S.dslide), f = s0 && freezeSlide(deck, s0); if(!f){ toast(T('This slide has no table to convert.', '此页没有可转换的表格。')); return; } saveSlides(deck, (deck.d.slides || []).map(function(x){ return x.id === f.id ? f : x; })); })(); break;
+    case 'dkUnfreeze': (function(){ var s0 = slideById(deck, S.dslide); if(!s0 || !s0.cfg.orig) return; if(!confirm(T('Go back to the live slide? Your typed changes in this table are dropped (Undo brings them back).', '恢复为实时数据页？表格里手动输入的内容会被放弃（可用撤销找回）。'))) return; var o = clone(s0); o.type = s0.cfg.orig.type; o.cfg = Object.assign(clone(s0.cfg.orig.cfg || {}), {msg:s0.cfg.msg, side:s0.cfg.side}); saveSlides(deck, (deck.d.slides || []).map(function(x){ return x.id === o.id ? o : x; })); })(); break;
+    case 'etAdd': (function(){ var sl = clone(deck.d.slides || []), s0 = sl.filter(function(x){ return x.id === S.dslide; })[0]; if(!s0) return; var c0 = s0.cfg; if(v === 'row') c0.rows.push(c0.head.map(function(){ return {t:''}; })); else { c0.head.push(T1('Column', '列')); c0.rows.forEach(function(r){ r.push({t:''}); }); } saveSlides(deck, sl, true); })(); break;
+    case 'dkCopyTo': (function(){ var ds = allDecks().filter(function(x){ return x.d.status !== 'issued'; }); openPick('menu', {html:'<div class="plist">' + ds.map(function(x){ return '<button type="button" class="popt" data-act="dkCopyGo" data-v="' + esc(x.id) + '">' + esc((x.d.no || '') + ' · ' + (x.d.date || '') + ' · ' + deckTitle(x.d)) + (x.id === deck.id ? ' <span class="muted">(' + esc(T('this one', '本文稿')) + ')</span>' : '') + '</button>'; }).join('') + '</div>', w:340}, el); })(); break;
+    case 'dkCopyGo': (function(){ closePop(); var to = getRec(v), s0 = slideById(deck, S.dslide); if(!to || !s0) return; var c0 = clone(s0); c0.id = uid('s'); (c0.els || []).forEach(function(e){ e.id = uid('e'); }); addSlideTo(to, c0, to.id === deck.id ? s0.id : null).then(function(){ toast(T('Copied to ', '已复制到 ') + (to.d.no || ''), {act:'dkOpen', v:to.id + '|' + c0.id, label:T('Open', '打开')}); }); })(); break;
     case 'dkAddMsg': case 'dkAddSide': (function(){ var k = act === 'dkAddMsg' ? 'msg' : 'side', sl = clone(deck.d.slides || []); sl.forEach(function(x){ if(x.id === S.dslide){ x.cfg = x.cfg || {}; x.cfg[k] = k === 'msg' ? T1('Key message', '重点结论') : T1('Comment', '说明'); } }); S.dkFocus = 'cfg.' + k; saveSlides(deck, sl, true); })(); break;
-    case 'dkClearFx': (function(){ var sl = clone(deck.d.slides || []); sl.forEach(function(s){ if(s.id === S.dslide && s.cfg.filter){ s.cfg.filter.fx = {}; s.cfg.filter.q = ''; s.cfg.filter.from = ''; s.cfg.filter.to = ''; } }); saveSlides(deck, sl, true); })(); break;
+    case 'dkClearFx': (function(){ var sl = clone(deck.d.slides || []); sl.forEach(function(s0){ var s = el.dataset.hp ? getPath(s0, el.dataset.hp) : s0; if(s0.id === S.dslide && s && s.cfg.filter){ s.cfg.filter.fx = {}; s.cfg.filter.q = ''; s.cfg.filter.from = ''; s.cfg.filter.to = ''; } }); saveSlides(deck, sl, true); })(); break;
     case 'dkPresent': (function(){ var d0 = getRec(v); if(d0) presentDeck(d0); })(); break;
     case 'dkPresentHere': if(deck) presentDeck(deck, S.dslide); break;
     case 'dkPdf': (function(){ var d0 = getRec(v); if(d0) deckPdf(d0); })(); break;
-    case 'dkIssue': if(deck && confirm(T('Issue this presentation? The figures are frozen as they are now so the deck always shows what was presented. You can go back to draft later.', '定稿此演示文稿？数据会按当前冻结，以后打开仍是汇报时的内容。之后可以退回草稿。'))) issueDeck(deck).then(function(){ toast(T('Issued — figures frozen', '已定稿，数据已冻结'), {act:'quickUndo', label:T('Undo', '撤销')}); }); break;
+    case 'dkIssue': if(deck && confirm(T('Issue this presentation? The figures are frozen as they are now so the deck always shows what was presented. You can go back to draft later.', '定稿此演示文稿？数据会按当前冻结，以后打开仍是汇报时的内容。之后可以退回草稿。'))) issueDeck(deck).then(function(){ toast(T('Issued — figures frozen', '已定稿，数据已冻结'), {act:'quickUndo', label:T('Undo', '撤销')}); }).catch(function(er){ console.error(er); toast(T('Could not issue: ', '无法定稿：') + (er && er.message || er)); }); break;
     case 'dkReopen': if(deck && confirm(T('Back to draft? The slides show live data again (the frozen figures are kept in the Change log).', '退回草稿？页面将重新显示实时数据（冻结的数据保留在修改记录中）。'))) setRec(deck, {status:'draft', snap:null, issuedAt:null}); break;
     case 'dkShare': if(deck) shareDeck(deck); break;
     case 'dkCopy': (function(){ var src = getRec(v); if(!src) return; var d = clone(src.d), reg = getReg(src.reg); delete d.snap; delete d.issuedAt; d.status = 'draft'; d.no = nextNo(reg); var n0 = d2n(d.date); d.date = n0 != null ? n2d(n0 + 7) : n2d(asOfN());
@@ -415,17 +527,20 @@ document.addEventListener('change', function(e){
     if(d === 'meeting' && el.value){ var r = getRec(el.value), rg = r && getReg(r.reg); if(r){ m.date = r.d[rolesOf(rg).start] || m.date; if(!m.title) m.title = r.d[rolesOf(rg).title] || ''; if(!m.titleZh) m.titleZh = r.d[rolesOf(rg).title2] || ''; renderModal(); } }
     return; }
   if(!deck || !isDeckRec(deck)) return;
-  if((d = el.dataset.dk)){ var p = mk(d, el.value); if(d === 'meeting' && el.value && !deck.d.date){ var mr = getRec(el.value); if(mr) p.date = mr.d[rolesOf(getReg(mr.reg)).start] || ''; } setRec(deck, p, {silent:true}); return; }
+  if((d = el.dataset.th)){ var t1 = Object.assign({}, deck.d.theme || {}); t1[d] = el.value; deckEdit(deck, {theme:t1}, true); return; }
+  if((d = el.dataset.logo) && el.files && el.files[0]){ var f0 = el.files[0], key0 = d; el.value = ''; toast(T('Uploading logo…', '正在上传 Logo…')); shrinkImage(f0, 800).then(function(f){ return STORE.upload(f, deck.reg, deck.id); }).then(function(up){ var dk = getRec(deck.id), t2 = Object.assign({}, dk.d.theme || {}); t2[key0] = {path:up.path}; deckEdit(dk, {theme:t2}, true); }).catch(function(er){ toast(errText(er)); }); return; }
+  if((d = el.dataset.dk)){ var p = mk(d, el.value); if(d === 'meeting' && el.value && !deck.d.date){ var mr = getRec(el.value); if(mr) p.date = mr.d[rolesOf(getReg(mr.reg)).start] || ''; } deckEdit(deck, p, true); return; }
   if((d = el.dataset.sp)){
     var slides = clone(deck.d.slides || []), s = slides.filter(function(x){ return x.id === S.dslide; })[0]; if(!s) return;
+    var obj = s, rel = d, mm = /^cfg\.(L|R)\.(.+)$/.exec(d); if(mm && s.type === 'combo'){ obj = s.cfg[mm[1]] = s.cfg[mm[1]] || {type:'text', cfg:{}}; rel = mm[2]; }
     var t = el.dataset.t, v;
     if(t === 'bool') v = el.checked;
     else if(t === 'num') v = +el.value;
-    else if(t === 'list' || t === 'pick'){ var cur = (getPath(s, d) || []).slice(); if(d === 'cfg.cols' && !cur.length){ var r0 = getReg(s.cfg.reg); cur = r0 ? defCols(r0) : []; } var item = t === 'pick' ? JSON.parse(el.dataset.v) : el.dataset.v, ix = -1; cur.forEach(function(x, i){ if(same(t === 'pick' ? x.path : x, t === 'pick' ? item.path : item)) ix = i; }); if(el.checked && ix < 0) cur.push(item); if(!el.checked && ix >= 0) cur.splice(ix, 1); v = cur; }
+    else if(t === 'list' || t === 'pick'){ var cur = (getPath(obj, rel) || []).slice(); if(rel === 'cfg.cols' && !cur.length){ var r0 = getReg(obj.cfg.reg); cur = r0 ? defCols(r0) : []; } var item = t === 'pick' ? JSON.parse(el.dataset.v) : el.dataset.v, ix = -1; cur.forEach(function(x, i){ if(same(t === 'pick' ? x.path : x, t === 'pick' ? item.path : item)) ix = i; }); if(el.checked && ix < 0) cur.push(item); if(!el.checked && ix >= 0) cur.splice(ix, 1); v = cur; }
     else v = el.value;
-    setPath(s, d, v);
-    if(d === 'cfg.cols'){ var rg2 = getReg(s.cfg.reg); if(rg2){ var ord = dataFields(rg2).map(function(f){ return f.key; }); s.cfg.cols.sort(function(a, b){ return ord.indexOf(a) - ord.indexOf(b); }); } }
-    if(d === 'cfg.reg'){ var nr = getReg(v); if(s.type === 'table'){ s.cfg.cols = nr ? defCols(nr) : []; s.cfg.filter = {open:!!(s.cfg.filter && s.cfg.filter.open)}; s.cfg.sort = null; if(nr && (!s.title || !s.title.en || s.title.en === 'Register')) s.title = {en:nr.d.en || '', zh:nr.d.zh || ''}; } if(s.type === 'matrix'){ s.cfg.row = ''; s.cfg.col = ''; } if(s.type === 'breakdown') s.cfg.by = ''; if(s.type === 'actions') s.cfg.meeting = 'latest'; }
+    if(rel === 'type'){ obj.type = v; obj.cfg = SLIDES[v] ? SLIDES[v].def() : {}; obj.title = {en:SLIDES[v].t[0], zh:SLIDES[v].t[1]}; saveSlides(deck, slides, true); return; }
+    setPath(obj, rel, v);
+    if(rel === 'cfg.reg'){ var nr = getReg(v); if(obj.type === 'table'){ obj.cfg.cols = nr ? defCols(nr) : []; obj.cfg.filter = {open:!!(obj.cfg.filter && obj.cfg.filter.open)}; obj.cfg.sort = null; obj.cfg.picks = []; if(obj === s && nr && (!s.title || !s.title.en || s.title.en === 'Register')) s.title = {en:nr.d.en || '', zh:nr.d.zh || ''}; } if(obj.type === 'matrix'){ obj.cfg.row = ''; obj.cfg.col = ''; } if(obj.type === 'breakdown') obj.cfg.by = ''; if(obj.type === 'actions') obj.cfg.meeting = 'latest'; obj.cfg.hide = []; }
     saveSlides(deck, slides, true);
   }
 });
@@ -434,6 +549,7 @@ document.addEventListener('change', function(e){
 function enableInline(){
   var deck = S.deck && getRec(S.deck); if(S.page !== 'decks' || !deck || !isDeckRec(deck) || deck.d.status === 'issued' || !canDeckEdit()) return;
   $$('.dk-stage [data-ed]').forEach(function(el){ try{ el.contentEditable = 'plaintext-only'; }catch(e){ el.contentEditable = 'true'; } if(el.contentEditable !== 'plaintext-only') el.contentEditable = 'true'; el.spellcheck = false; el.setAttribute('data-fk', 'ed:' + S.dslide + ':' + el.dataset.ed); });
+  drawSel();
   if(S.dkFocus){ var f = $('.dk-stage [data-ed="' + S.dkFocus + '"]'); S.dkFocus = null; if(f){ f.focus(); try{ var r = document.createRange(); r.selectNodeContents(f); var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r); }catch(e){} } }
 }
 function edRaw(deck, path){ if(path.indexOf('deck.') === 0) return deck.d[path.slice(5)] || ''; var s = slideById(deck, S.dslide); return s ? (getPath(s, path) || '') : ''; }
@@ -454,7 +570,7 @@ document.addEventListener('focusout', function(e){
   if(!deck || deck.d.status === 'issued'){ return; }
   var v = el.innerText.replace(/\u00a0/g, ' '); if(!el.dataset.raw) v = v.replace(/\s*\n\s*/g, ' ').trim(); else v = v.replace(/\s+$/, '');
   if(cancel || v === (el.dataset.orig || '')){ if(el.dataset.raw || cancel) setTimeout(renderMain, 0); return; }
-  if(path.indexOf('deck.') === 0){ setRec(deck, mk(path.slice(5), v), {silent:true}); return; }
+  if(path.indexOf('deck.') === 0){ deckEdit(deck, mk(path.slice(5), v), true); return; }
   var sl = clone(deck.d.slides || []), s = sl.filter(function(x){ return x.id === S.dslide; })[0]; if(!s) return;
   setPath(s, path, v); saveSlides(deck, sl, true);
 });
@@ -469,9 +585,41 @@ document.addEventListener('dragend', function(){ if(!S.sdrag && !$('.dk-t.draggi
 document.addEventListener('keydown', function(e){
   if(S.page !== 'decks' || !S.deck || S.present || S.modal || S.pop || S.open) return;
   var tg = e.target; if(tg && (/^(INPUT|TEXTAREA|SELECT)$/.test(tg.tagName) || tg.isContentEditable)) return;
+  if((e.metaKey || e.ctrlKey) && (e.key === 'z' || e.key === 'Z')){ e.preventDefault(); deckUndo(e.shiftKey); return; }
+  if((e.metaKey || e.ctrlKey) && (e.key === 'y' || e.key === 'Y')){ e.preventDefault(); deckUndo(true); return; }
   if(e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
   var deck = getRec(S.deck); if(!deck) return; var ids = (deck.d.slides || []).map(function(s){ return s.id; }), i = ids.indexOf(S.dslide), j = clamp(i + (e.key === 'ArrowDown' ? 1 : -1), 0, ids.length - 1);
   if(j !== i){ e.preventDefault(); S.dslide = ids[j]; S.dpage = 0; renderMain(); var on = $('.dk-t.on'); if(on && on.scrollIntoView) on.scrollIntoView({block:'nearest'}); }
 });
 window.addEventListener('resize', function(){ clearTimeout(window.__dkrz); window.__dkrz = setTimeout(function(){ fitSlides(); if(S.present) renderPresent(); }, 120); });
 if(window.ResizeObserver){ (function(){ var ro = new ResizeObserver(function(){ fitSlides(); }); var t = setInterval(function(){ var m = document.getElementById('main'); if(m){ ro.observe(m); clearInterval(t); } }, 50); })(); }
+
+/* hover a row / column / bar / photo / tile on the editor preview → × leaves it out of this slide only */
+function dkxBtn(){ var b = document.getElementById('dkx'); if(!b){ b = document.createElement('button'); b.id = 'dkx'; b.type = 'button'; b.hidden = true; b.innerHTML = '×'; b.title = T('Leave out of this slide', '在此页隐藏'); document.body.appendChild(b); } return b; }
+function dkxHide(){ var b = document.getElementById('dkx'); if(b) b.hidden = true; $$('.dk-hov').forEach(function(x){ x.classList.remove('dk-hov'); }); S.dkxEl = null; }
+document.addEventListener('mouseover', function(e){
+  if(S.page !== 'decks' || !edOk() || ELD) return;
+  if(e.target.closest && e.target.closest('#dkx')) return;
+  var t = e.target.closest && e.target.closest('.dk-stage [data-hk]');
+  if(!t){ if(S.dkxEl) dkxHide(); return; }
+  if(t === S.dkxEl) return;
+  dkxHide(); S.dkxEl = t; t.classList.add('dk-hov');
+  var r = t.getBoundingClientRect(), b = dkxBtn(), isCol = /^(c|x):/.test(t.dataset.hk);
+  b.style.left = Math.min(window.innerWidth - 30, r.right - 12) + 'px'; b.style.top = Math.max(4, (isCol ? r.top - 14 : r.top + Math.min(r.height / 2, 20) - 11)) + 'px';
+  b.dataset.hk = t.dataset.hk; b.dataset.hl = t.dataset.hl || ''; var hp = t.closest('[data-hp]'); b.dataset.hp = hp ? hp.dataset.hp : ''; b.hidden = false;
+});
+document.addEventListener('click', function(e){
+  var b = e.target.closest && e.target.closest('#dkx'); if(!b) return;
+  var key = b.dataset.hk, lab = b.dataset.hl, base = b.dataset.hp, deck = curDeck(); dkxHide(); if(!deck || !key) return;
+  var sl = clone(deck.d.slides || []), s0 = sl.filter(function(x){ return x.id === S.dslide; })[0]; if(!s0) return;
+  var obj = base ? getPath(s0, base) : s0; if(!obj) return; var c = obj.cfg = obj.cfg || {}, k2 = key.slice(2);
+  if(key.indexOf('c:') === 0 && obj.type === 'table'){ var r0 = getReg(c.reg); c.cols = (c.cols && c.cols.length ? c.cols : (r0 ? defCols(r0) : [])).filter(function(x){ return x !== k2; }); }
+  else if(key.indexOf('k:') === 0){ c.regs = (c.regs || []).filter(function(x){ return x !== k2; }); }
+  else if(key.indexOf('e:') === 0){ c.rows.splice(+k2, 1); }
+  else if(key.indexOf('x:') === 0){ if(c.head.length < 2) return; c.head.splice(+k2, 1); c.rows.forEach(function(r){ r.splice(+k2, 1); }); }
+  else { c.hide = (c.hide || []).concat([key]); c.hideLab = Object.assign({}, c.hideLab || {}); c.hideLab[key] = lab || k2; }
+  saveSlides(deck, sl, true);
+  var gone = /^(e|x):/.test(key);
+  toast(gone ? T('Deleted from the table', '已从表格删除') : T('Left out of this slide — Undo or restore it in the panel on the right', '已在此页隐藏，可撤销或在右侧恢复'), {act:'dkUndo', label:T('Undo', '撤销')});
+});
+document.addEventListener('input', function(e){ if(e.target && e.target.id === 'dkPickQ'){ S.dkPickQ = e.target.value; clearTimeout(window.__dkpq); window.__dkpq = setTimeout(renderMain, 200); } });

@@ -11,7 +11,7 @@ function lists(){ var l = cfg().lists || {}, o = {}; Object.keys(DEF_LISTS).forE
 
 /* registers */
 function allRegs(){
-  var order = cfg().regOrder || [], regs = ((STORE && STORE.regs) || []).filter(function(r){ return r.d.kind !== 'decks'; });
+  var order = cfg().regOrder || [], regs = ((STORE && STORE.regs) || []).filter(function(r){ return r.d.kind !== 'decks' && r.d.kind !== 'snaps'; });
   regs.sort(function(a, b){ var ia = order.indexOf(a.id), ib = order.indexOf(b.id); if(ia < 0) ia = 999; if(ib < 0) ib = 999; return ia - ib || String(a.d.en || '').localeCompare(String(b.d.en || '')); });
   return regs;
 }
@@ -90,7 +90,7 @@ function isDone(reg, rec){ var o = statusOpt(reg, rec); return !!(o && o.done); 
 function progressOf(reg, rec, noRoll){ var f = rf(reg, 'progress'); var v = f ? num(val(rec, f)) : null; if(v == null){ if(isDone(reg, rec)) return 100; if(!noRoll){ var ru = rollup(reg, rec); if(ru) return ru.pct; } return statusOpt(reg, rec) ? 0 : null; } return clamp(v, 0, 100); }
 function asOfN(){ var a = S.asOfLocal || cfg().asOf; return d2n(a) != null ? d2n(a) : TODAY; }
 function isOverdue(reg, rec){ if(isDone(reg, rec)) return false; var p = planOf(reg, rec); return !!p && p.f < asOfN(); }
-function isMilestone(reg, rec){ var f = rf(reg, 'kind'); if(!f) return false; var o = optOf(f, rec.d[f.key]); return !!(o && o.ms); }
+function isMilestone(reg, rec){ if(reg && reg.d.allMs) return true; if(rec.d.ms) return true; var f = rf(reg, 'kind'); if(!f) return false; var o = optOf(f, rec.d[f.key]); return !!(o && o.ms); }
 function blocksOf(reg, rec){ var f = rf(reg, 'block'); return f ? asArr(rec.d[f.key]) : []; }
 function openFb(id){ return ((STORE && STORE.fb) || []).filter(function(f){ return f.item_id === id && f.status === 'open'; }).length; }
 
@@ -279,7 +279,7 @@ function sortRecs(reg, list){
 function regFromTemplate(key, over){
   var t = clone(TEMPLATES[key] || TEMPLATES.blank);
   var d = {en:t.en, zh:t.zh, icon:t.icon, sec:t.sec, prefix:t.prefix, fields:t.fields, roles:t.roles, view:t.view, tpl:key,
-    ownerPublish:!!t.ownerPublish, matrix:t.matrix || null, board:t.board || null, meeting:!!t.meeting};
+    ownerPublish:!!t.ownerPublish, matrix:t.matrix || null, board:t.board || null, meeting:!!t.meeting, allMs:!!t.allMs};
   return {id:(over && over.id) || ('reg_' + key + '_' + Date.now().toString(36)), vis:(over && over.vis) || t.visibility || 'team', d:Object.assign(d, (over && over.d) || {})};
 }
 
@@ -336,14 +336,15 @@ function buildDemo(){
   var lists0 = clone(DEF_LISTS);
   lists0.people.opts = ['Wang Lei 王磊','Li Na 李娜','Zhang Wei 张伟','Chen Jie 陈杰','Maria Santos','Jose Reyes'].map(function(p){ return O(p, p, ''); });
   lists0.subcon.opts = [O('sc1','PV Builders Inc.',''),O('sc2','Luzon Electrical Co.',''),O('sc3','Civil Works Ltd.','')];
-  var regs = [regFromTemplate('site', {id:'reg_site'}), regFromTemplate('turnover', {id:'reg_turnover'}), regFromTemplate('punch', {id:'reg_punch'}), regFromTemplate('meetings', {id:'reg_meetings'}), regFromTemplate('tds', {id:'reg_tds'})]
+  var regs = [regFromTemplate('site', {id:'reg_site'}), regFromTemplate('milestones', {id:'reg_ms'}), regFromTemplate('turnover', {id:'reg_turnover'}), regFromTemplate('punch', {id:'reg_punch'}), regFromTemplate('meetings', {id:'reg_meetings'}), regFromTemplate('issues', {id:'reg_issues'}), regFromTemplate('tds', {id:'reg_tds'})]
     .map(function(r){ return {id:r.id, owner:'demo', vis:r.vis, d:r.d}; });
   var recs = [], n = 0;
   function add(reg, d){ recs.push({id:'r' + (++n), reg:reg, d:d, ca:new Date().toISOString(), ua:new Date().toISOString()}); }
   var acts = [['Piling','打桩','w2','pile',[5200,4800,5100,4900],[5200,4300,2600,900]],['Tracker installation','支架安装','w3','tracker',[260,240,255,245],[260,190,80,0]],['Module installation','组件安装','w4','module',[61000,56000,60000,57500],[58000,30000,6000,0]],['DC cabling & strings','直流电缆与组串','w5','string',[2300,2100,2250,2150],[1500,600,0,0]],['Inverters & combiner boxes','逆变器与汇流箱','w6','inv',[12,11,12,11],[12,6,0,0]]];
   var blocks = ['B','C','D','E'], k = 0;
   acts.forEach(function(a, ai){ blocks.forEach(function(b, bi){ k++; var done = a[5][bi], plan = a[4][bi];
-    add('reg_site', {regNo:'SW-' + String(k).padStart(3, '0'), en:a[0] + ' – Block ' + b, zh:b + '区' + a[1], wbs:a[2], areas:[b], unit:a[3], qtyPlan:plan, qtyDone:done, start:dd(-120 + ai * 25 + bi * 10), finish:dd(-40 + ai * 30 + bi * 18), status: done >= plan ? 'completed' : done > 0 ? 'in_progress' : 'not_started', resp:[['Wang Lei 王磊','Zhang Wei 张伟','Chen Jie 陈杰','Maria Santos'][bi]], subcon:['sc1','sc2','sc1','sc3'][ai % 4]}); }); });
+    var s0 = -120 + ai * 25 + bi * 10, f0 = -40 + ai * 30 + bi * 18, sl = bi === 3 ? 21 : bi === 2 ? 9 : 0;
+    add('reg_site', {regNo:'SW-' + String(k).padStart(3, '0'), en:a[0] + ' – Block ' + b, zh:b + '区' + a[1], wbs:a[2], areas:[b], unit:a[3], qtyPlan:plan, qtyDone:done, start:dd(s0), finish:dd(f0 + sl), baseStart:dd(s0), baseFinish:dd(f0), status: done >= plan ? 'completed' : done > 0 ? 'in_progress' : 'not_started', resp:[['Wang Lei 王磊','Zhang Wei 张伟','Chen Jie 陈杰','Maria Santos'][bi]], subcon:['sc1','sc2','sc1','sc3'][ai % 4]}); }); });
   add('reg_site', {regNo:'SW-021', en:'MV cable trench – ring 1', zh:'中压电缆沟 – 一回路', wbs:'w7', areas:['B','C'], unit:'m', qtyPlan:3800, qtyDone:3100, start:dd(-50), finish:dd(10), status:'in_progress', resp:['Chen Jie 陈杰'], subcon:'sc3'});
   add('reg_site', {regNo:'SW-022', en:'Performance ratio test', zh:'PR 性能测试', wbs:'w10', areas:['B','C','D','E'], start:dd(25), finish:dd(70), status:'not_started', progress:0, resp:['Li Na 李娜']});
   var docs = [['Formal handover notification','正式移交通知','pk1',[],'not_started',0,dd(10),dd(25)],['Commissioning completion report','调试完成报告','pk1',[],'in_progress',40,dd(-30),dd(-15)],['Punch list status / defect register','整改项状态 / 缺陷登记册','pk1',['B','C','D','E'],'in_progress',70,dd(-45),dd(-20)],['As-built single line diagram','电气竣工单线图','pk2',[],'in_progress',60,dd(-30),dd(5)],['Pile drawings','桩图','pk2',['B','C','D','E'],'completed',100,dd(-40),dd(-25)],['PV string / array layout','光伏组串','pk2',['B','C','D','E'],'in_progress',30,dd(-20),dd(12)],['Earthing & lightning protection drawings','接地与防雷','pk2',[],'not_started',0,dd(-5),dd(20)],['SCADA architecture & point list','SCADA 架构图与点表','pk2',[],'pending',0,dd(15),dd(40)],['O&M manual','运维手册','pk4',[],'not_started',0,dd(20),dd(60)],['O&M training','运维培训','pk5',[],'not_started',0,dd(40),dd(80)],['Spare parts list','备品备件清单','pk6',[],'not_started',0,dd(40),dd(80)],['Take-over package submitted','TOP 移交包提交','pk8',['B','C','D','E'],'not_started',0,dd(80),dd(80)]];
@@ -360,8 +361,14 @@ function buildDemo(){
     actions:[{_id:'x1', action:'Issue as-built SLD for review', who:'Li Na 李娜', due:dd(3), done:false},{_id:'x2', action:'Close fence gap N-14', who:'Zhang Wei 张伟', due:dd(-1), done:false},{_id:'x3', action:'Send rain-delay notice to Owner', who:'Wang Lei 王磊', due:dd(-5), done:true}]});
   add('reg_meetings', {regNo:'MOM-002', en:'Owner monthly progress meeting', zh:'业主月度进度会', date:dd(6), time:'14:00', mtype:'owner', loc:'Owner office', chair:'Wang Lei 王磊', attendees:['Wang Lei 王磊','Li Na 李娜'], status:'planned',
     agenda:[{_id:'b1', topic:'Overall progress & look-ahead', by:'Wang Lei 王磊', notes:''},{_id:'b2', topic:'Turnover plan for the next half-month', by:'Li Na 李娜', notes:''}], actions:[]});
+  [['Notice to proceed','开工令','contract',-300,-300,-300],['Mechanical completion – Block B','B区机械完工','internal',-20,-14,-12],['Mechanical completion – Block C','C区机械完工','internal',10,24,null],['Mechanical completion – Block D','D区机械完工','internal',35,52,null],['Mechanical completion – Block E','E区机械完工','internal',55,82,null],['Back-feed / energisation','倒送电','owner',45,52,null],['Grid synchronisation','并网','owner',75,86,null],['Commercial operation date (COD)','商业运营（COD）','contract',105,118,null],['Taking-over certificate / PAC','移交证书 / PAC','contract',135,148,null],['Final acceptance (FAC)','最终验收（FAC）','contract',500,500,null]].forEach(function(x, i){
+    add('reg_ms', {regNo:'MS-' + String(i + 1).padStart(3, '0'), en:x[0], zh:x[1], cat:x[2], base:dd(x[3]), forecast:dd(x[4]), actual:x[5] != null ? dd(x[5]) : undefined, status:x[5] != null ? 'done' : x[4] - x[3] > 10 ? 'risk' : 'planned', areas:/Block ([BCDE])/.test(x[0]) ? [RegExp.$1] : []}); });
+  [['issue','Grid connection approval from NGCP still pending','NGCP 并网批复仍未取得','A',-12,6,'Escalate at Owner meeting; request joint letter'],['risk','Typhoon season may stop module installation in Block E','台风季可能导致 E 区组件安装停工','B',-20,30,'Secure modules; add second crew after storms'],['decision','Approve revised MV energisation date','批准调整后的中压送电日期','A',-5,8,'Proposed new date with recovery plan attached'],['issue','Late return of as-built markups from subcontractor','分包商竣工标注返回滞后','B',-9,3,'Weekly review; payment linked to markups']].forEach(function(x, i){
+    add('reg_issues', {regNo:'ISS-' + String(i + 1).padStart(3, '0'), en:x[1], zh:x[2], kind:x[0], prio:x[3], raised:dd(x[4]), due:dd(x[5]), status:'open', mitig:x[6], escalate:x[3] === 'A', owner:['Wang Lei 王磊']}); });
   add('reg_tds', {regNo:'TDS-001', en:'Bifacial PV module 580 W', zh:'双面光伏组件 580W', cat:'module', mfr:'—', model:'—', rev:'A', status:'approved', submitted:dd(-90), approved:dd(-70)});
   add('reg_tds', {regNo:'TDS-002', en:'String inverter 320 kW', zh:'组串式逆变器 320kW', cat:'inverter', mfr:'—', model:'—', rev:'B', status:'submitted', submitted:dd(-10)});
   add('reg_tds', {regNo:'TDS-003', en:'MV cable 33 kV 1×300 mm²', zh:'33kV 中压电缆', cat:'cable', mfr:'—', model:'—', rev:'A', status:'draft'});
-  return {v2:true, v:3, cfg:Object.assign(clone(DEF_CFG), {lists:lists0, regOrder:regs.map(function(r){ return r.id; }), v2:true, asOf:asOf}), regs:regs, recs:recs, audit:[], pubs:[], fb:[]};
+  regs.push({id:'reg_snaps', owner:'demo', vis:'team', d:{kind:'snaps', en:'Progress snapshots', zh:'进度快照', fields:[F('week','Week','周','text'),F('date','Date','日期','date')], roles:{title:'week', no:'week'}}});
+  for(var wk = 10; wk >= 1; wk--){ var vals = {reg_site:{}}; recs.forEach(function(r){ if(r.reg !== 'reg_site') return; var p = r.d.qtyPlan ? Math.min(100, r.d.qtyDone / r.d.qtyPlan * 100) : (r.d.status === 'completed' ? 100 : 0); vals.reg_site[r.id] = Math.max(0, Math.round(p * (1 - wk * 0.075) * 10) / 10); }); add('reg_snaps', {week:isoWeek(A - wk * 7), date:dd(-wk * 7), vals:vals}); }
+  return {v2:true, v:4, cfg:Object.assign(clone(DEF_CFG), {lists:lists0, regOrder:regs.map(function(r){ return r.id; }), v2:true, asOf:asOf}), regs:regs, recs:recs, audit:[], pubs:[], fb:[]};
 }

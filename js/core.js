@@ -101,7 +101,8 @@ var CALC_OPS = [['pct','A ÷ B × 100 (%)','A ÷ B × 100（%）'],['sub','A −
 var ROLES = [
   ['title','Title','标题'],['title2','Second title (e.g. Chinese)','副标题（如中文）'],['no','Number','编号'],
   ['start','Start date','开始日期'],['finish','Finish / due date','结束 / 到期日期'],['progress','Progress %','完成率'],
-  ['status','Status','状态'],['block','Block','区域'],['tree','Category tree (left panel)','分类树（左侧面板）'],['kind','Type (milestone shape)','类型（里程碑形状）']
+  ['status','Status','状态'],['block','Block','区域'],['tree','Category tree (left panel)','分类树（左侧面板）'],['kind','Type (milestone shape)','类型（里程碑形状）'],
+  ['base','Baseline date','基准日期'],['astart','Actual start','实际开始'],['afinish','Actual finish','实际完成']
 ];
 var SUB_TYPES = ['text','long','number','date','select','check'];
 
@@ -158,7 +159,7 @@ var TEMPLATES = {
     F('explanation','Explanation','解释说明','long'),F('remarks','Remarks / comments','备注 / 意见','long'),F('contacts','Contacts','对接人','select',{list:'people', multi:true}),
     F('updates','Updates','更新记录','sub',{cols:UPDATES_COLS, hide:true}),F('extNote','External note','对外备注','long',{ext:true, hide:true}),
     F('attachments','Files','文件','files',{hide:true}),F('links','Related records','关联记录','link',{hide:true})
-  ], roles:{title:'en', title2:'zh', no:'regNo', start:'start', finish:'finish', progress:'progress', status:'status', block:'areas', tree:'node', kind:'type'}, view:'table'},
+  ], roles:{title:'en', title2:'zh', no:'regNo', start:'start', finish:'finish', progress:'progress', status:'status', block:'areas', tree:'node', kind:'type', astart:'actualStart', afinish:'actualEnd'}, view:'table'},
 
   site: {en:'Site works', zh:'现场施工', icon:'site', sec:'site', prefix:'SW', fields:[
     F('regNo','No.','编号','text',{w:76}),F('en','Activity','施工活动','text',{w:240}),F('zh','Activity (中文)','活动（中文）','text',{hide:true}),
@@ -175,7 +176,7 @@ var TEMPLATES = {
     F('s3','Records','记录','section'),
     F('remarks','Remarks','备注','long'),F('updates','Daily updates','每日更新','sub',{cols:UPDATES_COLS, hide:true}),
     F('photos','Photos','照片','files',{hide:true}),F('links','Related documents','关联资料','link',{hide:true})
-  ], roles:{title:'en', title2:'zh', no:'regNo', start:'start', finish:'finish', progress:'progress', status:'status', block:'areas', tree:'wbs'}, view:'matrix',
+  ], roles:{title:'en', title2:'zh', no:'regNo', start:'start', finish:'finish', progress:'progress', status:'status', block:'areas', tree:'wbs', astart:'actualStart', afinish:'actualFinish'}, view:'matrix',
      matrix:{row:'wbs', col:'areas', val:'progress'}},
 
   tds: {en:'TDS · Technical data sheets', zh:'TDS 技术数据表', icon:'tds', sec:'docs', prefix:'TDS', visibility:'private', fields:[
@@ -211,7 +212,28 @@ var TEMPLATES = {
     F('minutes','Minutes','会议纪要','long',{hide:true}),
     F('actions','Action items','待办事项','sub',{cols:[F('action','Action','事项','long'),F('who','Owner','负责人','text'),F('due','Due','期限','date'),F('done','Done','完成','check')], hide:true}),
     F('files','Files','附件','files',{hide:true}),F('links','Related records','关联记录','link',{hide:true})
-  ], roles:{title:'en', title2:'zh', no:'regNo', start:'date', finish:'date', status:'status'}, view:'table', meeting:true}
+  ], roles:{title:'en', title2:'zh', no:'regNo', start:'date', finish:'date', status:'status'}, view:'table', meeting:true},
+
+  milestones: {en:'Key milestones', zh:'关键里程碑', icon:'flag', sec:'site', prefix:'MS', allMs:true, fields:[
+    F('regNo','No.','编号','text',{w:70, ext:true}),F('en','Milestone','里程碑','text',{w:260, ext:true}),F('zh','Milestone (中文)','里程碑（中文）','text',{hide:true, ext:true}),
+    F('cat','Category','类别','select',{opts:[O('contract','Contractual','合同','red'),O('owner','Owner / authority','业主 / 政府','violet'),O('internal','Internal','内部','blue')], ext:true}),
+    F('areas','Block','区域','select',{list:'blocks', multi:true, ext:true}),
+    F('base','Baseline date','基准日期','date',{ext:true}),F('forecast','Forecast date','预测日期','date',{ext:true}),F('actual','Actual date','实际日期','date',{ext:true}),
+    F('status','Status','状态','select',{opts:[O('planned','Planned','计划中','blue'),O('risk','At risk','有风险','amber'),O('late','Delayed','延误','red'),O('done','Achieved','已达成','green',{done:true})], ext:true}),
+    F('resp','Responsible','负责人','select',{list:'people', multi:true}),F('gate','Gate / prerequisites','前置条件','long',{hide:true}),
+    F('remarks','Remarks','备注','long',{ext:true}),F('links','Related records','关联记录','link',{hide:true})
+  ], roles:{title:'en', title2:'zh', no:'regNo', start:'forecast', finish:'forecast', status:'status', block:'areas', base:'base', afinish:'actual'}, view:'gantt',
+     seed:[['Notice to proceed','开工令','contract'],['Mechanical completion – Block B','B区机械完工','internal'],['Mechanical completion – Block C','C区机械完工','internal'],['Mechanical completion – Block D','D区机械完工','internal'],['Mechanical completion – Block E','E区机械完工','internal'],['Back-feed / energisation','倒送电','owner'],['Grid synchronisation','并网','owner'],['Commercial operation date (COD)','商业运营（COD）','contract'],['Taking-over certificate / PAC','移交证书 / PAC','contract'],['Final acceptance (FAC)','最终验收（FAC）','contract']]},
+
+  issues: {en:'Issues, risks & decisions', zh:'问题、风险与决策事项', icon:'risk', sec:'other', prefix:'ISS', fields:[
+    F('regNo','No.','编号','text',{w:70}),F('en','Description','描述','text',{w:260}),F('zh','Description (中文)','描述（中文）','text',{hide:true}),
+    F('kind','Type','类型','select',{opts:[O('issue','Issue','问题','red'),O('risk','Risk','风险','amber'),O('decision','Decision needed','待决策','violet')]}),
+    F('prio','Impact','影响','select',{opts:[O('A','High','高','red'),O('B','Medium','中','amber'),O('C','Low','低','blue')]}),
+    F('areas','Block','区域','select',{list:'blocks', multi:true}),F('owner','Owner','负责方','select',{list:'people', multi:true}),
+    F('raised','Raised','提出日期','date'),F('due','Needed by','需解决日期','date'),
+    F('status','Status','状态','select',{opts:[O('open','Open','未解决','red'),O('watch','Monitoring','跟踪中','amber'),O('closed','Closed','已关闭','green',{done:true})]}),
+    F('mitig','Mitigation / recommendation','应对措施 / 建议','long'),F('escalate','Escalate to Owner','需业主介入','check'),F('remarks','Remarks','备注','long',{hide:true}),F('links','Related records','关联记录','link',{hide:true})
+  ], roles:{title:'en', title2:'zh', no:'regNo', start:'raised', finish:'due', status:'status', block:'areas'}, view:'table'}
 };
 var REG_ICONS = {
   doc:'<path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4M10 12h5M10 16h5"/>',
@@ -222,7 +244,9 @@ var REG_ICONS = {
   list:'<path d="M8 6h13M8 12h13M8 18h13"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/>',
   box:'<path d="M3 7l9-4 9 4-9 4z"/><path d="M3 7v10l9 4 9-4V7M12 11v10"/>',
   bolt:'<path d="M13 2L4 14h7l-1 8 9-12h-7z"/>',
-  check:'<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 12l3 3 5-6"/>'
+  check:'<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 12l3 3 5-6"/>',
+  flag:'<path d="M12 3l6 9-6 9-6-9z"/><path d="M12 8v8"/>',
+  risk:'<path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18v.5"/>'
 };
 var SECS = [['site','Site','现场'],['docs','Documents','资料'],['meet','Meetings','会议'],['other','Other','其他']];
 function icon(name, size){ return '<svg class="ic" width="' + (size || 16) + '" height="' + (size || 16) + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (REG_ICONS[name] || REG_ICONS.list) + '</svg>'; }

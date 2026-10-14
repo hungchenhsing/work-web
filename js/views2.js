@@ -239,7 +239,7 @@ function fieldManager(m){
 }
 function roleFits(r, f){
   if(r === 'title' || r === 'title2' || r === 'no') return f.type === 'text';
-  if(r === 'start' || r === 'finish') return f.type === 'date';
+  if(r === 'start' || r === 'finish' || r === 'base' || r === 'astart' || r === 'afinish') return f.type === 'date';
   if(r === 'progress') return f.type === 'percent' || (f.type === 'calc' && f.calc && f.calc.op === 'pct');
   if(r === 'status' || r === 'kind') return f.type === 'select' && !f.multi && !f.list;
   if(r === 'block') return f.type === 'select';
