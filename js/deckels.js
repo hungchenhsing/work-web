@@ -54,7 +54,7 @@ function dataElHtml(e, i, s, data){
   var tt = e.ttl && (e.ttl.en || e.ttl.zh), zh = S.lang === 'zh', head = tt ? '<div class="sl-dbh" data-ed="els#' + esc(e.id) + '.ttl.' + (zh ? 'zh' : 'en') + '">' + esc(T1(e.ttl.en, e.ttl.zh)) + '</div>' : '';
   var ps = {id:s ? s.id : '', type:e.type, cfg:Object.assign({}, e.cfg, {msg:'', side:''}), title:e.ttl || {en:'', zh:''}}, pages;
   if(!data) pages = [slEmpty('Loading…', '正在加载…')];
-  else { try{ pages = SLIDE_RENDER[e.type](data, ps, {w:e.w, h:e.h - (tt ? 40 : 0)}); }catch(er){ console.error(er); pages = [slEmpty('This block could not be drawn.', '此区块无法显示。')]; } }
+  else { try{ pages = slRender(e.type, data, ps, {w:e.w, h:e.h - (tt ? 40 : 0)}); }catch(er){ console.error(er); pages = [slEmpty('This block could not be drawn.', '此区块无法显示。')]; } }
   var body = (pages[0] || '') + (pages.length > 1 ? '<div class="sl-more">' + esc(T('+' + (pages.length - 1) + ' more page(s) not shown — enlarge the block or leave some items out', '另有 ' + (pages.length - 1) + ' 页未显示，可放大区块或隐藏部分内容')) + '</div>' : '');
   body = body.replace(/data-ed="(cfg|title)\./g, function(m, g){ return 'data-ed="els#' + e.id + '.' + g + '.'; });
   return '<div class="sl-el k-data" data-el="' + esc(e.id) + '" data-hp="els#' + esc(e.id) + '" style="' + elStyle(e) + '">' + head + '<div class="sl-dbb">' + fitWrap(body, e.cfg.size) + '</div></div>';
@@ -128,6 +128,7 @@ function isBoxy(e){ return e && e.k !== 'arrow' && e.k !== 'line'; }
 function elFormat(ed){
   var s = curSlide(), e = s && selObj(s);
   if(e && e.k !== 'main' && !EL_KINDS[e.k]) e = null;
+  if(!e && ed){ var og = ownerGaps(curDeck(), s); if(og.some(function(g){ return !g.ext; })) return ownerGapHtml(og, ed, true); }
   if(!ed || !e) return '<span class="note">' + (ed ? esc(T1('Click to select · drag to move · click text to type · Alt-drag: no snapping', '点选 · 拖动移动 · 点文字可输入 · 按住 Alt 拖动不对齐')) : L('Read only', '只读')) + '</span>';
   var zbtn = '<button type="button" class="ib" data-act="elZ" data-v="1" title="' + esc(T('Bring to front', '置于顶层')) + '">' + uic('up', 14) + '</button><button type="button" class="ib" data-act="elZ" data-v="-1" title="' + esc(T('Send to back', '置于底层')) + '">' + uic('down', 14) + '</button><button type="button" class="ib" data-act="elDup" title="' + esc(T('Duplicate (Cmd+D)', '复制（Cmd+D）')) + '">' + uic('copy', 14) + '</button><button type="button" class="ib" data-act="elDel" title="' + esc(T('Delete (Del)', '删除（Del）')) + '">' + uic('trash', 14) + '</button>';
   if(e.k === 'main') return '<span class="dk-elg"><b>' + L('Slide content', '本页内容') + '</b>' + sizeSeg(s.cfg && s.cfg.size, 'cfg.size', ed) + (s.box ? '<button type="button" class="btn sm" data-act="dkBoxReset">' + L('Back to standard place', '恢复默认位置') + '</button>' : '') + '<button type="button" class="btn sm" data-act="dkTab" data-v="content">' + L('Settings', '设置') + ' →</button></span>';

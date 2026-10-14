@@ -50,6 +50,28 @@ function regOk(ctx, reg){ return !!reg && reg.d.kind !== 'decks' && !isPrivate(r
 /* ctx.focus (present mode “Focus”): only one block, only overdue, only key items */
 function focusOk(f, reg, r){ if(f.blk){ var bf = rf(reg, 'block'); if(bf && asArr(r.d[bf.key]).indexOf(f.blk) < 0) return false; } if(f.od && !isOverdue(reg, r)) return false; if(f.star && !r.d.star) return false; return true; }
 function recOk(ctx, reg, r){ if(ctx.focus && !focusOk(ctx.focus, reg, r)) return false; if(!ctx.owner) return true; if(isPrivate(reg)) return false; return !reg.d.ownerPublish || !!r.d.ext; }
+/* registers on a slide that Owner mode cuts down: published-to-Owner registers show only records marked “Show in Owner plan” */
+function slideRegIds(s){
+  var out = [];
+  function take(c){ if(!c) return; (c.regs || []).forEach(function(id){ out.push(id); }); ['reg', 'ms', 'iss'].forEach(function(k){ if(c[k]) out.push(c[k]); }); }
+  take(s.cfg); ['L', 'R'].forEach(function(k){ if(s.cfg && s.cfg[k]) take(s.cfg[k].cfg); });
+  (s.els || []).forEach(function(e){ if(e.k === 'data') take(e.cfg); });
+  return out.filter(function(id, i){ return id && out.indexOf(id) === i; });
+}
+function ownerGaps(deck, s){
+  if(!deck || !s || !dctx(deck).owner) return [];
+  return slideRegIds(s).map(getReg).filter(function(r){ return r && !isPrivate(r) && r.d.ownerPublish; }).map(function(r){
+    var rs = recsOf(r.id), n = 0; rs.forEach(function(x){ if(x.d.ext) n++; }); return {reg:r, ext:n, total:rs.length};
+  }).filter(function(g){ return g.total > 0 && g.ext < g.total; });
+}
+function ownerGapHtml(gaps, ed, strong){
+  if(!gaps.length) return '';
+  var list = gaps.map(function(g){ return '<b>' + esc(regName(g.reg)) + '</b> ' + g.ext + ' / ' + g.total; }).join(' · ');
+  var msg = strong ? L('Owner mode · records shared with the Owner: ', '业主模式 · 对业主公开的记录：') + list : L('Owner mode shows only records marked “Show in Owner plan”: ', '业主模式只显示标记「显示于业主计划」的记录：') + list;
+  return '<div class="dk-ogap' + (strong ? ' strong' : '') + '">' + uic('eye', 13) + ' <span title="' + esc(T('Owner mode shows only records marked “Show in Owner plan”.', '业主模式只显示标记「显示于业主计划」的记录。')) + '">' + msg + '</span>' +
+    (ed ? '<button type="button" class="btn sm" data-act="dkSet" data-k="aud" data-v="internal">' + L('Use Internal', '改为内部') + '</button>' +
+      gaps.map(function(g){ return '<button type="button" class="btn sm" data-act="reg" data-v="' + esc(g.reg.id) + '" title="' + esc(T('Open the register, tick rows and use “Show in Owner plan”', '打开台账，勾选记录后点「显示于业主计划」')) + '">' + L('Choose records', '选择记录') + (gaps.length > 1 ? ' · ' + esc(regName(g.reg)) : '') + ' →</button>'; }).join('') : '') + '</div>';
+}
 function fieldOk(ctx, reg, f){ if(!ctx.owner) return true; var ro = rolesOf(reg); return !!f.ext || [ro.title, ro.title2, ro.no].indexOf(f.key) >= 0; }
 function defCols(reg){ var ro = rolesOf(reg); return [ro.no, ro.title, ro.block, ro.start, ro.finish, ro.progress, ro.status].filter(function(k, i, a){ return k && fieldOf(reg, k) && a.indexOf(k) === i; }); }
 function usable(ctx, ids){ return (ids || []).map(getReg).filter(function(r){ return regOk(ctx, r); }); }
@@ -171,7 +193,15 @@ function slSt(color, txt){ return '<span class="sl-chip c-' + esc(color || 'grey
 function slHeat(v){ if(v == null) return ''; var t = (6 + clamp(+v || 0, 0, 100) * 0.55) / 100; return 'background:rgb(' + [46, 158, 106].map(function(c){ return Math.round(255 + (c - 255) * t); }).join(',') + ')'; }
 function chunk(arr, n){ var out = []; for(var i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n)); return out.length ? out : [[]]; }
 function fmtD(n){ var d = new Date(n * 864e5); return pad(d.getUTCDate()) + ' ' + MON[d.getUTCMonth()]; }
-function slEmpty(en, zh){ return '<div class="sl-empty">' + esc(S.lang === 'zh' ? zh : en) + '</div>'; }
+/* SL_WHY: set while drawing data whose registers have nothing shared with the Owner, so “no items” reads true for that audience */
+var SL_WHY = 0;
+function slEmpty(en, zh){ if(SL_WHY){ en = 'Nothing from the chosen registers is shared with the Owner yet.'; zh = '所选台账还没有对业主公开的记录。'; } return '<div class="sl-empty">' + esc(S.lang === 'zh' ? zh : en) + '</div>'; }
+function slRender(type, data, s, box){ SL_WHY = data && data._on ? 1 : 0; try{ return SLIDE_RENDER[type](data, s, box); } finally { SL_WHY = 0; } }
+function ownerNone(c, ctx){
+  if(!ctx || !ctx.owner) return false;
+  var regs = slideRegIds({cfg:c}).map(getReg).filter(function(r){ return r && !isPrivate(r); });
+  return regs.length > 0 && regs.some(function(r){ return recsOf(r.id).length; }) && regs.every(function(r){ return r.d.ownerPublish && !recsOf(r.id).some(function(x){ return x.d.ext; }); });
+}
 var SLIDE_RENDER = {
   cover:function(d){
     var zh = S.lang === 'zh', ttl = zh ? (d.title.zh || d.title.en) : (d.title.en || d.title.zh), dt = d.date ? (zh ? +d.date.slice(0, 4) + '年' + (+d.date.slice(5, 7)) + '月' + (+d.date.slice(8, 10)) + '日' : fmtD(d2n(d.date)) + ' ' + d.date.slice(0, 4)) : '';
@@ -257,7 +287,7 @@ function sdCached(type, c, ctx){
   if(type === 'cover') return SLIDE_DATA.cover(c, ctx);   // depends on the deck itself (title, date, presenter)
   if(SD_CACHE.ver !== REC_VER || !SD_CACHE.m) SD_CACHE = {ver:REC_VER, m:new Map()};
   var k = type + '|' + ctx.lang + '|' + ctx.owner + '|' + ctx.asOf + '|' + JSON.stringify(ctx.focus || null) + '|' + JSON.stringify(c), v = SD_CACHE.m.get(k);
-  if(v === undefined){ v = SLIDE_DATA[type](c, ctx); if(!(v && v.loading)) SD_CACHE.m.set(k, v); }
+  if(v === undefined){ v = SLIDE_DATA[type](c, ctx); if(v && typeof v === 'object' && ownerNone(c, ctx)) v._on = 1; if(!(v && v.loading)) SD_CACHE.m.set(k, v); }
   return v;
 }
 function slideData(deck, s, ctx){ var snap = deck.d.status === 'issued' && deck.d.snap && deck.d.snap[s.id]; if(snap) return snap; try{ return sdCached(s.type, s.cfg || {}, ctx); }catch(e){ console.error(e); return {err:'x'}; } }
@@ -320,7 +350,7 @@ function deckBuild(deck, opts){
       var data = opts.data ? (opts.data[s.id] || {err:'x'}) : slideData(deck, s, ctx), ed = {}, b;
       (s.els || []).forEach(function(e){ if(isDataEl(e)) ed[e.id] = opts.data ? (opts.data[elKey(s, e)] || {err:'x'}) : elData(deck, s, e, ctx); });
       var box = bodyBox(s, th); if(s.type === 'section') box.secNo = s.hidden ? 0 : cur + 1;
-      try{ b = SLIDE_RENDER[s.type](data, s, box); }catch(e){ console.error(e); b = [slEmpty('This slide could not be drawn.', '此页无法显示。')]; }
+      try{ b = slRender(s.type, data, s, box); }catch(e){ console.error(e); b = [slEmpty('This slide could not be drawn.', '此页无法显示。')]; }
       out.push({s:s, data:data, edata:ed, sec:cur, bodies:b.length ? b : [slEmpty('Empty', '空')]}); });
     var total = 0, n = 0; out.forEach(function(x){ if(!x.s.hidden) total += x.bodies.length; });
     out.forEach(function(x){ x.first = x.s.hidden ? 0 : n + 1; x.pages = x.bodies.map(function(b, i){ return wrapPage(deck, x.s, b, i, x.bodies.length, x.s.hidden ? '–' : ++n, total, hdr, x); }); });

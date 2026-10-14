@@ -843,3 +843,11 @@ tr.vsp td{padding:0!important;border:0!important;background:none!important}
 .pres-lv .btn{background:#2A2F35;border-color:#3A4047;color:#E8EAE6}
 .pres-lv .btn.pri{background:#E8930C;border-color:#E8930C;color:#111}
 .pres-ck{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+
+/* v2.5.1 owner-mode notice in the editor */
+.dk-ogap{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:12px;line-height:1.4;color:var(--muted);background:var(--surface2);border:1px solid var(--line);border-radius:6px;padding:6px 8px;margin:0 0 10px}
+.dk-ogap span{flex:1 1 200px;min-width:0}
+.dk-ogap.strong{color:var(--warn);background:var(--warn-soft);border-color:var(--warn);margin:0;padding:3px 8px;flex-wrap:nowrap;min-width:0;max-width:100%}
+.dk-ogap.strong span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dk-ogap.strong .btn{flex:none}
+.dk-ogap .ic{flex:none}

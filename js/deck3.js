@@ -63,7 +63,7 @@ SLIDE_DATA.combo = function(c, ctx){
 };
 SLIDE_RENDER.combo = function(d, s, box){
   var sp = (d.split || '1:1').split(':').map(Number), tot = ((box && box.w) || 1184) - 32, wl = Math.round(tot * sp[0] / (sp[0] + sp[1])), wr = tot - wl, H = ((box && box.h) || 560) - (msgIn(s) ? 60 : 0) - (s.cfg && s.cfg.side ? 130 : 0);
-  function part(key, t, data, w){ var x = (s.cfg && s.cfg[key]) || {type:t}, ps = comboPart(x, s), pages, ttl = d['h' + key] || x.title; try{ pages = SLIDE_RENDER[t](data, ps, {w:w, h:H}); }catch(e){ console.error(e); pages = [slEmpty('This part could not be drawn.', '这部分无法显示。')]; }
+  function part(key, t, data, w){ var x = (s.cfg && s.cfg[key]) || {type:t}, ps = comboPart(x, s), pages, ttl = d['h' + key] || x.title; try{ pages = slRender(t, data, ps, {w:w, h:H}); }catch(e){ console.error(e); pages = [slEmpty('This part could not be drawn.', '这部分无法显示。')]; }
     return '<div class="sl-cmb" data-hp="cfg.' + key + '" style="width:' + w + 'px">' + (ttl && (ttl.en || ttl.zh) ? '<h3 class="sl-cmbt">' + bil1(ttl) + '</h3>' : '') + (pages[0] || '') + (pages.length > 1 ? '<div class="sl-more">' + esc(T('+' + (pages.length - 1) + ' more page(s) not shown — leave some items out or use a full slide', '另有 ' + (pages.length - 1) + ' 页未显示，可隐藏部分内容或改用整页')) + '</div>' : '') + '</div>'; }
   return ['<div class="sl-cmw">' + part('L', d.tL, d.L, wl) + part('R', d.tR, d.R, wr) + '</div>'];
 };
