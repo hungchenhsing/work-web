@@ -7,8 +7,8 @@ function notifySoft(){ notify(); }
 function appReady(){ return STORE && STORE.ready && (STORE.mode === 'demo' || (STORE.me && STORE.session)); }
 
 /* keep focus + caret across re-renders */
-function focusKey(el){ if(!el || !el.getAttribute) return null; var k = el.getAttribute('data-fk'); return k ? {k:k, s:el.selectionStart, e:el.selectionEnd} : null; }
-function restoreFocus(f){ if(!f) return; var el = document.querySelector('[data-fk="' + f.k.replace(/"/g, '\\"') + '"]'); if(el){ el.focus(); try{ if(f.s != null) el.setSelectionRange(f.s, f.e); }catch(e){} } }
+function focusKey(el){ if(!el || !el.getAttribute) return null; var k = el.getAttribute('data-fk'); if(!k) return null; var txt = el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && /^(text|search|url|number|email)$/.test(el.type || 'text')); return {k:k, s:el.selectionStart, e:el.selectionEnd, v:txt ? el.value : null}; }
+function restoreFocus(f){ if(!f) return; var el = document.querySelector('[data-fk="' + f.k.replace(/"/g, '\\"') + '"]'); if(el){ if(f.v != null && el.value !== f.v && !el.disabled) el.value = f.v; el.focus(); try{ if(f.s != null) el.setSelectionRange(f.s, f.e); }catch(e){} } }
 
 function renderAll(){
   if(!STORE) return;
