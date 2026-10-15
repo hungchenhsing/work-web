@@ -134,7 +134,7 @@ function viewTable(reg, list){
   }
   var th = '<tr>' + (ed ? '<th class="sel"><input type="checkbox" id="selall" aria-label="Select all"></th>' : '') + cols.map(function(f){
     var sorted = s.k === f.key;
-    return '<th style="' + (f.w ? 'min-width:' + f.w + 'px' : '') + '"><button type="button" class="thb" data-act="sort" data-v="' + esc(f.key) + '">' + L(f.en, f.zh) + (sorted ? (s.d > 0 ? ' ↑' : ' ↓') : '') + '</button></th>';
+    return '<th style="' + (fieldW(f) ? 'min-width:' + fieldW(f) + 'px' : '') + '"><button type="button" class="thb" data-act="sort" data-v="' + esc(f.key) + '">' + L(f.en, f.zh) + (sorted ? (s.d > 0 ? ' ↑' : ' ↓') : '') + '</button></th>';
   }).join('') + (canSchemaEdit(reg) ? '<th class="addcol"><button type="button" class="ib" data-act="fieldsOpen" data-v="' + esc(reg.id) + '" title="' + esc(T('Add a field', '添加字段')) + '">' + uic('plus', 14) + '</button></th>' : '') + '</tr>';
   var body = '', groups = gk === 'none' ? [{k:'all', items:list}] : groupRecs(reg, list, gk), span = cols.length + (ed ? 1 : 0) + (canSchemaEdit(reg) ? 1 : 0);
   groups.forEach(function(g){

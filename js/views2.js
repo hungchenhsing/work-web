@@ -249,7 +249,7 @@ function roleFits(r, f){
 }
 function fieldExtra(reg, f, i, d, ls, regs){
   var h = '<div class="fg"><label class="fl">' + L('Code (internal key)', '代码（内部键）') + '<input class="in mono" value="' + esc(f.key) + '" disabled></label><label class="fl">' + L('Help text', '说明文字') + '<input class="in" data-fm="' + i + ':help" value="' + esc(f.help || '') + '"></label>';
-  if(f.type !== 'section') h += '<label class="fl">' + L('Column width (px)', '列宽（像素）') + '<input class="in" type="number" data-fm="' + i + ':w" value="' + esc(f.w || '') + '"></label>';
+  if(f.type !== 'section') h += '<label class="fl">' + L('Column width (px)', '列宽（像素）') + '<input class="in" type="number" min="60" max="600" step="10" placeholder="' + esc(T('auto', '自动')) + '" data-fm="' + i + ':w" value="' + esc(f.w || '') + '"><span class="note">' + L('60–600, or empty for automatic', '60–600，留空为自动') + '</span></label>';
   if(f.type === 'select'){
     h += '<label class="fl">' + L('Options come from', '选项来源') + '<select class="in" data-fm="' + i + ':list"><option value="">' + esc(T('This field’s own options', '本字段自己的选项')) + '</option>' + Object.keys(ls).map(function(k){ return '<option value="' + esc(k) + '"' + (f.list === k ? ' selected' : '') + '>' + esc(T('Shared list: ', '共享列表：') + nm(ls[k])) + '</option>'; }).join('') + '</select></label>' +
       '<label class="chk"><input type="checkbox" data-fm="' + i + ':multi"' + (f.multi ? ' checked' : '') + '>' + L('Allow several values', '允许多选') + '</label></div>';

@@ -194,7 +194,11 @@ function bulkApply(reg, f, value){
 }
 function fxPick(reg, key, anchor){
   var fd = fieldOf(reg, key), f = rfil(reg.id);
-  var opts = fd.type === 'check' ? [O('1', 'Yes', '是'), O('0', 'No', '否')] : optsOf(fd).concat([O('__none', '(empty)', '（空）')]);
+  var opts = fd.type === 'check' ? [O('1', 'Yes', '是'), O('0', 'No', '否')] : optsOf(fd).slice();
+  if(fd.type === 'select'){ var known = {}; opts.forEach(function(o){ known[o.v] = 1; }); var extra = {};   // values in the records that are not in the option list (e.g. imported names)
+    recsOf(reg.id).forEach(function(r){ asArr(r.d[key]).forEach(function(x){ if(typeof x === 'string' && x && !known[x]) extra[x] = 1; }); });
+    Object.keys(extra).sort().forEach(function(x){ opts.push(O(x, x + ' (' + T('not in list', '不在名单') + ')', x + '（不在名单）', 'grey')); }); }
+  if(fd.type !== 'check') opts.push(O('__none', '(empty)', '（空）'));
   var html = '<div class="plist">' + opts.map(function(o){ var on = (f.fx[key] || []).indexOf(o.v) >= 0; return '<button type="button" class="popt' + (on ? ' on' : '') + '" data-act="fxTog" data-k="' + esc(key) + '" data-v="' + esc(o.v) + '"><span class="cbx">' + (on ? '✓' : '') + '</span><span class="sw c-' + esc(o.color || 'grey') + '"></span>' + esc(nm(o)) + '</button>'; }).join('') + '</div><div class="pfoot"><button type="button" class="lnk" data-act="popClear">' + L('Clear', '清除') + '</button><button type="button" class="btn sm" data-act="popClose">' + L('Done', '完成') + '</button></div>';
   openPick('menu', {reg:reg.id, key:key, fx:true, html:html}, anchor);
 }

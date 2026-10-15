@@ -195,7 +195,9 @@ document.addEventListener('scroll', function(ev){
   vwRender(st, c);
 }, true);
 /* table column widths for long (windowed) tables, so columns don't jump while scrolling */
-function colWidth(reg, f){ if(f.w) return f.w; var ro = rolesOf(reg); if(f.key === ro.no) return 110; if(f.key === ro.title) return 300; if(f.key === ro.title2) return 220;
+/* a width set in the field manager: below 40 px it is treated as a slip (back to automatic), otherwise kept within 60–600 px */
+function fieldW(f){ var w = +(f && f.w) || 0; return w < 40 ? 0 : clamp(Math.round(w), 60, 600); }
+function colWidth(reg, f){ var fw = fieldW(f); if(fw) return fw; var ro = rolesOf(reg); if(f.key === ro.no) return 110; if(f.key === ro.title) return 300; if(f.key === ro.title2) return 220;
   return {text:160, long:260, date:112, number:100, percent:130, select:f.multi ? 180 : 140, tree:200, check:70, calc:110, files:90, link:90, sub:120, url:120}[f.type] || 140; }
 
 /* ---------------- cell rendering ---------------- */
