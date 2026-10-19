@@ -700,3 +700,79 @@ begin
 end $$;
 revoke all on function public.share_freeze(text) from public, anon;
 grant execute on function public.share_freeze(text) to authenticated;
+
+-- =====================================================================
+-- v2.8: safety rules the site alone cannot guarantee
+-- =====================================================================
+-- Registers: who created a register never changes; only its creator may change who sees it, and only an admin may
+-- turn a team register private (otherwise one person could hide team data, and its change log, from everyone).
+-- Field types are limited to the ones the site knows (anything else becomes plain text), and updated_at always moves,
+-- so a page that was asleep or offline can fetch exactly what changed.
+create or replace function public.guard_register() returns trigger
+language plpgsql set search_path = '' as $$
+declare
+  types constant text[] := array['text','long','number','percent','date','select','tree','check','url','files','link','calc','sub','section'];
+  sub_types constant text[] := array['text','long','number','date','select','check'];
+begin
+  if tg_op = 'UPDATE' and auth.uid() is not null then
+    if new.id is distinct from old.id or new.owner is distinct from old.owner then
+      raise exception 'A register''s id and creator cannot change' using errcode = '42501';
+    end if;
+    if new.visibility is distinct from old.visibility then
+      if old.owner is distinct from auth.uid() then raise exception 'Only the person who created this register can change who sees it' using errcode = '42501'; end if;
+      if new.visibility = 'private' and public.my_role() is distinct from 'admin' then raise exception 'Only an admin can make a team register private' using errcode = '42501'; end if;
+    end if;
+  end if;
+  if jsonb_typeof(new.data->'fields') = 'array' and exists (
+       select 1 from jsonb_array_elements(new.data->'fields') f
+        where jsonb_typeof(f) = 'object' and (coalesce(f->>'type', '') <> all(types)
+           or (jsonb_typeof(f->'cols') = 'array' and exists (select 1 from jsonb_array_elements(f->'cols') c where jsonb_typeof(c) = 'object' and coalesce(c->>'type', '') <> all(sub_types))))) then
+    new.data := jsonb_set(new.data, '{fields}', (select coalesce(jsonb_agg(
+        case when jsonb_typeof(f) <> 'object' then f else
+          (case when coalesce(f->>'type', '') = any(types) then f else f || '{"type":"text"}'::jsonb end)
+          || case when jsonb_typeof(f->'cols') = 'array' then jsonb_build_object('cols', (select coalesce(jsonb_agg(
+               case when jsonb_typeof(c) = 'object' and coalesce(c->>'type', '') <> all(sub_types) then c || '{"type":"text"}'::jsonb else c end order by m), '[]'::jsonb)
+               from jsonb_array_elements(f->'cols') with ordinality y(c, m))) else '{}'::jsonb end
+        end order by n), '[]'::jsonb) from jsonb_array_elements(new.data->'fields') with ordinality x(f, n)));
+  end if;
+  if tg_op = 'UPDATE' then new.updated_at := now(); end if;
+  return new;
+end $$;
+drop trigger if exists guard_register on public.registers;
+create trigger guard_register before insert or update on public.registers for each row execute function public.guard_register();
+
+-- Records stay in the register they were created in (moving one into a private register would hide it and its history)
+create or replace function public.guard_record() returns trigger
+language plpgsql set search_path = '' as $$
+begin
+  if auth.uid() is not null and (new.id is distinct from old.id or new.register_id is distinct from old.register_id) then
+    raise exception 'Records cannot move between registers' using errcode = '42501';
+  end if;
+  new.updated_at := now();
+  return new;
+end $$;
+drop trigger if exists guard_record on public.records;
+create trigger guard_record before update on public.records for each row execute function public.guard_record();
+create index if not exists records_updated_at on public.records (updated_at);
+
+-- For admins: who signed up, when, and whether they confirmed their email address
+-- (only meaningful with Authentication → Sign In / Providers → Email → "Confirm email" on, which needs your own SMTP sender:
+--  with it off, Supabase marks every address confirmed at sign-up)
+create or replace function public.admin_users()
+returns table (id uuid, email text, name text, role text, created_at timestamptz, email_confirmed_at timestamptz, last_sign_in_at timestamptz)
+language plpgsql stable security definer set search_path = '' as $$
+begin
+  if public.my_role() is distinct from 'admin' then raise exception 'Not allowed' using errcode = '42501'; end if;
+  return query select p.id, p.email, p.name, p.role, p.created_at, u.email_confirmed_at, u.last_sign_in_at
+    from public.profiles p left join auth.users u on u.id = p.id order by p.created_at;
+end $$;
+revoke all on function public.admin_users() from public, anon;
+grant execute on function public.admin_users() to authenticated;
+
+-- functions are callable only by signed-in users (revoking from anon alone does not remove the PUBLIC grant)
+do $$ declare f text; begin
+  foreach f in array array['public.item_patch(text,jsonb)', 'public.config_patch(text,jsonb)', 'public.my_role()', 'public.record_patch(text,jsonb)',
+                           'public.register_patch(text,jsonb)', 'public.can_read_register(text)', 'public.can_write_register(text)'] loop
+    execute 'revoke all on function ' || f || ' from public, anon';
+    execute 'grant execute on function ' || f || ' to authenticated';
+  end loop; end $$;

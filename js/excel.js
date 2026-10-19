@@ -24,11 +24,23 @@ function guessField(reg, header){
 }
 /* SheetJS (880 KB) is loaded only when a spreadsheet is imported or exported */
 function xlsxLib(){ if(window.XLSX) return Promise.resolve(); return new Promise(function(res, rej){ var s = document.createElement('script'); s.src = 'vendor/xlsx-0.18.5.full.min.js'; s.onload = function(){ res(); }; s.onerror = function(){ rej(new Error('Could not load the spreadsheet library')); }; document.head.appendChild(s); }); }
+/* the file is parsed in a worker (js/xlsx-worker.js), which is stopped after 60 seconds */
+function parseBook(buf){
+  return new Promise(function(res, rej){
+    var w; try{ w = new Worker('js/xlsx-worker.js?v=' + appVer()); }catch(e){ rej(e); return; }
+    var t = setTimeout(function(){ w.terminate(); rej(new Error(T('The spreadsheet took too long to read.', '读取表格超时。'))); }, 60000);
+    w.onmessage = function(e){ clearTimeout(t); w.terminate(); var m = e.data || {}; if(m.ok) res(m.sheets || []); else rej(new Error(m.err || 'read error')); };
+    w.onerror = function(e){ clearTimeout(t); w.terminate(); rej(new Error(e.message || 'read error')); };
+    w.postMessage(buf, [buf]);
+  });
+}
+/* only plain cell values come back into the page */
+function cellVal(v){ return v instanceof Date || typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean' ? v : v == null ? '' : String(v); }
 function readSheet(file){
-  return xlsxLib().then(function(){ return file.arrayBuffer(); }).then(function(buf){
-    var wb = XLSX.read(buf, {type:'array', cellDates:true}), best = null;
-    wb.SheetNames.forEach(function(sn){
-      var aoa = XLSX.utils.sheet_to_json(wb.Sheets[sn], {header:1, defval:'', raw:true, blankrows:false});
+  return file.arrayBuffer().then(parseBook).then(function(sheets){
+    var best = null;
+    sheets.forEach(function(sh){
+      var sn = sh.sn, aoa = (Array.isArray(sh.aoa) ? sh.aoa : []).map(function(r){ return Array.isArray(r) ? r.map(cellVal) : []; });
       var hr = 0, hs = -1; for(var i = 0; i < Math.min(15, aoa.length); i++){ var sc = aoa[i].filter(function(v){ return typeof v === 'string' && v.trim() && v.length < 60; }).length; if(sc > hs){ hs = sc; hr = i; } }
       var rows = aoa.slice(hr + 1).filter(function(r){ return r.some(function(v){ return String(v).trim(); }); });
       if(!best || rows.length > best.rows.length) best = {sn:sn, headers:aoa[hr] || [], rows:rows, hr:hr};
@@ -67,6 +79,15 @@ function importModal(m){
   return {title:L('Import Excel', '导入 Excel') + ' · ' + esc(regName(reg)), wide:true, html:h, foot:'<button type="button" class="btn pri" data-act="impRun"' + (plan.adds.length + plan.updates.length ? '' : ' disabled') + '>' + L('Import now', '立即导入') + '</button><button type="button" class="btn" data-act="mclose">' + L('Cancel', '取消') + '</button>'};
 }
 var LEGACY_PH = {'PH-01':['2026-08-17','2026-08-30'],'PH-02':['2026-09-01','2026-09-15'],'PH-03':['2026-09-16','2026-09-30'],'PH-04':['2026-10-01','2026-10-15'],'PH-05':['2026-10-16','2026-10-31']};
+/* submission phases: PH-01…PH-05 as agreed, then every half month (1st–15th, 16th–month end) with no end date */
+function phaseRange(n){
+  n = +n; if(!(n >= 1)) return null; var k = 'PH-' + pad(n); if(LEGACY_PH[k]) return LEGACY_PH[k];
+  var ks = Object.keys(LEGACY_PH).sort(), lastN = +ks[ks.length - 1].slice(3), d = d2n(LEGACY_PH[ks[ks.length - 1]][1]) + 1;
+  for(var i = lastN + 1; i <= n && i < 1000; i++){ var t = new Date(d * 864e5), y = t.getUTCFullYear(), mo = t.getUTCMonth();
+    var e = t.getUTCDate() <= 15 ? Math.round(Date.UTC(y, mo, 15) / 864e5) : Math.round(Date.UTC(y, mo + 1, 0) / 864e5);
+    if(i === n) return [n2d(d), n2d(e)]; d = e + 1; }
+  return null;
+}
 function impConvert(reg, f, raw, ctx){
   if(raw instanceof Date) raw = parseDate(raw);
   var s = String(raw == null ? '' : raw).trim(); if(s === '') return undefined;
@@ -113,7 +134,7 @@ function impPlan(m, reg, apply){
     var d = {};
     m.map.forEach(function(k, i){
       if(!k) return; var raw = row[i];
-      if(k === '__phase'){ var s = String(raw || ''), pm = /PH\s*-?\s*(\d+)/i.exec(s); if(pm){ var w = LEGACY_PH['PH-' + pad(+pm[1])]; if(w){ d.__ph = w; } else warn.push((ri + 2) + ': ' + s + ' ?'); } return; }
+      if(k === '__phase'){ var s = String(raw || ''), pm = /PH\s*-?\s*(\d+)/i.exec(s); if(pm){ var w = phaseRange(+pm[1]); if(w){ d.__ph = w; } else warn.push((ri + 2) + ': ' + s + ' ?'); } return; }
       if(k === '__task'){ String(raw || '').split(/\s*\/\s*/).forEach(function(p){ p = p.trim(); if(!p) return; if(/[一-鿿]/.test(p)){ if(ro.title2 && !d[ro.title2]) d[ro.title2] = p; else if(!d[ro.title]) d[ro.title] = p; } else if(ro.title) d[ro.title] = d[ro.title] ? d[ro.title] + ' / ' + p : p; }); return; }
       if(k === '__actual'){ var a = String(raw instanceof Date ? parseDate(raw) : raw || ''), am = /(\d{4}[.\-\/]\d{1,2}[.\-\/]\d{1,2})(?:\s*[-–~至]\s*(\d{4}[.\-\/]\d{1,2}[.\-\/]\d{1,2}))?/.exec(a); if(am){ d.actualStart = parseDate(am[1]); if(am[2]) d.actualEnd = parseDate(am[2]); } return; }
       if(k === '__ext'){ var e = String(raw || '').trim(); if(e) d.ext = /^(y|yes|true|1|是|对外)/i.test(e); return; }
@@ -216,7 +237,7 @@ function printMinutes(rec){
     '<div class="m">' + esc(c.projectEn + ' · ' + c.projectZh) + '</div><h1>' + esc(recTitle(reg, rec)) + '</h1>' + (d.zh && d.en ? '<div>' + esc(d.zh) + '</div>' : '') +
     '<table class="meta"><tr><td><b>No.</b> ' + esc(recNo(reg, rec)) + '</td><td><b>Date 日期</b> ' + fv('date') + ' ' + fv('time') + '</td><td><b>Type 类型</b> ' + fv('mtype') + '</td><td><b>Location 地点</b> ' + fv('loc') + '</td></tr><tr><td colspan="4"><b>Chair 主持</b> ' + fv('chair') + ' &nbsp; <b>Attendees 参会人</b> ' + fv('attendees') + '</td></tr></table>' +
     '<h2>Agenda 议程</h2>' + sub('agenda') + '<h2>Minutes 会议纪要</h2><div>' + esc(d.minutes || '—').replace(/\n/g, '<br>') + '</div><h2>Action items 待办事项</h2>' + sub('actions') +
-    '<p class="m" style="margin-top:24px">Printed ' + esc(fmtTime(new Date().toISOString())) + '</p><script>setTimeout(function(){window.print()},300)<\/script></body></html>';
+    '<p class="m" style="margin-top:24px">Printed ' + esc(fmtTime(new Date().toISOString())) + '</p></body></html>';
   var w = window.open('', '_blank'); if(!w){ toast(T('Allow pop-ups to print.', '请允许弹出窗口以打印。')); return; }
-  w.document.open(); w.document.write(html); w.document.close();
+  w.document.open(); w.document.write(html); w.document.close(); setTimeout(function(){ try{ w.focus(); w.print(); }catch(e){} }, 300);
 }

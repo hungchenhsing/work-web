@@ -379,7 +379,7 @@ function PublicStore(token, fetcher){
       return Promise.resolve().then(function(){ return fetcher(token); }).then(function(res){
         api.share = res || null;
         if(res && res.data){ var d = res.data, src = d.mode === 'live' ? d.live : (d.kind === 'deck' ? null : d.snap);
-          if(src){ api.regs = src.regs || []; api.recs = src.recs || []; api.cfg = src.cfg || {}; }
+          if(src){ api.regs = (src.regs || []).map(function(r){ cleanFields(r.d); return r; }); api.recs = src.recs || []; api.cfg = src.cfg || {}; }
           else api.cfg = d.cfgProject || {}; }
         api.ready = true; notify();
       }).catch(function(e){ console.error(e); api.fail = true; api.ready = true; notify(); });

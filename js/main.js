@@ -29,7 +29,7 @@ document.addEventListener('click', function(e){
     case 'reg': goReg(v); break;
     case 'lang': S.lang = v; LS.set('ww.lang', v); renderAll(); break;
     case 'signout': STORE.signOut && STORE.signOut(); break;
-    case 'recheck': STORE.boot(); break;
+    case 'recheck': STORE.boot(true); break;
     case 'authTab': S.auth = {tab:v}; renderGate(); break;
     case 'setup': runSetup(); break;
     case 'openRec': openRec(el.dataset.id, el.dataset.tab); break;
@@ -361,7 +361,7 @@ document.addEventListener('submit', function(e){
     pr.then(function(r){ a.busy = false; if(r && r.error) a.err = r.error.message; else if(a.tab === 'up') a.msg = (r && r.data && r.data.session) ? T('Account created. Opening…', '注册成功，正在进入…') : T('Account created. If you are not signed in automatically, confirm your email, then sign in.', '注册成功。如未自动登录，请确认邮箱后再登录。'); else if(a.tab === 'reset') a.msg = T('If that email has an account, a reset link is on its way.', '如该邮箱已注册，重置链接已发出。'); renderGate(); })
       .catch(function(err){ a.busy = false; a.err = String(err && err.message || err); renderGate(); });
   }
-  if(fm.id === 'fRecover'){ STORE.setPassword(($('#aPw') || {}).value).then(function(r){ if(r.error){ S.auth.err = r.error.message; renderGate(); return; } S.recovery = false; toast(T('Password saved', '密码已保存')); STORE.boot(); }); }
+  if(fm.id === 'fRecover'){ STORE.setPassword(($('#aPw') || {}).value).then(function(r){ if(r.error){ S.auth.err = r.error.message; renderGate(); return; } S.recovery = false; toast(T('Password saved', '密码已保存')); STORE.boot(true); }); }
 });
 
 /* ---------------- Gantt drag ---------------- */
@@ -370,11 +370,17 @@ document.addEventListener('pointerdown', function(e){
   var bar = e.target.closest && e.target.closest('.bw,.msw'); if(!bar || e.button !== 0 || !S.gm) return;
   var rec = getRec(bar.dataset.id), reg = rec && getReg(rec.reg); if(!rec || !canWrite(reg)) return; var p = planOf(reg, rec); if(!p) return;
   var hEl = e.target.closest('.hd');
-  DR = {rec:rec, reg:reg, p:p, bar:bar, mode: bar.classList.contains('msw') ? 'ms' : (hEl ? hEl.dataset.h : 'm'), x0:e.clientX, l0:parseFloat(bar.style.left) || 0, w0:parseFloat(bar.style.width) || 14, moved:false, dd:0};
-  try{ bar.setPointerCapture(e.pointerId); }catch(_){}
+  DR = {rec:rec, reg:reg, p:p, bar:bar, mode: bar.classList.contains('msw') ? 'ms' : (hEl ? hEl.dataset.h : 'm'), x0:e.clientX, y0:e.clientY, l0:parseFloat(bar.style.left) || 0, w0:parseFloat(bar.style.width) || 14, moved:false, dd:0,
+    touch:e.pointerType === 'touch', armed:e.pointerType !== 'touch', pid:e.pointerId};
+  /* on a touch screen a swipe scrolls: dates move only after holding the bar still for half a second */
+  if(DR.touch){ var d0 = DR; d0.timer = setTimeout(function(){ if(DR !== d0) return; d0.armed = true; bar.classList.add('armed'); try{ bar.setPointerCapture(d0.pid); }catch(_){} try{ navigator.vibrate && navigator.vibrate(15); }catch(_){} }, 450); }
+  else { try{ bar.setPointerCapture(e.pointerId); }catch(_){} }
 });
+document.addEventListener('touchmove', function(e){ if(DR && DR.touch && DR.armed && e.cancelable) e.preventDefault(); }, {passive:false});
 document.addEventListener('pointermove', function(e){
-  if(!DR) return; var dx = e.clientX - DR.x0; if(!DR.moved && Math.abs(dx) < 4) return; DR.moved = true;
+  if(!DR) return; var dx = e.clientX - DR.x0;
+  if(!DR.armed){ if(Math.abs(dx) > 8 || Math.abs(e.clientY - DR.y0) > 8){ clearTimeout(DR.timer); DR = null; } return; }
+  if(!DR.moved && Math.abs(dx) < 4) return; DR.moved = true;
   var px = S.gm.px, dd = Math.round(dx / px), s = DR.p.s, f = DR.p.f, ns = s, nf = f; DR.dd = dd;
   if(DR.mode === 'ms' || DR.mode === 'm'){ DR.bar.style.left = (DR.l0 + dd * px) + 'px'; ns = s + dd; nf = f + dd; }
   else if(DR.mode === 'l'){ ns = Math.min(s + dd, f); DR.bar.style.left = (DR.l0 + (ns - s) * px) + 'px'; DR.bar.style.width = (DR.w0 - (ns - s) * px) + 'px'; }
@@ -382,8 +388,9 @@ document.addEventListener('pointermove', function(e){
   DR.ns = ns; DR.nf = nf;
   var hint = $('#dhint'); hint.hidden = false; hint.textContent = n2d(ns) + ' → ' + n2d(nf) + '  (' + (nf - ns + 1) + 'd)'; hint.style.left = (e.clientX + 12) + 'px'; hint.style.top = (e.clientY - 30) + 'px';
 });
-function endDrag(){
-  if(!DR) return; var d = DR; DR = null; $('#dhint').hidden = true;
+function endDrag(e){
+  if(!DR) return; var d = DR; DR = null; clearTimeout(d.timer); d.bar.classList.remove('armed'); $('#dhint').hidden = true;
+  if(e && e.type === 'pointercancel'){ if(d.moved) renderMain(); return; }   /* interrupted (e.g. the page scrolled): nothing is saved */
   if(!d.moved) return; S.suppressOpen = Date.now(); S.gKeep = true;
   if(!d.dd){ renderMain(); return; }
   var ro = rolesOf(d.reg), o = {}; if(ro.start) o[ro.start] = n2d(d.ns); if(ro.finish) o[ro.finish] = n2d(d.nf);

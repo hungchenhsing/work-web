@@ -179,7 +179,8 @@ function setRec(rec, patch, opts){
   if(sf && changed[sf.key] !== undefined && pf && pf.type === 'percent' && !isAutoNow(rec, pf)){ var o = optOf(sf, changed[sf.key]); if(o && o.done && num(rec.d[pf.key]) !== 100){ old[pf.key] = rec.d[pf.key] === undefined ? null : rec.d[pf.key]; changed[pf.key] = 100; } }
   if(!Object.keys(changed).length) return Promise.resolve();
   var p = STORE.patchRec(rec.id, changed);
-  if(!(opts && opts.silent)){ S.lastUndo = {id:rec.id, old:old}; toast(T('Saved', '已保存'), {act:'quickUndo', label:T('Undo', '撤销')}); }
+  /* "Saved" once the server has it; a refused save is put back and reported by the store */
+  if(!(opts && opts.silent)){ var undo = {id:rec.id, old:old}; p.then(function(){ S.lastUndo = undo; toast(T('Saved', '已保存'), {act:'quickUndo', label:T('Undo', '撤销')}); }, function(){}); }
   peopleAfterSave(reg, rec, old, changed);
   return p.catch(function(){});
 }

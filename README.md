@@ -41,11 +41,30 @@
 ## 首次部署
 
 1. 建立 Supabase 專案，在 SQL Editor 執行 `supabase/schema.sql`。
-2. Authentication → Sign In / Providers → Email：開啟 Email provider，關閉 **Confirm email**。
+2. Authentication → Sign In / Providers → Email：開啟 Email provider。**Confirm email**：Supabase 內建的發信服務只能寄給 Supabase 專案團隊成員、每小時約 2 封，同事收不到確認信，所以**未設定自訂 SMTP 前請保持關閉**，由管理員在「用戶」頁向本人確認郵箱後再分配角色；設定自訂 SMTP（Authentication → Emails → SMTP Settings）後建議開啟。（同理，「忘記密碼」郵件在未設定自訂 SMTP 時也只寄得到團隊成員。）
 3. Authentication → URL Configuration：Site URL 與 Redirect URLs 填 `https://hungchenhsing.github.io/work-web/`。
 4. Project Settings → API Keys：把 Project URL 與 **Publishable key** 填入 `config.js`。**不要**放 secret / service_role key。
 5. GitHub 倉庫 → Settings → Pages → Deploy from a branch → `main` / `(root)`。
 6. 第一個註冊的帳號自動成為管理員；登入後點 **Set up now**。
+
+## v2.8：安全與可靠性（第一輪修正）
+
+**升級**：在 Supabase SQL Editor 再執行一次新的 `supabase/schema.sql`（可重複執行，不刪數據），然後重新整理網站。
+
+- **資料庫層保護**（即使有人繞過網站直接呼叫 API 也有效）：
+  - 台賬的 ID 和建立者不能被修改；只有建立者能改「誰可以看」；把團隊台賬改成「僅自己可見」還需要管理員身份。
+  - 記錄不能從一個台賬搬到另一個台賬；每次修改自動更新時間戳。
+  - 欄位類型在保存時檢查，未知類型一律當作文字，防止有人寫入惡意類型。
+  - 未登入的訪客不能呼叫內部函數（record_patch、my_role 等）。
+  - 管理員「用戶」頁新增「註冊」日期；郵箱未驗證時顯示提醒（新函數 `admin_users`，只限管理員）。
+- **內容安全策略（CSP）**：網頁只執行本站自己的腳本，只連線本站和 `*.supabase.co`。如果以後 Supabase 換成自訂網域，需同步修改 `index.html` 第 7 行的 CSP。
+- **保存失敗不再顯示「已保存」**：網絡或權限出錯時，數值自動還原，並提示「未保存」原因。
+- **休眠／斷網後自動補齊**：電腦休眠、切換分頁超過 30 秒或網絡恢復時，自動取回期間別人的修改和刪除。
+- **登入只載入一次數據**（之前登入時可能重複載入）。
+- **Excel 導入**：在背景執行緒解析，大檔案不卡頁面，也把 SheetJS 已知漏洞隔離在網頁之外；「提交阶段」PH-06 之後按半月自動延伸（PH-07 = 11 月 16–30 日，PH-12 = 次年 2 月 1–15 日，以此類推）。
+- **PDF／打印**：演示文稿 PDF 和會議紀要的打印視窗不再含腳本，由網站本身排版並打開打印對話框（字體最多等 3 秒）。
+- **手機／平板甘特圖**：手指滑動只捲動畫面；**按住條形約半秒**（出現外框，支援時會輕微震動）再拖動才會改日期。
+- **手機上的進度計劃與甘特圖**不再被壓扁。
 
 ## v2.7：團隊與聯繫人（人員名錄）
 
@@ -176,6 +195,7 @@ js/ui.js            版面、單元格、選擇器、記錄詳情、對話框、
 js/views1.js        總覽、台賬（表格 / 看板 / 甘特 / 區域矩陣）、進度計劃
 js/views2.js        修改記錄、文件、業主計劃、設定、欄位管理
 js/excel.js         Excel 導入導出、備份、會議紀要打印
+js/xlsx-worker.js   在背景執行緒讀取導入的 Excel（SheetJS 不在網頁內解析檔案）
 js/plan.js          基準、里程碑狀態、修改記錄回放、每週快照、S 曲線計算
 js/deck*.js         演示文稿：頁面數據與繪製（deck / deck2 / deck3）、元素與主題（deckels）、PowerPoint 導出（deckpptx）、列表 / PDF / 分享（deckui）、全螢幕編輯器（deckedit）
 js/library.js       文件庫、版本、雙向關聯、檔案預覽、舊附件遷移
@@ -185,6 +205,6 @@ js/share.js         公開連結：生成、管理、免登入只讀頁面
 js/people.js        團隊與聯繫人名錄：人員下拉選項、改名同步、參與事項、名字對照
 js/planui.js        設定基準計劃
 js/main.js          事件與啟動
-vendor/             supabase-js 2.117.2、SheetJS 0.18.5（按需載入）、PptxGenJS 3.12.0、IBM Plex Sans 字體（fonts/，SIL OFL）
+vendor/             supabase-js 2.117.2、SheetJS 0.18.5（按需載入；導入時只在背景執行緒中運行）、PptxGenJS 3.12.0、IBM Plex Sans 字體（fonts/，SIL OFL）
 supabase/schema.sql 資料表、權限（含私有台賬）、修改記錄觸發器、存儲桶
 ```

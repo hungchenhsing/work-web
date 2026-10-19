@@ -16,6 +16,7 @@ function DemoStore(){
   var KEY = 'ww2.demo';
   var st = LS.get(KEY, null);
   if(!st || !st.v2 || (st.v || 0) < 5){ st = buildDemo(); LS.set(KEY, st); }
+  (st.regs || []).forEach(function(r){ cleanFields(r.d); });
   var blobs = {}, aid = st.audit.length ? st.audit[0].id : 0;
   function me(){ return api.me; }
   function log(row){ row.id = ++aid; row.at = new Date().toISOString(); row.actor = 'demo'; row.actor_name = 'Demo'; st.audit.unshift(row); if(st.audit.length > 1500) st.audit.length = 1500; }
@@ -72,7 +73,7 @@ function CloudStore(url, key){
   var sb = window.supabase.createClient(url, key, {auth:{persistSession:true, autoRefreshToken:true, detectSessionInUrl:true}});
   var urls = {}, pendingUrls = {}, urlTimer = null, channel = null;
   var api = {mode:'cloud', sb:sb, ready:false, rt:'connecting', session:null, me:null, cfg:null, regs:[], recs:[], audit:[], pubs:[], fb:[], users:[], v1:null};
-  function rowReg(r){ return {id:r.id, owner:r.owner, vis:r.visibility, d:r.data || {}, ua:r.updated_at}; }
+  function rowReg(r){ return {id:r.id, owner:r.owner, vis:r.visibility, d:cleanFields(r.data || {}), ua:r.updated_at}; }
   function rowRec(r){ return {id:r.id, reg:r.register_id, d:r.data || {}, ca:r.created_at, ua:r.updated_at, ub:r.updated_by}; }
   function check(res){ if(res && res.error) throw res.error; return res; }
   function fail(e){ toast(errText(e)); }
@@ -81,15 +82,21 @@ function CloudStore(url, key){
     sb.auth.onAuthStateChange(function(ev, session){
       api.session = session;
       if(ev === 'PASSWORD_RECOVERY'){ S.recovery = true; notify(); return; }
-      if(ev === 'SIGNED_IN' && session && api.uid === session.user.id && api.ready) return;
-      if(ev === 'SIGNED_IN' || ev === 'SIGNED_OUT' || ev === 'USER_UPDATED') setTimeout(function(){ api.boot(); }, 0);
+      if(ev === 'SIGNED_IN' || ev === 'SIGNED_OUT' || ev === 'USER_UPDATED') setTimeout(function(){ api.boot(ev === 'USER_UPDATED'); }, 0);
     });
+    /* back from sleep, a lost connection or a hidden tab: fetch what changed meanwhile */
+    var hiddenAt = 0;
+    document.addEventListener('visibilitychange', function(){ if(document.hidden) hiddenAt = Date.now(); else if(hiddenAt && Date.now() - hiddenAt > 30000) api.catchUp(); });
+    window.addEventListener('online', function(){ api.catchUp(); });
     return sb.auth.getSession().then(function(r){ api.session = r.data && r.data.session; return api.boot(); });
   };
-  api.boot = function(){
-    if(!api.session){ api.me = null; api.uid = null; api.ready = true; teardown(); notify(); return Promise.resolve(); }
-    var u = api.session.user; api.uid = u.id;
-    return sb.from('profiles').select('*').eq('id', u.id).maybeSingle().then(function(r){
+  /* one start per signed-in user: the session is announced both by getSession and by a SIGNED_IN event */
+  api.boot = function(force){
+    if(!api.session){ api.me = null; api.uid = null; api._bootUid = null; api._bootP = null; api.ready = true; teardown(); notify(); return Promise.resolve(); }
+    var u = api.session.user;
+    if(!force && api._bootUid === u.id && api._bootP) return api._bootP;
+    api.uid = u.id; api._bootUid = u.id;
+    return api._bootP = sb.from('profiles').select('*').eq('id', u.id).maybeSingle().then(function(r){
       api.me = r.data ? r.data : {id:u.id, email:u.email, name:(u.user_metadata || {}).name || '', role:'pending'};
       if(!api.me.email) api.me.email = u.email;
       return api.loadAll();
@@ -112,6 +119,7 @@ function CloudStore(url, key){
         c.data.forEach(function(r){ if(r.id === 'main') api.cfg = r.data; });
         api.regs = three[1].map(rowReg);
         api.recs = three[2].map(rowRec);
+        api._sync = null; three[1].concat(three[2]).forEach(function(x){ seenAt(x.updated_at); });
         if(!(api.cfg && api.cfg.v2)){
           var tr = c.data.filter(function(r){ return r.id === 'tree'; })[0];
           api.v1 = {cfg:api.cfg, tree: tr && tr.data && tr.data.nodes || null, items: (await pageAll('items', 'id,data')).map(function(r){ return Object.assign({}, r.data, {id:r.id}); })};
@@ -132,15 +140,40 @@ function CloudStore(url, key){
   api.ensurePubs = function(){ return api._pubsLoaded ? Promise.resolve() : pubList().then(function(list){ var have = {}; api.pubs.forEach(function(x){ have[x.id] = 1; }); api.pubs = api.pubs.concat(list.filter(function(x){ return !have[x.id]; })); api._pubsLoaded = true; }); };
   function loadRest(role){
     var jobs = [sb.from('audit_log').select(AUD_LIGHT).order('id', {ascending:false}).limit(40), pubList(), sb.from('feedback').select('*').order('created_at')];
-    if(role === 'admin') jobs.push(sb.from('profiles').select('*').order('created_at'));
+    if(role === 'admin') jobs.push(usersQuery());
     Promise.all(jobs).then(function(r){
       var seen = {}; api.audit.forEach(function(x){ seen[x.id] = 1; });
       api.audit = api.audit.concat((r[0].data || []).filter(function(x){ return !seen[x.id]; }).map(function(x){ x._light = true; return x; })).sort(function(a, b){ return b.id - a.id; });
       var have = {}; api.pubs.forEach(function(x){ have[x.id] = 1; }); api.pubs = api.pubs.concat(r[1].filter(function(x){ return !have[x.id]; })); api._pubsLoaded = true;
       api.fb = (r[2] && r[2].data) || []; if(r[3]) api.users = r[3].data || [];
+      api.audit.forEach(function(x){ if(x.id > (api._auditMax || 0)) api._auditMax = x.id; });
       notify();
     }).catch(fail);
   }
+  function seenAt(ts){ if(ts && (!api._sync || ts > api._sync)) api._sync = ts; }
+  /* what changed while this page was asleep or offline: rows updated since the newest one seen, deletions from the change log */
+  api.catchUp = function(){
+    var internal = api.me && ['admin','editor','viewer'].indexOf(api.me.role) >= 0;
+    if(!api.ready || !api.session || !internal || api.needSchema || api._catching || !api._sync) return Promise.resolve();
+    api._catching = true; var since = api._sync;
+    var jobs = [sb.from('registers').select('id,owner,visibility,data,updated_at').gt('updated_at', since),
+      sb.from('records').select('id,register_id,data,created_at,updated_at,updated_by').gt('updated_at', since).order('updated_at').limit(5000),
+      sb.from('app_config').select('id,data').eq('id', 'main')];
+    if(api._auditMax) jobs.push(sb.from('audit_log').select('id,at,action,record_id,register_id').gt('id', api._auditMax).in('action', ['delete', 'reg_delete']).order('id').limit(5000));
+    return Promise.all(jobs).then(function(r){
+      var ch = 0, fresh = {};
+      if(!r[0].error) (r[0].data || []).forEach(function(x){ var o = rowReg(x), i = findI(api.regs, o.id); if(i >= 0) api.regs[i] = o; else api.regs.push(o); seenAt(x.updated_at); ch++; });
+      if(!r[1].error) (r[1].data || []).forEach(function(x){ var o = rowRec(x), i = findI(api.recs, o.id); fresh[o.id] = 1; seenAt(x.updated_at);
+        if(i >= 0 && api.recs[i].reg === o.reg && same(api.recs[i].d, o.d)){ api.recs[i].ua = o.ua; return; }
+        if(i >= 0) api.recs[i] = o; else api.recs.push(o); ch++; });
+      if(!r[2].error && r[2].data && r[2].data[0] && !same(api.cfg, r[2].data[0].data)){ api.cfg = r[2].data[0].data; ch++; }
+      if(r[3] && !r[3].error) (r[3].data || []).forEach(function(a){
+        if(a.action === 'delete' && !fresh[a.record_id]){ var i = findI(api.recs, a.record_id); if(i >= 0){ api.recs.splice(i, 1); ch++; } }
+        if(a.action === 'reg_delete' && !api.regs.some(function(g){ return g.id === a.register_id && g.ua > a.at; })){ var j = findI(api.regs, a.register_id); if(j >= 0){ api.regs.splice(j, 1); api.recs = api.recs.filter(function(x){ return x.reg !== a.register_id; }); ch++; } }
+        if(a.id > api._auditMax) api._auditMax = a.id; });
+      if(ch) notify();
+    }).catch(function(){}).then(function(){ api._catching = false; });
+  };
   var AUD_LIGHT = 'id,at,actor,actor_name,register_id,record_id,action,keys';
   /* one audit row with its before / after values (undo needs them) */
   api.auditRow = function(id){ return sb.from('audit_log').select('*').eq('id', id).maybeSingle().then(function(r){ if(r.error) throw r.error; return r.data; }); };
@@ -152,16 +185,17 @@ function CloudStore(url, key){
     channel = sb.channel('ww2-' + Date.now());
     channel.on('postgres_changes', {event:'*', schema:'public', table:'records'}, function(p){
       if(p.eventType === 'DELETE'){ var i0 = findI(api.recs, p.old.id); if(i0 >= 0) api.recs.splice(i0, 1); }
-      else { var r = rowRec(p.new), i = findI(api.recs, r.id);
+      else { var r = rowRec(p.new), i = findI(api.recs, r.id); seenAt(p.new.updated_at);
         /* the echo of our own change: the data is already on screen, so no redraw */
         if(i >= 0 && api.recs[i].reg === r.reg && same(api.recs[i].d, r.d)){ api.recs[i].ua = r.ua; api.recs[i].ub = r.ub; return; }
         if(i >= 0) api.recs[i] = r; else api.recs.push(r); }
       notify();
     }).on('postgres_changes', {event:'*', schema:'public', table:'registers'}, function(p){
       if(p.eventType === 'DELETE'){ var i0 = findI(api.regs, p.old.id); if(i0 >= 0) api.regs.splice(i0, 1); api.recs = api.recs.filter(function(x){ return x.reg !== p.old.id; }); }
-      else { var r = rowReg(p.new), i = findI(api.regs, r.id); if(i >= 0) api.regs[i] = r; else api.regs.push(r); }
+      else { var r = rowReg(p.new), i = findI(api.regs, r.id); seenAt(p.new.updated_at); if(i >= 0) api.regs[i] = r; else api.regs.push(r); }
       notify();
     }).on('postgres_changes', {event:'INSERT', schema:'public', table:'audit_log'}, function(p){
+      if(p.new.id > (api._auditMax || 0)) api._auditMax = p.new.id;
       if(!api.audit.some(function(x){ return x.id === p.new.id; })){ api.audit.unshift(p.new); if(api.audit.length > 600) api.audit.length = 600; notifySoft(); }
     }).on('postgres_changes', {event:'*', schema:'public', table:'app_config'}, function(p){
       if(p.eventType !== 'DELETE' && p.new.id === 'main'){ api.cfg = p.new.data; notify(); }
@@ -173,17 +207,27 @@ function CloudStore(url, key){
       if(p.eventType === 'DELETE') api.fb = api.fb.filter(function(x){ return x.id !== p.old.id; });
       else { var i = findI(api.fb, p.new.id); if(i >= 0) api.fb[i] = p.new; else api.fb.push(p.new); }
       notify();
-    }).subscribe(function(status){ api.rt = status === 'SUBSCRIBED' ? 'live' : (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' ? 'off' : 'connecting'); notifySoft(); });
+    }).subscribe(function(status){ api.rt = status === 'SUBSCRIBED' ? 'live' : (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' ? 'off' : 'connecting');
+      if(status === 'SUBSCRIBED'){ if(api._wasDown) api.catchUp(); api._wasDown = false; } else if(status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') api._wasDown = true;
+      notifySoft(); });
   }
-  function reloadRec(id){ sb.from('records').select('id,register_id,data,created_at,updated_at,updated_by').eq('id', id).maybeSingle().then(function(r){ var i = findI(api.recs, id); if(r.data){ if(i >= 0) api.recs[i] = rowRec(r.data); else api.recs.push(rowRec(r.data)); } else if(i >= 0) api.recs.splice(i, 1); notify(); }); }
-  function reloadReg(id){ sb.from('registers').select('id,owner,visibility,data,updated_at').eq('id', id).maybeSingle().then(function(r){ var i = findI(api.regs, id); if(r.data){ if(i >= 0) api.regs[i] = rowReg(r.data); } else if(i >= 0) api.regs.splice(i, 1); notify(); }); }
-  api.saveCfg = function(p){ api.cfg = Object.assign({}, api.cfg || {}, clone(p)); notify(); return sb.rpc('config_patch', {p_id:'main', p_patch:p}).then(function(r){ if(r.error) throw r.error; }); };
+  /* after a failed write: show what the server has. A failed read (no connection) changes nothing */
+  function reloadRec(id){ sb.from('records').select('id,register_id,data,created_at,updated_at,updated_by').eq('id', id).maybeSingle().then(function(r){ if(r.error) return; var i = findI(api.recs, id); if(r.data){ if(i >= 0) api.recs[i] = rowRec(r.data); else api.recs.push(rowRec(r.data)); } else if(i >= 0) api.recs.splice(i, 1); notify(); }); }
+  function reloadReg(id){ sb.from('registers').select('id,owner,visibility,data,updated_at').eq('id', id).maybeSingle().then(function(r){ if(r.error) return; var i = findI(api.regs, id); if(r.data){ if(i >= 0) api.regs[i] = rowReg(r.data); } else if(i >= 0) api.regs.splice(i, 1); notify(); }); }
+  api.saveCfg = function(p){ var prev = api.cfg; api.cfg = Object.assign({}, api.cfg || {}, clone(p)); notify();
+    return sb.rpc('config_patch', {p_id:'main', p_patch:p}).then(function(r){ if(r.error) throw r.error; }).catch(function(e){ api.cfg = prev; notify(); failSave(e); throw e; }); };
+  /* the values a patch replaces, to put back if the server refuses it */
+  function before(d, p){ var o = {}; Object.keys(p).forEach(function(k){ o[k] = d[k] === undefined ? undefined : clone(d[k]); }); return o; }
+  function putBack(d, o){ Object.keys(o).forEach(function(k){ if(o[k] === undefined) delete d[k]; else d[k] = o[k]; }); }
+  function failSave(e){ var lg = S.lang, en, zh; try{ S.lang = 'en'; en = errText(e); S.lang = 'zh'; zh = errText(e); } finally{ S.lang = lg; }
+    toast(/not saved|could not save/i.test(en) ? T(en, zh) : T('Not saved — ' + en, '未保存：' + zh)); }
   api.createReg = function(r){
     api.regs.push({id:r.id, owner:api.uid, vis:r.vis || 'team', d:clone(r.d)}); notify();
     return sb.from('registers').insert({id:r.id, visibility:r.vis || 'team', data:r.d}).then(function(x){ if(x.error) throw x.error; }).catch(function(e){ var i = findI(api.regs, r.id); if(i >= 0) api.regs.splice(i, 1); notify(); throw e; });
   };
   api.restoreReg = api.createReg;
-  api.patchReg = function(id, p){ var i = findI(api.regs, id); if(i >= 0) Object.assign(api.regs[i].d, clone(p)); notify(); return sb.rpc('register_patch', {p_id:id, p_patch:p}).then(function(r){ if(r.error) throw r.error; }).catch(function(e){ reloadReg(id); throw e; }); };
+  api.patchReg = function(id, p){ var i = findI(api.regs, id), old = i >= 0 ? before(api.regs[i].d, p) : {}; if(i >= 0) Object.assign(api.regs[i].d, clone(p)); notify();
+    return sb.rpc('register_patch', {p_id:id, p_patch:p}).then(function(r){ if(r.error) throw r.error; }).catch(function(e){ var j = findI(api.regs, id); if(j >= 0){ putBack(api.regs[j].d, old); notify(); } reloadReg(id); throw e; }); };
   api.setRegVis = function(id, vis){ var i = findI(api.regs, id); if(i >= 0) api.regs[i].vis = vis; notify(); return sb.from('registers').update({visibility:vis}).eq('id', id).select('id').then(function(r){ if(r.error) throw r.error; if(!r.data || !r.data.length) throw new Error('permission'); }).catch(function(e){ reloadReg(id); throw e; }); };
   api.deleteReg = function(id){ var i = findI(api.regs, id); var keep = i >= 0 ? api.regs[i] : null; if(i >= 0) api.regs.splice(i, 1); var kr = api.recs.filter(function(x){ return x.reg === id; }); api.recs = api.recs.filter(function(x){ return x.reg !== id; }); notify();
     return sb.from('registers').delete().eq('id', id).select('id').then(function(r){ if(r.error) throw r.error; if(!r.data || !r.data.length) throw new Error('permission'); }).catch(function(e){ if(keep){ api.regs.push(keep); api.recs = api.recs.concat(kr); notify(); } throw e; }); };
@@ -202,8 +246,8 @@ function CloudStore(url, key){
     notify(); return {ok:ok, failed:failed};
   };
   api.patchRec = function(id, p){
-    var i = findI(api.recs, id); if(i >= 0){ Object.assign(api.recs[i].d, clone(p)); api.recs[i].ua = new Date().toISOString(); } notify();
-    return sb.rpc('record_patch', {p_id:id, p_patch:p}).then(function(r){ if(r.error) throw r.error; }).catch(function(e){ fail(e); reloadRec(id); throw e; });
+    var i = findI(api.recs, id), old = i >= 0 ? before(api.recs[i].d, p) : {}; if(i >= 0){ Object.assign(api.recs[i].d, clone(p)); api.recs[i].ua = new Date().toISOString(); } notify();
+    return sb.rpc('record_patch', {p_id:id, p_patch:p}).then(function(r){ if(r.error) throw r.error; }).catch(function(e){ var j = findI(api.recs, id); if(j >= 0){ putBack(api.recs[j].d, old); notify(); } failSave(e); reloadRec(id); throw e; });
   };
   api.deleteRec = function(id){ var i = findI(api.recs, id), keep = i >= 0 ? api.recs[i] : null; if(i >= 0) api.recs.splice(i, 1); notify();
     return sb.from('records').delete().eq('id', id).select('id').then(function(r){ if(r.error) throw r.error; if(!r.data || !r.data.length) throw new Error('permission'); }).catch(function(e){ if(keep){ api.recs.push(keep); notify(); } throw e; }); };
@@ -226,7 +270,9 @@ function CloudStore(url, key){
   api.addFeedback = function(o){ return sb.from('feedback').insert(Object.assign({}, o, {author_name: api.me.name || api.me.email})).select().single().then(function(r){ if(r.error) throw r.error; if(r.data && findI(api.fb, r.data.id) < 0) api.fb.push(r.data); notify(); }); };
   api.updateFeedback = function(id, p){ return sb.from('feedback').update(p).eq('id', id).then(function(r){ if(r.error) throw r.error; }); };
   api.setRole = function(id, role){ return sb.from('profiles').update({role:role}).eq('id', id).then(function(r){ if(r.error) throw r.error; api.users.forEach(function(u){ if(u.id === id) u.role = role; }); notify(); }); };
-  api.reloadUsers = function(){ return sb.from('profiles').select('*').order('created_at').then(function(r){ api.users = r.data || []; notify(); }); };
+  api.reloadUsers = function(){ return usersQuery().then(function(r){ api.users = r.data || []; notify(); }); };
+  /* admins: with sign-up date and email confirmation (admin_users, v2.8); the plain profile list before the update */
+  function usersQuery(){ return sb.rpc('admin_users').then(function(r){ return r.error ? sb.from('profiles').select('*').order('created_at') : r; }); }
   api.upload = function(file, regId, recId){
     var safe = String(file.name || 'file').replace(/[^\w.\-]+/g, '_').slice(-80);
     var path = 'r/' + regId + '/' + (recId || 'misc') + '/' + Date.now().toString(36) + '_' + safe;

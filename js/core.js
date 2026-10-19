@@ -105,6 +105,15 @@ var ROLES = [
   ['base','Baseline date','基准日期'],['astart','Actual start','实际开始'],['afinish','Actual finish','实际完成']
 ];
 var SUB_TYPES = ['text','long','number','date','select','check'];
+/* a register's field list as the site draws it: data saved by other people is never trusted, so unknown field
+   and column types become plain text (they would otherwise reach class names and type switches) */
+function cleanFields(d){
+  if(!d || typeof d !== 'object' || !Array.isArray(d.fields)) return d;
+  d.fields = d.fields.filter(function(f){ return f && typeof f === 'object' && !Array.isArray(f); });
+  d.fields.forEach(function(f){ if(!TYPES.hasOwnProperty(f.type)) f.type = 'text'; if(typeof f.key !== 'string') f.key = String(f.key == null ? '' : f.key);
+    if(f.cols != null){ f.cols = (Array.isArray(f.cols) ? f.cols : []).filter(function(c){ return c && typeof c === 'object'; }); f.cols.forEach(function(c){ if(SUB_TYPES.indexOf(c.type) < 0) c.type = 'text'; if(typeof c.key !== 'string') c.key = String(c.key == null ? '' : c.key); }); } });
+  return d;
+}
 
 /* field helpers */
 function F(key, en, zh, type, extra){ return Object.assign({key:key, en:en, zh:zh, type:type}, extra || {}); }

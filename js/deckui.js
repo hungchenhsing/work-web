@@ -308,18 +308,29 @@ function pdfHtml(pages, title){
   return '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>' + esc(title) + '</title><style>' + SLIDE_CSS +
     '\n@page{size:1280px 720px;margin:0}html,body{margin:0;padding:0;background:#6B7178}body{padding:56px 0 24px}.sl{margin:0 auto 18px;box-shadow:0 4px 18px rgba(0,0,0,.35);break-after:page;page-break-after:always;break-inside:avoid}.sl:last-of-type{break-after:auto;page-break-after:auto}' +
     '.pbar{position:fixed;top:0;left:0;right:0;height:44px;display:flex;align-items:center;gap:14px;padding:0 18px;background:#1A1D21;color:#fff;font:14px system-ui,sans-serif;z-index:9}.pbar button{font:inherit;padding:6px 14px;border-radius:6px;border:0;background:#E8930C;color:#1A1D21;font-weight:600;cursor:pointer}.pbar span{opacity:.8}' +
-    '@media print{html,body{background:none;padding:0}.pbar{display:none}.sl{margin:0;box-shadow:none}}</style></head><body><div class="pbar"><button type="button" onclick="print()">Print / Save as PDF · 打印 / 另存为 PDF</button><span>Destination: “Save as PDF”. Page size is set to 16:9 automatically (Chrome / Edge). In Safari choose Landscape. · 目标选「另存为 PDF」。</span></div>' +
+    '@media print{html,body{background:none;padding:0}.pbar{display:none}.sl{margin:0;box-shadow:none}}</style></head><body><div class="pbar"><button type="button">Print / Save as PDF · 打印 / 另存为 PDF</button><span>Destination: “Save as PDF”. Page size is set to 16:9 automatically (Chrome / Edge). In Safari choose Landscape. · 目标选「另存为 PDF」。</span></div>' +
     pages.map(function(p){ return p.html; }).join('') +
-    '<script>var SL_FIT={};' + slHash.toString() + slFit1.toString() + slFitAll.toString() + '(function(){function go(){var im=[].slice.call(document.images);(document.fonts&&document.fonts.ready?document.fonts.ready:Promise.resolve()).then(function(){slFitAll(document);return Promise.all(im.map(function(i){return i.complete?0:new Promise(function(r){i.onload=i.onerror=r;});}));}).then(function(){setTimeout(function(){window.focus();window.print();},350);});}if(document.readyState==="complete")go();else window.addEventListener("load",go);})();<\/script></body></html>';
+    '</body></html>';
+}
+/* the print window carries no script of its own (the site's content security policy forbids inline script):
+   this page fits the slides in it, waits for fonts and images, wires its Print button and opens the print dialog */
+function printWire(win, auto){
+  var d = win.document, btn = d.querySelector('.pbar button'); if(btn) btn.addEventListener('click', function(){ win.focus(); win.print(); });
+  /* a window the browser keeps in the background may never finish loading its fonts: wait at most a few seconds */
+  function upTo(p, ms){ return Promise.race([p, new Promise(function(r){ setTimeout(r, ms); })]); }
+  function go(){ var im = [].slice.call(d.images);
+    upTo(d.fonts && d.fonts.ready ? d.fonts.ready : Promise.resolve(), 3000).then(function(){ try{ slFitAll(d); }catch(e){} return upTo(Promise.all(im.map(function(i){ return i.complete ? 0 : new Promise(function(r){ i.addEventListener('load', r); i.addEventListener('error', r); }); })), 8000); })
+      .then(function(){ if(auto) setTimeout(function(){ try{ win.focus(); win.print(); }catch(e){} }, 350); }); }
+  if(d.readyState === 'complete') go(); else win.addEventListener('load', go);
 }
 function exportPdf(getPages, title, pre){
   var w = null; try{ w = window.open('', '_blank'); }catch(e){}
   if(w){ try{ w.document.write('<!doctype html><title>…</title><body style="font:16px system-ui;padding:40px;color:#555">Preparing PDF… 正在生成 PDF…</body>'); }catch(e){} }
   (pre || Promise.resolve()).then(function(){
     var html = pdfHtml(getPages(), title);
-    if(w && !w.closed){ w.document.open(); w.document.write(html); w.document.close(); return; }
+    if(w && !w.closed){ w.document.open(); w.document.write(html); w.document.close(); printWire(w, true); return; }
     var f = document.createElement('iframe'); f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0'; document.body.appendChild(f);
-    f.contentWindow.document.open(); f.contentWindow.document.write(html.replace(/<div class="pbar">[\s\S]*?<\/div>/, '')); f.contentWindow.document.close();
+    f.contentWindow.document.open(); f.contentWindow.document.write(html.replace(/<div class="pbar">[\s\S]*?<\/div>/, '')); f.contentWindow.document.close(); printWire(f.contentWindow, true);
     setTimeout(function(){ try{ document.body.removeChild(f); }catch(e){} }, 120000);
   });
 }
