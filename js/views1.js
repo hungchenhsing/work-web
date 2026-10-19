@@ -68,7 +68,7 @@ function viewRegister(reg){
       (canSchemaEdit(reg) ? '<button type="button" data-act="fieldsOpen" data-v="' + esc(reg.id) + '">' + L('Fields & columns', '字段与列') + '</button><button type="button" data-act="regSettings" data-v="' + esc(reg.id) + '">' + L('Register settings', '台账设置') + '</button>' : '') +
       (ed ? '<button type="button" data-act="impOpen" data-v="' + esc(reg.id) + '">' + L('Import Excel…', '导入 Excel…') + '</button>' : '') +
       '<button type="button" data-act="expReg" data-v="' + esc(reg.id) + '">' + L('Export Excel (filtered)', '导出 Excel（当前筛选）') + '</button>' +
-      '<button type="button" data-act="regHist" data-v="' + esc(reg.id) + '">' + L('Change log of this register', '本台账修改记录') + '</button>' + regPlanMenu(reg) + regMenuItem(reg) + (canTeamEdit() && !isPrivate(reg) && reg.d.kind !== 'decks' ? '<button type="button" data-act="shareReg" data-v="' + esc(reg.id) + '">' + L('Public link for this view…', '为当前视图生成公开链接…') + '</button>' : '') +
+      '<button type="button" data-act="regHist" data-v="' + esc(reg.id) + '">' + L('Change log of this register', '本台账修改记录') + '</button>' + regPlanMenu(reg) + regMenuItem(reg) + (isPeopleReg(reg) && canTeamEdit() ? '<button type="button" data-act="peopleMatch">' + L('Match names in other registers…', '对照其他台账中的名字…') + '</button>' : '') + (canTeamEdit() && !isPrivate(reg) && reg.d.kind !== 'decks' && !isPeopleReg(reg) ? '<button type="button" data-act="shareReg" data-v="' + esc(reg.id) + '">' + L('Public link for this view…', '为当前视图生成公开链接…') + '</button>' : '') +
     '</div></details></div></div>';
   h += regFilters(reg);
   var body;
@@ -117,7 +117,7 @@ function regFilters(reg){
 /* ---------------- table ---------------- */
 function tableCols(reg){ var pick = S.rcols[reg.id]; var ds = dataFields(reg); if(pick && pick.length) return ds.filter(function(f){ return pick.indexOf(f.key) >= 0; }); return ds.filter(function(f){ return !f.hide; }); }
 function viewTable(reg, list){
-  var ed = canWrite(reg), cols = tableCols(reg), gk = S.rg[reg.id] || 'none', ro = rolesOf(reg);
+  var ed = canWrite(reg), cols = tableCols(reg), gk = S.rg[reg.id] || (reg.d.group && fieldOf(reg, reg.d.group) ? reg.d.group : 'none'), ro = rolesOf(reg);
   if(window.innerWidth < 720) return viewCards(reg, list);
   list = sortRecs(reg, list);
   var s = S.rs[reg.id] || {k: ro.no || '', d:1};

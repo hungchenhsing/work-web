@@ -47,7 +47,7 @@ function shareKeys(reg, strict, cols){
   return keys;
 }
 function shareGated(reg){ return !!reg && shareIsObj(reg.d) && (reg.d.kind === 'library' || shareTruthy(reg.d.ownerPublish)); }
-function shareRegOk(reg){ return !!reg && reg.vis === 'team' && typeof reg.id === 'string' && SHARE_ID.test(reg.id) && shareIsObj(reg.d) && ['decks', 'snaps'].indexOf(shareStr(reg.d.kind) || '') < 0; }
+function shareRegOk(reg){ return !!reg && reg.vis === 'team' && typeof reg.id === 'string' && SHARE_ID.test(reg.id) && shareIsObj(reg.d) && ['decks', 'snaps', 'people'].indexOf(shareStr(reg.d.kind) || '') < 0; }
 /* the publisher's filter of a register view, prepared once per register: field values (fx) and the package (node) */
 function shareFilterPrep(fs, ro, f){
   var p = {fx:[], mode:'all', tk:null, set:shareSet()};

@@ -51,7 +51,7 @@ function fieldOf(reg, key){ return fieldsOf(reg).filter(function(f){ return f.ke
 function ownerGated(reg){ return !!reg && (!!reg.d.ownerPublish || reg.d.kind === 'library'); }
 function rolesOf(reg){ return (reg && reg.d.roles) || {}; }
 function rf(reg, roleName){ var k = rolesOf(reg)[roleName]; return k ? fieldOf(reg, k) : null; }
-function optsOf(f){ if(!f) return []; if(f.list){ var l = lists()[f.list]; return (l && l.opts) || []; } return f.opts || []; }
+function optsOf(f){ if(!f) return []; if(f.list){ if(f.list === 'people'){ var po = peopleOpts(); if(po) return po; } var l = lists()[f.list]; return (l && l.opts) || []; } return f.opts || []; }
 function optOf(f, v){ return optsOf(f).filter(function(o){ return o.v === v; })[0] || null; }
 function treeNodes(f){ return (f && f.tree) || []; }
 function treeNode(f, id){ return treeNodes(f).filter(function(n){ return n.id === id; })[0] || null; }
@@ -180,6 +180,7 @@ function setRec(rec, patch, opts){
   if(!Object.keys(changed).length) return Promise.resolve();
   var p = STORE.patchRec(rec.id, changed);
   if(!(opts && opts.silent)){ S.lastUndo = {id:rec.id, old:old}; toast(T('Saved', '已保存'), {act:'quickUndo', label:T('Undo', '撤销')}); }
+  peopleAfterSave(reg, rec, old, changed);
   return p.catch(function(){});
 }
 function quickUndo(){ var u = S.lastUndo; if(!u) return; var rec = getRec(u.id); S.lastUndo = null; if(rec) STORE.patchRec(rec.id, u.old).then(function(){ toast(T('Undone', '已撤销')); }).catch(function(e){ toast(errText(e)); }); }
@@ -304,6 +305,7 @@ function regFromTemplate(key, over){
   var t = clone(TEMPLATES[key] || TEMPLATES.blank);
   var d = {en:t.en, zh:t.zh, icon:t.icon, sec:t.sec, prefix:t.prefix, fields:t.fields, roles:t.roles, view:t.view, tpl:key,
     ownerPublish:!!t.ownerPublish, matrix:t.matrix || null, board:t.board || null, meeting:!!t.meeting, allMs:!!t.allMs};
+  if(t.kind) d.kind = t.kind; if(t.group) d.group = t.group;
   return {id:(over && over.id) || ('reg_' + key + '_' + Date.now().toString(36)), vis:(over && over.vis) || t.visibility || 'team', d:Object.assign(d, (over && over.d) || {})};
 }
 
@@ -364,6 +366,12 @@ function buildDemo(){
     .map(function(r){ return {id:r.id, owner:'demo', vis:r.vis, d:r.d}; });
   var recs = [], n = 0;
   function add(reg, d){ recs.push({id:'r' + (++n), reg:reg, d:d, ca:new Date().toISOString(), ua:new Date().toISOString()}); }
+  /* demo directory (fictional people): the people dropdowns list these */
+  var tr = regFromTemplate('team', {id:'reg_team'}); regs.push({id:tr.id, owner:'demo', vis:tr.vis, d:tr.d});
+  [['Wang Lei 王磊','ENG',['lead'],-1,'Project manager'],['Li Na 李娜','QA',['deptLead','coord'],0,'QA / QC manager'],['Zhang Wei 张伟','CON',['deptLead'],0,'Construction manager'],['Chen Jie 陈杰','TC',['member'],0,'Electrical engineer'],
+   ['Maria Santos','CON',['member'],2,'Site engineer'],['Jose Reyes','',['contact'],-1,'Owner representative']].forEach(function(p, i){
+    var d = {code:'P-' + String(i + 1).padStart(3, '0'), en:p[0], teamRole:p[2], org:p[1] ? 'ceec' : 'owner', position:p[4], active:'active', reportsTo:p[3] >= 0 ? ['r' + (p[3] + 1)] : []};
+    if(p[1]) d.dept = p[1]; add('reg_team', d); });
   var acts = [['Piling','打桩','w2','pile',[5200,4800,5100,4900],[5200,4300,2600,900]],['Tracker installation','支架安装','w3','tracker',[260,240,255,245],[260,190,80,0]],['Module installation','组件安装','w4','module',[61000,56000,60000,57500],[58000,30000,6000,0]],['DC cabling & strings','直流电缆与组串','w5','string',[2300,2100,2250,2150],[1500,600,0,0]],['Inverters & combiner boxes','逆变器与汇流箱','w6','inv',[12,11,12,11],[12,6,0,0]]];
   var blocks = ['B','C','D','E'], k = 0;
   acts.forEach(function(a, ai){ blocks.forEach(function(b, bi){ k++; var done = a[5][bi], plan = a[4][bi];
@@ -394,5 +402,5 @@ function buildDemo(){
   add('reg_tds', {regNo:'TDS-003', en:'MV cable 33 kV 1×300 mm²', zh:'33kV 中压电缆', cat:'cable', mfr:'—', model:'—', rev:'A', status:'draft'});
   regs.push({id:'reg_snaps', owner:'demo', vis:'team', d:{kind:'snaps', en:'Progress snapshots', zh:'进度快照', fields:[F('week','Week','周','text'),F('date','Date','日期','date')], roles:{title:'week', no:'week'}}});
   for(var wk = 10; wk >= 1; wk--){ var vals = {reg_site:{}}; recs.forEach(function(r){ if(r.reg !== 'reg_site') return; var p = r.d.qtyPlan ? Math.min(100, r.d.qtyDone / r.d.qtyPlan * 100) : (r.d.status === 'completed' ? 100 : 0); vals.reg_site[r.id] = Math.max(0, Math.round(p * (1 - wk * 0.075) * 10) / 10); }); add('reg_snaps', {week:isoWeek(A - wk * 7), date:dd(-wk * 7), vals:vals}); }
-  return {v2:true, v:4, cfg:Object.assign(clone(DEF_CFG), {lists:lists0, regOrder:regs.map(function(r){ return r.id; }), v2:true, asOf:asOf}), regs:regs, recs:recs, audit:[], pubs:[], fb:[]};
+  return {v2:true, v:5, cfg:Object.assign(clone(DEF_CFG), {lists:lists0, regOrder:regs.map(function(r){ return r.id; }), v2:true, asOf:asOf}), regs:regs, recs:recs, audit:[], pubs:[], fb:[]};
 }

@@ -225,7 +225,8 @@ function cellHtml(reg, f, rec, opts){
     case 'check': return '<span class="ck' + (v ? ' on' : '') + '">' + (v ? '✓' : '') + '</span>';
     case 'files': var fl = asArr(v); if(!fl.length) return '<span class="muted">—</span>'; var img = fl.filter(function(x){ return /^image\//.test(x.type || ''); })[0], u = img && STORE.fileUrl(img.path);
       return (u ? '<img class="thumb" src="' + esc(u) + '" alt="">' : '') + '<span class="mono muted">' + fl.length + '</span>';
-    case 'link': var ls = asArr(v); return ls.length ? '<span class="chip c-teal">' + uic('link', 12) + ' ' + ls.length + '</span>' : '<span class="muted">—</span>';
+    case 'link': var ls = asArr(v); if(ls.length && ls.length <= 2){ var nms = ls.map(function(id){ var r = getRec(id), g = r && getReg(r.reg); return r ? (isPeopleReg(g) ? personName(r) : recLabel(r)) : ''; }).filter(Boolean); if(nms.length === ls.length) return esc(nms.join(', ')); }
+      return ls.length ? '<span class="chip c-teal">' + uic('link', 12) + ' ' + ls.length + '</span>' : '<span class="muted">—</span>';
     case 'sub': var rows = asArr(v); if(!rows.length) return '<span class="muted">—</span>'; var open = f.key === 'actions' ? rows.filter(function(x){ return !x.done; }).length : null; return '<span class="mono muted">' + rows.length + (open != null ? ' · ' + open + ' ' + T('open', '未完成') : '') + '</span>';
     case 'url': return v ? '<a href="' + esc(/^https?:/i.test(v) ? v : 'https://' + v) + '" target="_blank" rel="noopener">' + uic('link', 13) + ' ' + esc(String(v).replace(/^https?:\/\//, '').slice(0, 28)) + '</a>' : '<span class="muted">—</span>';
     case 'long': return v ? '<span class="clamp">' + esc(v) + '</span>' : '<span class="muted">—</span>';
@@ -251,19 +252,19 @@ function renderPop(){
   if(p.kind === 'opts'){
     var f = popField(); if(!f){ root.innerHTML = ''; return; }
     var cur = asArr(popCurrent()), q = p.q.toLowerCase(), multi = !!f.multi;
-    var opts = optsOf(f).filter(function(o){ return !q || (o.v + ' ' + o.en + ' ' + (o.zh || '')).toLowerCase().indexOf(q) >= 0; });
+    var opts = optsOf(f).filter(function(o){ return (!o.left || cur.indexOf(o.v) >= 0) && (!q || (o.v + ' ' + o.en + ' ' + (o.zh || '')).toLowerCase().indexOf(q) >= 0); });
     var canAdd = p.q.trim() && !optsOf(f).some(function(o){ return o.v.toLowerCase() === q.trim() || (o.en || '').toLowerCase() === q.trim(); }) && (f.list ? canTeamEdit() : canWrite(reg));
     h = '<input class="in" id="popq" data-fk="popq" placeholder="' + esc(T('Search or type a new option', '搜索或输入新选项')) + '" value="' + esc(p.q) + '" autocomplete="off">' +
       '<div class="plist">' + opts.map(function(o){ var on = cur.indexOf(o.v) >= 0; return '<button type="button" class="popt' + (on ? ' on' : '') + '" data-act="popPick" data-v="' + esc(o.v) + '">' + (multi ? '<span class="cbx">' + (on ? '✓' : '') + '</span>' : '') + '<span class="sw c-' + esc(o.color || 'grey') + '"></span>' + esc(nm(o)) + (o.v !== o.en && f.list !== 'people' ? ' <span class="muted mono" style="font-size:11px">' + esc(o.v) + '</span>' : '') + '</button>'; }).join('') +
       (!opts.length && !canAdd ? '<div class="note" style="padding:6px 8px">' + L('No options', '没有选项') + '</div>' : '') + '</div>' +
-      (canAdd ? '<button type="button" class="popt add" data-act="popAdd">' + uic('plus', 13) + ' ' + L('Add', '新增') + ' “' + esc(p.q.trim()) + '”' + (f.list ? ' <span class="muted">→ ' + esc(nm(lists()[f.list])) + '</span>' : '') + '</button>' : '') +
+      (canAdd ? '<button type="button" class="popt add" data-act="popAdd">' + uic('plus', 13) + ' ' + L('Add', '新增') + ' “' + esc(p.q.trim()) + '”' + (f.list ? ' <span class="muted">→ ' + esc(f.list === 'people' && peopleDir() ? regName(peopleDir()) : nm(lists()[f.list])) + '</span>' : '') + '</button>' : '') +
       '<div class="pfoot">' + (cur.length && !p.noClear ? '<button type="button" class="lnk" data-act="popClear">' + L('Clear', '清除') + '</button>' : '<span></span>') + (multi ? '<button type="button" class="btn sm" data-act="popClose">' + L('Done', '完成') + '</button>' : '') + (canSchemaEdit(reg) && !p.sub ? '<button type="button" class="lnk" data-act="editOpts" data-v="' + esc(f.key) + '">' + L('Edit options…', '编辑选项…') + '</button>' : '') + '</div>';
   } else if(p.kind === 'tree'){
     var tf = fieldOf(reg, p.key), cv = popCurrent(), tq = p.q.toLowerCase(), rows = [];
     treeDfs(tf, function(n, d){ if(!tq || treeLabel(n).toLowerCase().indexOf(tq) >= 0) rows.push('<button type="button" class="popt' + (cv === n.id ? ' on' : '') + '" data-act="popPick" data-v="' + esc(n.id) + '" style="padding-left:' + (8 + d * 14) + 'px"><span class="mono muted">' + esc(n.code || '') + '</span> ' + esc(nm(n)) + '</button>'); });
     h = '<input class="in" id="popq" data-fk="popq" placeholder="' + esc(T('Search', '搜索')) + '" value="' + esc(p.q) + '" autocomplete="off"><div class="plist">' + rows.join('') + '</div><div class="pfoot">' + (cv ? '<button type="button" class="lnk" data-act="popClear">' + L('Clear', '清除') + '</button>' : '<span></span>') + (canSchemaEdit(reg) ? '<button type="button" class="lnk" data-act="editOpts" data-v="' + esc(tf.key) + '">' + L('Edit tree…', '编辑分类…') + '</button>' : '') + '</div>';
   } else if(p.kind === 'link'){
-    var lf = fieldOf(reg, p.key), rec = getRec(p.rec), have = asArr(rec && rec.d[p.key]), lq = p.q.toLowerCase(), allowed = (lf && lf.link && lf.link.length) ? lf.link : null, found = [];
+    var lf = fieldOf(reg, p.key), rec = getRec(p.rec), have = asArr(rec && rec.d[p.key]), lq = p.q.toLowerCase(), allowed = (lf && lf.link && lf.link.length) ? lf.link.map(function(x){ return x === 'self' ? reg.id : x; }) : null, found = [];
     allRegs().forEach(function(rg){ if(allowed && allowed.indexOf(rg.id) < 0) return; recsOf(rg.id).forEach(function(r){ if(r.id === p.rec || found.length > 60) return; var t = (recNo(rg, r) + ' ' + recTitle(rg, r) + ' ' + (r.d[rolesOf(rg).title2] || '')).toLowerCase(); if(!lq || t.indexOf(lq) >= 0) found.push({rg:rg, r:r}); }); });
     h = '<input class="in" id="popq" data-fk="popq" placeholder="' + esc(T('Search records in any register', '搜索任意台账的记录')) + '" value="' + esc(p.q) + '" autocomplete="off"><div class="plist">' + found.map(function(x){ var on = have.indexOf(x.r.id) >= 0; return '<button type="button" class="popt' + (on ? ' on' : '') + '" data-act="popPick" data-v="' + esc(x.r.id) + '"><span class="cbx">' + (on ? '✓' : '') + '</span>' + icon(x.rg.d.icon, 13) + ' <span class="mono muted">' + esc(recNo(x.rg, x.r)) + '</span> ' + esc(recTitle(x.rg, x.r) || '—') + '</button>'; }).join('') + '</div><div class="pfoot"><span></span><button type="button" class="btn sm" data-act="popClose">' + L('Done', '完成') + '</button></div>';
   } else if(p.kind === 'parent'){
@@ -280,6 +281,7 @@ function renderPop(){
 function canSchemaEdit(reg){ return canWrite(reg); }
 function addOption(reg, f, label){
   label = String(label || '').trim(); if(!label) return Promise.resolve(null);
+  if(f.list === 'people' && peopleDir()) return peopleAdd(label);
   var isZh = /[一-鿿]/.test(label) && !/[A-Za-z]{3,}/.test(label);
   var o = O(f.list === 'people' || f.list === 'subcon' ? label : label.length <= 12 ? label : slug(label) || uid('o'), isZh ? label : label, isZh ? label : '', COLORS[(optsOf(f).length + 1) % COLORS.length]);
   if(f.list === 'blocks') o.v = label.toUpperCase().replace(/^BLOCK\s*/i, '').trim();
@@ -329,6 +331,7 @@ function renderDrawer(){
   var lib = isLibRec(rec), fl = lib ? 0 : recFiles(rec).length, lk = relCount(rec);
   var kids = lib ? [] : childrenOf(rec);
   var tabs = lib ? [['details','Document','文件'],['links','Used by & related','引用与相关', lk],['history','History','修改记录']] : [['details','Details','详情'],['subs','Sub-items','子项', kids.length],['files','Files','文件', fl],['links','Related','相关', lk],['history','History','修改记录']];
+  if(isPeopleReg(reg)) tabs.splice(1, 0, ['work','Assignments','参与事项', peopleWorkCount(reg, rec)]);
   if(((STORE && STORE.fb) || []).some(function(x){ return x.item_id === rec.id; })) tabs.push(['comments','Owner comments','业主意见', openFb(rec.id)]);
   var h = '<div class="scrim" data-act="close"></div><aside class="drawer" role="dialog" aria-modal="true" aria-label="' + esc(recLabel(rec)) + '">' +
     '<div class="dh"><div class="dhr"><span class="crumb">' + icon(reg.d.icon, 14) + ' ' + esc(regName(reg)) + (isPrivate(reg) ? ' ' + uic('lock', 12) : '') + ' · ' + (parentRec(rec) ? '<button type="button" class="lnk mono" data-act="openRec" data-id="' + esc(parentRec(rec).id) + '">' + esc(recNo(reg, parentRec(rec)) || '↑') + '</button> › ' : '') + '<span class="mono">' + esc(recNo(reg, rec)) + '</span></span><span class="dha">' +
@@ -344,6 +347,7 @@ function renderDrawer(){
   else if(S.dtab === 'subs') h += drawerSubs(reg, rec, ed, kids);
   else if(S.dtab === 'history') h += drawerHistory(reg, rec);
   else if(S.dtab === 'comments') h += drawerComments(reg, rec);
+  else if(S.dtab === 'work' && isPeopleReg(reg)) h += peopleWork(reg, rec);
   else h += (lib ? docPreview(rec, ed) : relStrip(rec, ed)) + drawerForm(reg, rec, ed);
   h += '</div><div class="dfoot">' + (ed ? '<button type="button" class="btn sm" data-act="dupRec">' + uic('copy', 14) + ' ' + L('Duplicate', '复制') + '</button>' + (ownerGated(reg) && !isPrivate(reg) ? '<label class="chk"><input type="checkbox" data-act="extTog"' + (rec.d.ext ? ' checked' : '') + '>' + L('Show in Owner plan', '显示于业主计划') + '</label>' : '') +
     (S.delAsk ? '<span class="dl"><button type="button" class="btn sm danger" data-act="delYes">' + (descendantsOf(rec).length ? L('Delete with ' + descendantsOf(rec).length + ' sub-items', '连同 ' + descendantsOf(rec).length + ' 个子项一起删除') : L('Confirm delete', '确认删除')) + '</button><button type="button" class="btn sm" data-act="delNo">' + L('Cancel', '取消') + '</button></span>' : '<button type="button" class="btn sm danger-o" data-act="delAsk">' + uic('trash', 14) + ' ' + L('Delete', '删除') + '</button>') : '<span class="note">' + L('Read only', '只读') + '</span>') + '</div></aside>';

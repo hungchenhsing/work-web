@@ -114,7 +114,7 @@ function O(v, en, zh, color, extra){ return Object.assign({v:v, en:en, zh:zh || 
 var DEF_LISTS = {
   blocks: {en:'Blocks', zh:'区域', opts:[O('B','Block B','B区','blue'),O('C','Block C','C区','green'),O('D','Block D','D区','amber'),O('E','Block E','E区','violet')]},
   disc: {en:'Disciplines', zh:'专业', opts:[O('doc','Documents','文件'),O('ele','Electrical','电气','blue'),O('civ','Civil','土建','amber'),O('inc','Protection & control','继保控制','violet'),O('equip','Equipment','设备','teal'),O('archi','Architecture','建筑'),O('pip','Water & drainage','给排水','teal'),O('hvac','HVAC','暖通'),O('str','Structure','结构','amber'),O('mech','Mechanical','机务','green')]},
-  dept: {en:'Departments', zh:'部门', opts:[O('ENG','Engineering','工程'),O('COM','Commissioning & O&M','调试&运维'),O('QA','Quality','质量'),O('DES','Design','设计'),O('HSE','HSE','安全环保')]},
+  dept: {en:'Departments', zh:'部门', opts:[O('ENG','Engineering','工程'),O('CON','Construction','施工'),O('TC','Testing & Commissioning','测试与调试'),O('PRC','Procurement','采购'),O('COM','Commissioning & O&M','调试&运维'),O('QA','QA / QC','质量'),O('DES','Design','设计'),O('HSE','HSE','安全环保')]},
   people: {en:'People', zh:'人员', opts:[]},
   subcon: {en:'Subcontractors', zh:'分包商', opts:[]}
 };
@@ -253,7 +253,20 @@ var TEMPLATES = {
     F('raised','Raised','提出日期','date'),F('due','Needed by','需解决日期','date'),
     F('status','Status','状态','select',{opts:[O('open','Open','未解决','red'),O('watch','Monitoring','跟踪中','amber'),O('closed','Closed','已关闭','green',{done:true})]}),
     F('mitig','Mitigation / recommendation','应对措施 / 建议','long'),F('escalate','Escalate to Owner','需业主介入','check'),F('remarks','Remarks','备注','long',{hide:true}),F('links','Related records','关联记录','link',{hide:true})
-  ], roles:{title:'en', title2:'zh', no:'regNo', start:'raised', finish:'due', status:'status', block:'areas'}, view:'table'}
+  ], roles:{title:'en', title2:'zh', no:'regNo', start:'raised', finish:'due', status:'status', block:'areas'}, view:'table'},
+
+  /* the people directory: every "people" dropdown on the site lists its records (see people.js) */
+  team: {en:'Team & contacts', zh:'团队与联系人', icon:'team', sec:'other', prefix:'P', kind:'people', group:'dept', fields:[
+    F('code','No.','编号','text',{w:70}),F('en','Name','姓名','text',{w:170}),F('zh','Name (中文)','中文名','text',{w:100}),
+    F('org','Organisation','单位','select',{opts:[O('ceec','CEEC','中国能建','blue'),O('owner','Owner','业主','violet'),O('sub','Subcontractor','分包商','amber'),O('consultant','Consultant','顾问','teal'),O('supplier','Supplier','供应商','grey'),O('other','Other','其他','grey')]}),
+    F('dept','Department','部门','select',{list:'dept'}),
+    F('teamRole','Team role','团队角色','select',{multi:true, opts:[O('lead','Team lead','团队负责人','red'),O('deptLead','Department lead','部门负责人','violet'),O('coord','Handover coordinator','移交协调人','teal'),O('member','Member','成员','blue'),O('contact','Contact','对接人','grey')]}),
+    F('reportsTo','Reports to','汇报对象','link',{link:['self']}),
+    F('position','Position','职位','text'),F('company','Company','公司','text',{hide:true}),
+    F('phone','Phone','电话','text'),F('email','Email','邮箱','text'),F('wechat','WeChat / WhatsApp','微信 / WhatsApp','text',{hide:true}),
+    F('active','Status','状态','select',{opts:[O('active','Active','在职','green'),O('left','Left','已离开','grey')]}),
+    F('remarks','Remarks','备注','long',{hide:true}),F('links','Related records','关联记录','link',{hide:true})
+  ], roles:{title:'en', title2:'zh', no:'code'}, view:'table'}
 };
 var REG_ICONS = {
   doc:'<path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4M10 12h5M10 16h5"/>',
@@ -266,7 +279,8 @@ var REG_ICONS = {
   bolt:'<path d="M13 2L4 14h7l-1 8 9-12h-7z"/>',
   check:'<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 12l3 3 5-6"/>',
   flag:'<path d="M12 3l6 9-6 9-6-9z"/><path d="M12 8v8"/>',
-  risk:'<path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18v.5"/>'
+  risk:'<path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18v.5"/>',
+  team:'<circle cx="12" cy="7.5" r="3"/><path d="M6.5 20c0-3.2 2.5-5.5 5.5-5.5s5.5 2.3 5.5 5.5"/><circle cx="4.8" cy="10" r="2"/><circle cx="19.2" cy="10" r="2"/><path d="M1.5 18c0-2 1.4-3.6 3.3-3.6M22.5 18c0-2-1.4-3.6-3.3-3.6"/>'
 };
 var SECS = [['site','Site','现场'],['docs','Documents','资料'],['meet','Meetings','会议'],['other','Other','其他']];
 function icon(name, size){ return '<svg class="ic" width="' + (size || 16) + '" height="' + (size || 16) + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (REG_ICONS[name] || REG_ICONS.list) + '</svg>'; }

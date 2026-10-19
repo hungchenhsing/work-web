@@ -358,7 +358,7 @@ create policy ww_files_delete on storage.objects for delete to authenticated
 -- =====================================================================
 -- A link is a random id (20+ characters). Visitors never read tables: the only way in is
 -- share_get(id), which returns one share and nothing else. What it shows follows the Owner rules:
---   * private ("Only me") registers and Internal presentations never leave the database;
+--   * private ("Only me") registers, the Team & contacts directory and Internal presentations never leave the database;
 --   * registers published to the Owner (and the document library): only records marked "Show in Owner plan";
 --   * register views: only fields marked External plus No. and title, only the chosen columns, only the
 --     records matching the publisher's filter;
@@ -471,7 +471,7 @@ begin
   flt := p_opt->'filter';
   for g in select r.id, r.data from public.registers r
             where r.id = any(coalesce(p_regs, '{}'::text[])) and r.visibility = 'team' and r.id ~ '^[A-Za-z0-9_-]{1,64}$'
-              and jsonb_typeof(r.data) = 'object' and coalesce(public.share_str(r.data->'kind'), '') not in ('decks', 'snaps')
+              and jsonb_typeof(r.data) = 'object' and coalesce(public.share_str(r.data->'kind'), '') not in ('decks', 'snaps', 'people')
             order by array_position(p_regs, r.id) loop
     fs := case when jsonb_typeof(g.data->'fields') = 'array' then (select coalesce(jsonb_agg(f order by o), '[]'::jsonb) from jsonb_array_elements(g.data->'fields') with ordinality x(f, o) where jsonb_typeof(f) = 'object') else '[]'::jsonb end;
     ro := case when jsonb_typeof(g.data->'roles') = 'object' then g.data->'roles' else '{}'::jsonb end;
