@@ -101,7 +101,7 @@ document.addEventListener('click', function(e){
       var set = treeDesc(tf, v), recs = recsOf(reg.id).filter(function(r){ return r.d[tf.key] === v; }), sub = nodes.filter(function(x){ return x.parent === v; }).length, par = n.parent || '';
       if(!confirm(T('Delete category “' + treeLabel(n) + '”?', '删除分类「' + treeLabel(n) + '」？') + '\n' + (sub ? T(sub + ' sub-levels move up one level. ', sub + ' 个下级会上移一层。') : '') + (recs.length ? T(recs.length + ' records move to the level above.', recs.length + ' 条记录会移到上一级。') : ''))) return;
       nodes = nodes.filter(function(x){ return x.id !== v; }); nodes.forEach(function(x){ if(x.parent === v) x.parent = par; });
-      treeSave(reg, tf, nodes).then(function(){ recs.forEach(function(r){ setRec(r, mk(tf.key, par), {silent:true}); }); if(rfil(reg.id).node === v) rfil(reg.id).node = 'all'; toast(T('Category deleted — undo from the Change log', '分类已删除，可在修改记录中撤销')); }); })(); break;
+      treeSave(reg, tf, nodes).then(function(){ setRecs(recs.map(function(r){ return {rec:r, patch:mk(tf.key, par)}; })); if(rfil(reg.id).node === v) rfil(reg.id).node = 'all'; toast(T('Category deleted — undo from the Change log', '分类已删除，可在修改记录中撤销')); }); })(); break;
     case 'rexp': S.rexp = S.rexp || {}; S.rexp[v] = !S.rexp[v]; renderMain(); break;
     case 'pickParent': openPick('parent', {reg:rec.reg, rec:rec.id, w:380}, el); break;
     case 'setParent': (function(){ var r = (S.pop && S.pop.kind === 'parent') ? getRec(S.pop.rec) : rec; if(!r) return; closePop(); setRec(r, {parent:v || null}); })(); break;
@@ -160,7 +160,7 @@ document.addEventListener('click', function(e){
     // owner
     case 'otab': S.otab = v; renderMain(); break;
     case 'publish': (STORE.ensurePubs ? STORE.ensurePubs() : Promise.resolve()).then(function(){ var rg = getReg(S.oreg), snap = ownerSnapshot(rg), max = 0; (STORE.pubs || []).forEach(function(p){ var mm = /PUB-(\d+)/.exec(p.no || ''); if(mm) max = Math.max(max, +mm[1]); });
-      var no = 'PUB-' + String(max + 1).padStart(3, '0'); STORE.createPub(no, Object.assign(snap, {no:no, at:new Date().toISOString(), by:(STORE.me && (STORE.me.name || STORE.me.email)) || '', note:($('#snapNote') || {}).value || ''})).then(function(){ toast(T('Published ', '已发布 ') + no); S.otab = 'snaps'; renderMain(); }).catch(function(er){ toast(errText(er)); }); }); break;
+      var no = 'PUB-' + String(max + 1).padStart(3, '0'); STORE.createPub(no, Object.assign(snap, {no:no, at:new Date().toISOString(), by:(STORE.me && (STORE.me.name || STORE.me.email)) || '', note:($('#snapNote') || {}).value || ''})).then(function(no2){ toast(T('Published ', '已发布 ') + (no2 || no)); S.otab = 'snaps'; renderMain(); }).catch(function(er){ toast(errText(er)); }); }); break;
     case 'pubDel': if(confirm(T('Withdraw this publication? The Owner will no longer see it.', '撤回此发布？业主将无法再看到。'))) STORE.deletePub(v).catch(function(er){ toast(errText(er)); }); break;
     case 'fbOpen': S.fbFor = S.fbFor === v ? null : v; renderMain(); break;
     case 'fbSend': (function(){ var body = (($('#fbBody') || {}).value || '').trim(); if(!body) return; var p = (STORE.pubs || []).filter(function(x){ return x.id === S.pubSel; })[0] || (STORE.pubs || [])[0]; STORE.addFeedback({pub_id:p && p.id, item_id:v, reg_no:el.dataset.no, body:body}).then(function(){ S.fbFor = null; toast(T('Sent', '已提交')); renderMain(); }).catch(function(er){ toast(errText(er)); }); })(); break;
@@ -170,6 +170,18 @@ document.addEventListener('click', function(e){
     case 'reloadUsers': STORE.reloadUsers && STORE.reloadUsers(); break;
     case 'backupXlsx': backupXlsx(); break;
     case 'backupJson': backupJson(); break;
+    case 'bkNow': (function(){ var b = S.bk = S.bk || {}; b.busy = T('Backing up…', '正在备份…'); renderMain(); STORE.backupNow().then(function(){ toast(T('Backup made', '已备份')); b.list = null; }).catch(function(e){ toast(errText(e)); }).then(function(){ b.busy = null; renderMain(); }); })(); break;
+    case 'bkDl': (function(){ var b = S.bk = S.bk || {}, row = (b.list || []).filter(function(x){ return String(x.id) === v; })[0]; b.busy = T('Preparing the download…', '正在准备下载…'); renderMain();
+      STORE.backupGet(+v).then(function(data){ saveJson(data, slug(cfg().projectEn) + '_server_backup_' + (row ? bkWhen(row.at).replace(/[: ]/g, '-') : v) + '.json'); }).catch(function(e){ toast(errText(e)); }).then(function(){ b.busy = null; renderMain(); }); })(); break;
+    case 'bkAsk': S.bk.ask = +v; renderMain(); setTimeout(function(){ var i = $('#bkWord'); if(i) i.focus(); }, 0); break;
+    case 'bkCancel': S.bk.ask = null; renderMain(); break;
+    case 'bkGo': (function(){ var b = S.bk, w = (($('#bkWord') || {}).value || '').trim(); if(w !== 'RESTORE'){ toast(T('Type RESTORE to confirm', '请输入 RESTORE 确认')); return; }
+      b.busy = T('Restoring…', '正在还原…'); renderMain();
+      STORE.backupRestore(+v, w).then(function(res){ b.ask = null; b.list = null; toast(T('Restored · ' + ((res && res.records_changed) || 0) + ' records changed, ' + ((res && res.records_back) || 0) + ' brought back, ' + ((res && res.records_removed) || 0) + ' removed', '已还原 · 修改 ' + ((res && res.records_changed) || 0) + '，恢复 ' + ((res && res.records_back) || 0) + '，移除 ' + ((res && res.records_removed) || 0) + ' 条记录')); })
+        .catch(function(e){ toast(errText(e)); }).then(function(){ b.busy = null; renderAll(); }); })(); break;
+    case 'unusedCheck': (function(){ var u = S.unused = S.unused || {}; u.busy = T('Checking…', '正在检查…'); renderMain(); STORE.storageUnused(30).then(function(l){ u.list = l; }).catch(function(e){ toast(errText(e)); }).then(function(){ u.busy = null; renderMain(); }); })(); break;
+    case 'unusedDel': (function(){ var u = S.unused || {}, l = u.list || []; if(!l.length || !confirm(T('Delete ' + l.length + ' unused file(s) for good?', '永久删除 ' + l.length + ' 个未使用的文件？'))) return; u.busy = T('Deleting…', '正在删除…'); renderMain();
+      STORE.deleteFiles(l.map(function(x){ return x.name; })).then(function(n){ toast(T(n + ' file(s) deleted', '已删除 ' + n + ' 个文件')); u.list = null; }).catch(function(e){ toast(errText(e)); }).then(function(){ u.busy = null; renderMain(); }); })(); break;
     case 'resetDemo': if(confirm(T('Reset all demo data in this browser?', '重置本浏览器中的全部演示数据？'))) STORE.resetDemo(); break;
     case 'fileKind': S.files.kind = v; renderMain(); break;
     case 'fileBlk': S.files.blk = S.files.blk === v ? '' : v; renderMain(); break;
@@ -190,7 +202,8 @@ function cleanOpts(opts){ var seen = {}; for(var i = 0; i < opts.length; i++){ v
 function selIds(reg){ return Object.keys(S.sel).filter(function(id){ var r = S.sel[id] && getRec(id); return r && r.reg === reg.id; }); }
 function bulkApply(reg, f, value){
   var ids = selIds(reg); if(!ids.length || !f) return;
-  Promise.all(ids.map(function(id){ var r = getRec(id); var v = value; if(f.type === 'select' && f.multi && v != null) v = [v]; if(v == null) v = f.type === 'select' && f.multi ? [] : ''; return setRec(r, mk(f.key, v), {silent:true}); })).then(function(){ toast(T('Updated ' + ids.length, '已更新 ' + ids.length + ' 项')); S.bulkF = null; renderMain(); });
+  var v = value; if(f.type === 'select' && f.multi && v != null) v = [v]; if(v == null) v = f.type === 'select' && f.multi ? [] : '';
+  setRecs(ids.map(function(id){ return {rec:getRec(id), patch:mk(f.key, clone(v))}; })).then(function(res){ toast(T('Updated ' + ids.length, '已更新 ' + ids.length + ' 项') + (res && res.failed ? T(' · ' + res.failed + ' not saved', ' · ' + res.failed + ' 项未保存') : '')); S.bulkF = null; renderMain(); });
 }
 function fxPick(reg, key, anchor){
   var fd = fieldOf(reg, key), f = rfil(reg.id);

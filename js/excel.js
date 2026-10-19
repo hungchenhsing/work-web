@@ -175,14 +175,13 @@ async function impRun(){
     plan.updates.forEach(function(u){ if(u.d.__parentNo){ var pid2 = noMap[String(u.d.__parentNo).toUpperCase()]; if(pid2 && pid2 !== u.rec.id) u.d.parent = pid2; } delete u.d.__parentNo; });
     m.progress = T('Adding ' + newRecs.length + ' records…', '正在新增 ' + newRecs.length + ' 条记录…'); renderModal();
     var res = newRecs.length ? await STORE.createRecs(newRecs, function(a, b){ m.progress = T('Adding records… ', '正在新增记录… ') + a + ' / ' + b; renderModal(); }) : {ok:0, failed:0};
-    var uok = 0, ufail = 0;
-    for(var i = 0; i < plan.updates.length; i += 8){
-      var batch = plan.updates.slice(i, i + 8);
-      await Promise.all(batch.map(function(u){ var p = {}; Object.keys(u.d).forEach(function(k){ if(!same(u.rec.d[k], u.d[k])) p[k] = u.d[k]; }); if(!Object.keys(p).length) return Promise.resolve(); return STORE.patchRec(u.rec.id, p).then(function(){ uok++; }).catch(function(){ ufail++; }); }));
-      m.progress = T('Updating records… ', '正在更新记录… ') + Math.min(plan.updates.length, i + 8) + ' / ' + plan.updates.length; renderModal();
-    }
+    var ups = [];
+    plan.updates.forEach(function(u){ var p = {}; Object.keys(u.d).forEach(function(k){ if(!same(u.rec.d[k], u.d[k])) p[k] = u.d[k]; }); if(Object.keys(p).length) ups.push({id:u.rec.id, patch:p}); });
+    var ur = ups.length ? await STORE.patchRecs(ups, function(a, b){ m.progress = T('Updating records… ', '正在更新记录… ') + a + ' / ' + b; renderModal(); }) : {ok:0, failed:0};
+    var uok = ur.ok, ufail = ur.failed;
     closeModal();
-    toast(T('Imported: ' + res.ok + ' added, ' + uok + ' updated', '导入完成：新增 ' + res.ok + '，更新 ' + uok) + (res.failed + ufail ? T(', ' + (res.failed + ufail) + ' failed', '，失败 ' + (res.failed + ufail)) : ''));
+    toast(T('Imported: ' + res.ok + ' added, ' + uok + ' updated', '导入完成：新增 ' + res.ok + '，更新 ' + uok) + (res.failed + ufail ? T(', ' + (res.failed + ufail) + ' failed', '，失败 ' + (res.failed + ufail)) : '') +
+      (res.renumbered ? T(' · ' + res.renumbered + ' numbers were already used and were given the next free ones', ' · ' + res.renumbered + ' 个编号已被使用，已改为下一个可用编号') : ''));
   }catch(e){ m.step = 'map'; renderModal(); toast(errText(e)); }
 }
 
@@ -224,8 +223,11 @@ function backupXlsx0(){
 }
 function backupJson(){
   var data = {exported:new Date().toISOString(), cfg:STORE.cfg, registers:(STORE.regs || []).map(function(r){ return {id:r.id, visibility:r.vis, data:r.d}; }), records:allRecs().map(function(r){ return {id:r.id, register_id:r.reg, data:r.d}; })};
+  saveJson(data, slug(cfg().projectEn) + '_backup_' + TODAY_S + '.json');
+}
+function saveJson(data, name){
   var blob = new Blob([JSON.stringify(data, null, 1)], {type:'application/json'}), a = document.createElement('a');
-  a.href = URL.createObjectURL(blob); a.download = slug(cfg().projectEn) + '_backup_' + TODAY_S + '.json'; document.body.appendChild(a); a.click(); setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 500);
+  a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 500);
 }
 
 /* ---------------- meeting minutes print ---------------- */

@@ -5,6 +5,14 @@ var renderQ = false;
 function notify(){ DATA_VER++; if(!DECK_ONLY) REC_VER++; DECK_ONLY = false; if(renderQ) return; renderQ = true; requestAnimationFrame(function(){ renderQ = false; renderAll(); }); }
 /* redraw without marking data as changed (new change-log rows, signed photo links) */
 function notifySoft(){ if(renderQ) return; renderQ = true; requestAnimationFrame(function(){ renderQ = false; renderAll(); }); }
+/* changes arriving from the database (others' edits, the echoes of a bulk change): data is marked changed at once, the
+   redraw waits until the stream pauses for 200 ms (at most 800 ms), so a burst of events costs one redraw, not one per event */
+var remoteT = null, remoteFirst = 0;
+function notifyRemote(soft){
+  if(!soft){ DATA_VER++; if(!DECK_ONLY) REC_VER++; DECK_ONLY = false; }
+  var now = Date.now(); if(!remoteT) remoteFirst = now; else clearTimeout(remoteT);
+  remoteT = setTimeout(function(){ remoteT = null; notifySoft(); }, Math.max(0, Math.min(200, remoteFirst + 800 - now)));
+}
 function appReady(){ return STORE && STORE.ready && (STORE.mode === 'demo' || (STORE.me && STORE.session)); }
 
 /* keep focus + caret across re-renders */

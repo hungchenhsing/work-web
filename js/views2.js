@@ -154,7 +154,34 @@ function setUsers(){
 function setData(){
   return '<div class="card sec"><h2>' + L('Backup', '备份') + '</h2><p class="note">' + L('Download everything you can see (all registers, records, fields and lists) as one Excel file — one sheet per register — plus a JSON file that can rebuild the site.', '把你能看到的全部内容（台账、记录、字段、列表）下载为一个 Excel（每个台账一张表），以及可用于重建网站的 JSON 文件。') + '</p><div class="row"><button type="button" class="btn" data-act="backupXlsx">' + L('Download Excel backup', '下载 Excel 备份') + '</button><button type="button" class="btn" data-act="backupJson">' + L('Download JSON backup', '下载 JSON 备份') + '</button></div>' +
     '<h2 style="margin-top:16px">' + L('Import', '导入') + '</h2><p class="note">' + L('Import Excel into a register from that register’s ⋯ menu. You map each column to a field and see a preview before anything is written.', '在对应台账的 ⋯ 菜单中导入 Excel：先把每一列对应到字段，预览无误后才写入。') + '</p>' +
-    (STORE.mode === 'demo' ? '<h2 style="margin-top:16px">' + L('Demo', '演示') + '</h2><button type="button" class="btn danger-o" data-act="resetDemo">' + L('Reset demo data', '重置演示数据') + '</button>' : '') + '</div>';
+    (STORE.mode === 'demo' ? '<h2 style="margin-top:16px">' + L('Demo', '演示') + '</h2><button type="button" class="btn danger-o" data-act="resetDemo">' + L('Reset demo data', '重置演示数据') + '</button>' : '') + '</div>' +
+    (STORE.mode === 'cloud' && role() === 'admin' ? setBackups() + setUnused() : '');
+}
+/* server backups (admins, v2.9): a full copy every night and before every restore; download or restore one */
+function bkKind(k){ return k === 'nightly' ? L('Nightly', '每晚') : k === 'before-restore' ? L('Before a restore', '还原前') : L('Made by hand', '手动'); }
+function bkWhen(iso){ var d = new Date(iso); return isNaN(d) ? '' : d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()); }
+function setBackups(){
+  var b = S.bk = S.bk || {list:null};
+  if(b.list === null && !b.loading){ b.loading = true; STORE.backupList().then(function(l){ b.list = l; b.err = null; }).catch(function(e){ b.list = []; b.err = errText(e); }).then(function(){ b.loading = false; renderMain(); }); }
+  var rows = b.list || [], ask = b.ask && rows.filter(function(x){ return x.id === b.ask; })[0];
+  return '<div class="card sec"><h2>' + L('Server backups', '服务器备份') + '</h2><p class="note">' + L('The database keeps a full copy of the registers, records, settings, publications and Owner comments: one every night (the last 14 are kept), one before every restore, and any you make here (the last 10). Photos and documents stay in file storage and are not part of a backup.', '数据库会保存台账、记录、设置、发布内容和业主留言的完整副本：每晚一份（保留最近 14 份）、每次还原前一份、以及在这里手动做的（保留最近 10 份）。照片和文件保存在文件存储中，不在备份里。') + '</p>' +
+    (b.err ? '<p class="note warn">' + esc(b.err) + ' ' + L('Run the latest supabase/schema.sql in Supabase to turn on server backups.', '请在 Supabase 执行最新的 supabase/schema.sql 以启用服务器备份。') + '</p>' : '') +
+    '<div class="row"><button type="button" class="btn" data-act="bkNow"' + (b.busy ? ' disabled' : '') + '>' + L('Back up now', '立即备份') + '</button>' + (b.busy ? '<span class="muted">' + esc(b.busy) + '</span>' : '') + '</div>' +
+    (b.loading && !b.list ? '<p class="muted">' + L('Loading…', '加载中…') + '</p>' : rows.length ? '<table class="tbl" style="margin-top:10px"><thead><tr><th>' + L('Taken', '时间') + '</th><th>' + L('Kind', '类型') + '</th><th>' + L('By', '操作人') + '</th><th>' + L('Records', '记录') + '</th><th>' + L('Size', '大小') + '</th><th></th></tr></thead><tbody>' +
+      rows.map(function(x){ var c = x.counts || {}; return '<tr><td class="nowrap">' + esc(bkWhen(x.at)) + '</td><td>' + bkKind(x.kind) + '</td><td>' + esc(x.by_name || (x.kind === 'nightly' ? T('automatic', '自动') : '')) + '</td><td class="mono">' + esc(String(c.records == null ? '' : c.records)) + '</td><td class="mono nowrap">' + esc(fmtSize(x.bytes)) + '</td><td class="nowrap"><button type="button" class="btn sm" data-act="bkDl" data-v="' + x.id + '"' + (b.busy ? ' disabled' : '') + '>' + L('Download', '下载') + '</button> <button type="button" class="btn sm danger-o" data-act="bkAsk" data-v="' + x.id + '"' + (b.busy ? ' disabled' : '') + '>' + L('Restore…', '还原…') + '</button></td></tr>'; }).join('') + '</tbody></table>'
+      : (b.list ? '<p class="muted">' + L('No backups yet. The first one is made automatically today.', '还没有备份。今天会自动做第一份。') + '</p>' : '')) +
+    (ask ? '<div class="card warnbox" style="margin-top:12px"><b>' + L('Restore the backup of ' + bkWhen(ask.at) + '?', '还原 ' + bkWhen(ask.at) + ' 的备份？') + '</b><p class="note">' + L('The team’s registers, records and settings go back to how they were then; everything changed since is undone. A copy of the current state is saved first, so this can be reversed. Other people’s private registers are not touched; publications and Owner comments made since are kept. Everyone else sees the change at once.', '团队的台账、记录和设置会回到当时的状态，之后的修改都会被撤销。还原前会先保存当前状态的副本，因此可以反悔。其他人的私有台账不受影响；之后的发布内容和业主留言会保留。其他人会立即看到变化。') + '</p>' +
+      '<label class="lab">' + L('Type RESTORE to confirm', '输入 RESTORE 确认') + '</label><div class="row"><input class="in" id="bkWord" data-fk="bkWord" autocomplete="off" style="width:160px"><button type="button" class="btn danger" data-act="bkGo" data-v="' + ask.id + '"' + (b.busy ? ' disabled' : '') + '>' + L('Restore', '还原') + '</button><button type="button" class="btn" data-act="bkCancel">' + L('Cancel', '取消') + '</button></div></div>' : '') +
+    '</div>';
+}
+/* files nobody uses (admins): not in any record, register, setting, publication or link, and untouched for 30 days */
+function setUnused(){
+  var u = S.unused = S.unused || {};
+  var tot = (u.list || []).reduce(function(a, x){ return a + (+x.bytes || 0); }, 0);
+  return '<div class="card sec"><h2>' + L('Unused files', '未使用的文件') + '</h2><p class="note">' + L('Removing a photo or document from a record keeps the file, so Undo and the Change log can bring it back. Here you can clear files that nothing uses any more and that nobody has touched for 30 days.', '从记录中移除照片或文件时，文件本身会保留，以便撤销或从修改记录中恢复。这里可以清理不再被任何地方使用、且 30 天内无人改动的文件。') + '</p>' +
+    '<div class="row"><button type="button" class="btn" data-act="unusedCheck"' + (u.busy ? ' disabled' : '') + '>' + L('Check', '检查') + '</button>' +
+    (u.list ? (u.list.length ? '<span>' + L(u.list.length + ' file(s), ' + fmtSize(tot), u.list.length + ' 个文件，' + fmtSize(tot)) + '</span><button type="button" class="btn danger-o" data-act="unusedDel"' + (u.busy ? ' disabled' : '') + '>' + L('Delete them', '删除这些文件') + '</button>' : '<span class="muted">' + L('Nothing to clear.', '没有需要清理的文件。') + '</span>') : '') +
+    (u.busy ? '<span class="muted">' + esc(u.busy) + '</span>' : '') + '</div></div>';
 }
 
 /* ================= option / tree editors ================= */

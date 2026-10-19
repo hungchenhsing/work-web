@@ -48,10 +48,10 @@ function peopleReplace(from, to){
       fs.forEach(function(f){ var v = r.d[f.key];
         if(Array.isArray(v)){ if(v.indexOf(from) < 0) return; var nv = []; v.forEach(function(x){ var y = x === from ? to : x; if(y && nv.indexOf(y) < 0) nv.push(y); }); patch[f.key] = nv; }
         else if(v === from) patch[f.key] = f.multi ? [to] : to; });
-      if(Object.keys(patch).length){ n++; ps.push(STORE.patchRec(r.id, patch)); }
+      if(Object.keys(patch).length){ n++; ps.push({id:r.id, patch:patch}); }
     });
   });
-  return Promise.all(ps).then(function(){ return n; });
+  return (ps.length ? STORE.patchRecs(ps) : Promise.resolve()).then(function(){ return n; });
 }
 /* after what records store for a person changes (code, or the name when there is no code): offer to carry it over */
 function peopleAfterSave(reg, rec, old, changed){

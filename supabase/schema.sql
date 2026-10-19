@@ -708,13 +708,18 @@ grant execute on function public.share_freeze(text) to authenticated;
 -- turn a team register private (otherwise one person could hide team data, and its change log, from everyone).
 -- Field types are limited to the ones the site knows (anything else becomes plain text), and updated_at always moves,
 -- so a page that was asleep or offline can fetch exactly what changed.
+-- true only inside backup_restore (v2.9), run by an admin
+create or replace function public.ww_restoring() returns boolean
+language sql stable set search_path = '' as $$
+  select coalesce(current_setting('ww.restoring', true), '') = '1' and public.my_role() = 'admin'
+$$;
 create or replace function public.guard_register() returns trigger
 language plpgsql set search_path = '' as $$
 declare
   types constant text[] := array['text','long','number','percent','date','select','tree','check','url','files','link','calc','sub','section'];
   sub_types constant text[] := array['text','long','number','date','select','check'];
 begin
-  if tg_op = 'UPDATE' and auth.uid() is not null then
+  if tg_op = 'UPDATE' and auth.uid() is not null and not public.ww_restoring() then
     if new.id is distinct from old.id or new.owner is distinct from old.owner then
       raise exception 'A register''s id and creator cannot change' using errcode = '42501';
     end if;
@@ -773,6 +778,454 @@ grant execute on function public.admin_users() to authenticated;
 do $$ declare f text; begin
   foreach f in array array['public.item_patch(text,jsonb)', 'public.config_patch(text,jsonb)', 'public.my_role()', 'public.record_patch(text,jsonb)',
                            'public.register_patch(text,jsonb)', 'public.can_read_register(text)', 'public.can_write_register(text)'] loop
+    execute 'revoke all on function ' || f || ' from public, anon';
+    execute 'grant execute on function ' || f || ' to authenticated';
+  end loop; end $$;
+
+-- =====================================================================
+-- v2.9: several people at once — element-level changes, numbering, Owner comments, files, backups
+-- =====================================================================
+-- A change is sent as a list of small operations and applied to what the database holds at that moment, so two people
+-- editing different rows of one sub-table, ticking different options or attaching different files never overwrite each
+-- other. A path is a list of object keys and array-element selectors {"by": "<key>", "eq": "<value>"}.
+--   set   {path, value}                   put a value (missing parent objects are created)
+--   unset {path}                          remove a key
+--   add   {path, value, by?, after?, at?} add to a list unless it is already there (after = the element it follows)
+--   del   {path, value | by + eq}         remove from a list
+--   order {path, ids, by?}                put a list in this order (elements others added meanwhile go last)
+-- An operation that no longer fits the stored data (its row was deleted meanwhile) is skipped.
+create or replace function public.ww_path(d jsonb, steps jsonb) returns text[]
+language plpgsql immutable set search_path = '' as $$
+declare st jsonb; p text[] := '{}'; arr jsonb; i int;
+begin
+  if steps is null or jsonb_typeof(steps) is distinct from 'array' then return null; end if;
+  if jsonb_array_length(steps) = 0 then return null; end if;
+  for st in select value from jsonb_array_elements(steps) loop
+    if jsonb_typeof(st) = 'string' then
+      p := p || (st #>> '{}');
+    elsif jsonb_typeof(st) = 'object' and st ? 'by' and st ? 'eq' then
+      arr := d #> p;
+      if jsonb_typeof(arr) is distinct from 'array' then return null; end if;
+      i := null;
+      select x.o - 1 into i from jsonb_array_elements(arr) with ordinality x(e, o)
+        where jsonb_typeof(x.e) = 'object' and x.e ->> (st ->> 'by') = st ->> 'eq' order by x.o limit 1;
+      if i is null then return null; end if;
+      p := p || i::text;
+    else
+      return null;
+    end if;
+  end loop;
+  return p;
+end $$;
+
+-- puts v at p when the place that holds it still exists; a container someone else removed meanwhile is not re-created
+-- (the page sends a new container whole). Returns null when the operation no longer fits.
+create or replace function public.ww_set(d jsonb, p text[], v jsonb) returns jsonb
+language plpgsql immutable set search_path = '' as $$
+declare n int := coalesce(array_length(p, 1), 0); t text;
+begin
+  if d is null or jsonb_typeof(d) is distinct from 'object' then d := '{}'::jsonb; end if;
+  if n = 0 then return null; end if;
+  if n > 1 then
+    t := jsonb_typeof(d #> p[1:n - 1]);
+    if t is distinct from 'object' and t is distinct from 'array' then return null; end if;
+    if t = 'array' and p[n] !~ '^-?[0-9]+$' then return null; end if;
+  end if;
+  return jsonb_set(d, p, coalesce(v, 'null'::jsonb), true);
+end $$;
+
+create or replace function public.ww_apply_ops(d jsonb, ops jsonb) returns jsonb
+language plpgsql immutable set search_path = '' as $$
+declare op jsonb; p text[]; arr jsonb; v jsonb; k text; i int; n int := 0;
+begin
+  d := coalesce(d, '{}'::jsonb);
+  if ops is null or jsonb_typeof(ops) is distinct from 'array' then return d; end if;
+  for op in select value from jsonb_array_elements(ops) loop
+    n := n + 1;
+    exit when n > 5000;
+    begin
+      continue when jsonb_typeof(op) is distinct from 'object';
+      p := public.ww_path(d, op -> 'path');
+      continue when p is null;
+      k := op ->> 'by';
+      v := coalesce(op -> 'value', 'null'::jsonb);
+      if op ->> 'op' = 'set' then
+        d := coalesce(public.ww_set(d, p, v), d);
+      elsif op ->> 'op' = 'unset' then
+        d := d #- p;
+      elsif op ->> 'op' in ('add', 'del', 'order') then
+        arr := d #> p;
+        if jsonb_typeof(arr) is distinct from 'array' then
+          continue when op ->> 'op' <> 'add';
+          continue when array_length(p, 1) > 1 and jsonb_typeof(d #> p[1:array_length(p, 1) - 1]) is distinct from 'object';
+          arr := '[]'::jsonb;
+        end if;
+        if op ->> 'op' = 'add' then
+          continue when exists (select 1 from jsonb_array_elements(arr) x(e)
+            where case when k is null then x.e = v else jsonb_typeof(x.e) = 'object' and x.e ->> k = v ->> k end);
+          i := null;
+          if jsonb_typeof(op -> 'after') in ('string', 'number', 'boolean', 'object', 'array') then
+            select x.o into i from jsonb_array_elements(arr) with ordinality x(e, o)
+              where case when k is null then x.e = op -> 'after' else jsonb_typeof(x.e) = 'object' and x.e ->> k = op ->> 'after' end
+              order by x.o limit 1;
+          elsif op ->> 'at' = 'start' then
+            i := 0;
+          end if;
+          if i is null then
+            arr := arr || jsonb_build_array(v);
+          else
+            arr := (select coalesce(jsonb_agg(y.e order by y.s), '[]'::jsonb) from (
+                      select x.e, x.o * 2 as s from jsonb_array_elements(arr) with ordinality x(e, o)
+                      union all select v, i * 2 + 1) y);
+          end if;
+        elsif op ->> 'op' = 'del' then
+          arr := (select coalesce(jsonb_agg(x.e order by x.o), '[]'::jsonb) from jsonb_array_elements(arr) with ordinality x(e, o)
+                   where not (case when k is null then x.e = v else jsonb_typeof(x.e) = 'object' and coalesce(x.e ->> k = op ->> 'eq', false) end));
+        else
+          continue when jsonb_typeof(op -> 'ids') is distinct from 'array';
+          if k is null then
+            arr := (select coalesce(jsonb_agg(y.e order by y.w, y.o), '[]'::jsonb) from (
+                      select x.e, x.o, coalesce(min(z.q), 1000000000) as w
+                        from jsonb_array_elements(arr) with ordinality x(e, o)
+                        left join jsonb_array_elements(op -> 'ids') with ordinality z(id, q) on z.id = x.e
+                       group by x.o, x.e) y);
+          else
+            arr := (select coalesce(jsonb_agg(y.e order by y.w, y.o), '[]'::jsonb) from (
+                      select x.e, x.o, coalesce(min(z.q), 1000000000) as w
+                        from jsonb_array_elements(arr) with ordinality x(e, o)
+                        left join jsonb_array_elements(op -> 'ids') with ordinality z(id, q) on x.e ->> k = z.id #>> '{}'
+                       group by x.o, x.e) y);
+          end if;
+        end if;
+        d := coalesce(public.ww_set(d, p, arr), d);
+      end if;
+    exception when others then
+      null;
+    end;
+  end loop;
+  return d;
+end $$;
+
+create or replace function public.record_ops(p_id text, p_ops jsonb) returns jsonb
+language plpgsql security invoker set search_path = '' as $$
+declare d jsonb;
+begin
+  select data into d from public.records where id = p_id for update;
+  if not found then raise exception 'Record % not found or not allowed', p_id using errcode = '42501'; end if;
+  update public.records set data = public.ww_apply_ops(d, p_ops), updated_by = auth.uid() where id = p_id returning data into d;
+  if not found then raise exception 'Record % not found or not allowed', p_id using errcode = '42501'; end if;
+  return d;
+end $$;
+
+-- many records in one request (bulk edits, renaming a person everywhere): [{id, ops}] → [{id, error?}]
+create or replace function public.records_ops(p_items jsonb) returns jsonb
+language plpgsql security invoker set search_path = '' as $$
+declare it jsonb; d jsonb; res jsonb := '[]'::jsonb;
+begin
+  if p_items is null or jsonb_typeof(p_items) is distinct from 'array' then return res; end if;
+  if jsonb_array_length(p_items) > 1000 then raise exception 'At most 1000 records per request' using errcode = '22023'; end if;
+  for it in select value from jsonb_array_elements(p_items) loop
+    d := null;
+    select data into d from public.records where id = it ->> 'id' for update;
+    if not found then res := res || jsonb_build_array(jsonb_build_object('id', it ->> 'id', 'error', 'not found or not allowed')); continue; end if;
+    update public.records set data = public.ww_apply_ops(d, it -> 'ops'), updated_by = auth.uid() where id = it ->> 'id';
+    if not found then res := res || jsonb_build_array(jsonb_build_object('id', it ->> 'id', 'error', 'not allowed')); end if;
+  end loop;
+  return res;
+end $$;
+
+create or replace function public.register_ops(p_id text, p_ops jsonb) returns jsonb
+language plpgsql security invoker set search_path = '' as $$
+declare d jsonb;
+begin
+  select data into d from public.registers where id = p_id for update;
+  if not found then raise exception 'Register % not found or not allowed', p_id using errcode = '42501'; end if;
+  update public.registers set data = public.ww_apply_ops(d, p_ops), updated_by = auth.uid() where id = p_id returning data into d;
+  if not found then raise exception 'Register % not found or not allowed', p_id using errcode = '42501'; end if;
+  return d;
+end $$;
+
+create or replace function public.config_ops(p_id text, p_ops jsonb) returns jsonb
+language plpgsql security invoker set search_path = '' as $$
+declare d jsonb;
+begin
+  select data into d from public.app_config where id = p_id for update;
+  if not found then
+    insert into public.app_config (id, data, updated_by) values (p_id, public.ww_apply_ops('{}'::jsonb, p_ops), auth.uid()) returning data into d;
+    return d;
+  end if;
+  update public.app_config set data = public.ww_apply_ops(d, p_ops), updated_at = now(), updated_by = auth.uid() where id = p_id returning data into d;
+  if not found then raise exception 'Settings % not allowed', p_id using errcode = '42501'; end if;
+  return d;
+end $$;
+
+-- Numbers stay unique: when two people add an item at the same moment (or a deleted item is restored after its number
+-- was reused), the second one gets the next free number. Hand-made numbers that do not follow PREFIX-001 are left alone.
+create or replace function public.number_record() returns trigger
+language plpgsql security definer set search_path = '' as $$
+declare k text; pre text; v text; re text; n bigint; s text; g text; taken boolean;
+begin
+  select r.data -> 'roles' ->> 'no', upper(coalesce(nullif(r.data ->> 'prefix', ''), 'REC')) into k, pre
+    from public.registers r where r.id = new.register_id;
+  if k is null or k = '' or public.ww_restoring() then return new; end if;
+  v := new.data ->> k;
+  if v is null or btrim(v) = '' then return new; end if;
+  re := '^' || regexp_replace(pre, '[^A-Z0-9]', '', 'g') || '-([0-9]{1,9})$';
+  if v !~* re then return new; end if;
+  perform pg_advisory_xact_lock(hashtext('ww_no:' || new.register_id));
+  -- planned with the actual values each time, so the records_data index is used (as typed, and in upper case)
+  execute 'select exists (select 1 from public.records x where (x.data @> $1 or x.data @> $2) and x.register_id = $3 and x.id <> $4)'
+    into taken using jsonb_build_object(k, v), jsonb_build_object(k, upper(btrim(v))), new.register_id, new.id;
+  g := 'ww.no_' || md5(new.register_id);   -- the highest number given out in this transaction (the lock keeps others out until it ends)
+  if not taken then
+    n := (regexp_match(v, re, 'i'))[1]::bigint;
+    if current_setting(g, true) is not null and current_setting(g, true) <> '' and n > current_setting(g, true)::bigint then perform set_config(g, n::text, true); end if;
+    return new;
+  end if;
+  if current_setting(g, true) is null or current_setting(g, true) = '' then
+    select coalesce(max(m[1]::bigint), 0) into n from public.records x, regexp_match(x.data ->> k, re, 'i') m where x.register_id = new.register_id;
+  else n := current_setting(g, true)::bigint;
+  end if;
+  loop
+    n := n + 1; s := n::text; if length(s) < 3 then s := lpad(s, 3, '0'); end if;
+    execute 'select exists (select 1 from public.records x where x.data @> $1 and x.register_id = $2)' into taken using jsonb_build_object(k, pre || '-' || s), new.register_id;
+    exit when not taken;
+  end loop;
+  perform set_config(g, n::text, true);
+  new.data := jsonb_set(new.data, array[k], to_jsonb(pre || '-' || s));
+  return new;
+end $$;
+create index if not exists records_data on public.records using gin (data jsonb_path_ops) with (fastupdate = off);
+alter index public.records_data set (fastupdate = off);
+drop trigger if exists number_record on public.records;
+create trigger number_record before insert on public.records for each row execute function public.number_record();
+
+create or replace function public.number_publication() returns trigger
+language plpgsql security definer set search_path = '' as $$
+declare n bigint; s text;
+begin
+  if new.id !~ '^PUB-[0-9]{1,9}$' or public.ww_restoring() then return new; end if;
+  perform pg_advisory_xact_lock(hashtext('ww_pub_no'));
+  if not exists (select 1 from public.publications where id = new.id) then return new; end if;
+  select coalesce(max(substring(id from 5)::bigint), 0) + 1 into n from public.publications where id ~ '^PUB-[0-9]{1,9}$';
+  s := n::text; if length(s) < 3 then s := lpad(s, 3, '0'); end if;
+  new.id := 'PUB-' || s;
+  if jsonb_typeof(new.data) = 'object' then new.data := jsonb_set(new.data, '{no}', to_jsonb(new.id)); end if;
+  return new;
+end $$;
+drop trigger if exists number_publication on public.publications;
+create trigger number_publication before insert on public.publications for each row execute function public.number_publication();
+
+-- Owner comments: the author and the time come from the database, the text can never be edited afterwards,
+-- and only the team can reply or close a comment (who closed it, and when, is recorded).
+alter table public.feedback add column if not exists resolved_by uuid;
+create or replace function public.guard_feedback() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  if auth.uid() is null or public.ww_restoring() then return new; end if;   -- the SQL editor, or a backup being restored
+  if tg_op = 'INSERT' then
+    new.author := auth.uid();
+    new.author_name := (select coalesce(nullif(p.name, ''), p.email) from public.profiles p where p.id = auth.uid());
+    new.status := 'open'; new.reply := null; new.resolved_at := null; new.resolved_by := null; new.created_at := now();
+    if public.my_role() = 'owner' and not exists (select 1 from public.publications p where p.id = new.pub_id) then
+      raise exception 'Comments belong to a published plan' using errcode = '42501';
+    end if;
+    return new;
+  end if;
+  if new.id is distinct from old.id or new.pub_id is distinct from old.pub_id or new.item_id is distinct from old.item_id
+     or new.reg_no is distinct from old.reg_no or new.body is distinct from old.body or new.author is distinct from old.author
+     or new.author_name is distinct from old.author_name or new.created_at is distinct from old.created_at then
+    raise exception 'A comment''s text and author cannot be changed' using errcode = '42501';
+  end if;
+  if new.status = 'resolved' and old.status is distinct from 'resolved' then new.resolved_at := now(); new.resolved_by := auth.uid();
+  elsif new.status = 'open' then new.resolved_at := null; new.resolved_by := null;
+  else new.resolved_at := old.resolved_at; new.resolved_by := old.resolved_by;
+  end if;
+  return new;
+end $$;
+drop trigger if exists guard_feedback on public.feedback;
+create trigger guard_feedback before insert or update on public.feedback for each row execute function public.guard_feedback();
+
+-- Files: removing a file from a record no longer deletes it at once (undo and the change log can bring it back).
+-- An admin clears files nobody uses from Settings → Data & backup; only admins may delete stored files.
+drop policy if exists ww_files_delete on storage.objects;
+create policy ww_files_delete on storage.objects for delete to authenticated
+  using (bucket_id = 'files' and public.my_role() = 'admin' and (
+    (name like 'r/%' and public.can_write_register(split_part(name, '/', 2))) or name not like 'r/%'));
+
+-- files under r/ that no record, register, setting, publication, public link or kept backup uses, and that no change in
+-- the last p_days days touched (so undo still works), older than p_days
+create or replace function public.storage_unused(p_days integer default 30)
+returns table (name text, bytes bigint, created_at timestamptz)
+language plpgsql stable security definer set search_path = '' as $$
+declare since timestamptz := now() - make_interval(days => greatest(coalesce(p_days, 30), 7));
+begin
+  if public.my_role() is distinct from 'admin' then raise exception 'Not allowed' using errcode = '42501'; end if;
+  return query
+  with used as (
+    select m[1] as nm from public.records r, regexp_matches(r.data::text, '"(r/[^"\\]+)"', 'g') m
+    union select m[1] from public.registers r, regexp_matches(r.data::text, '"(r/[^"\\]+)"', 'g') m
+    union select m[1] from public.app_config c, regexp_matches(c.data::text, '"(r/[^"\\]+)"', 'g') m
+    union select m[1] from public.publications p, regexp_matches(p.data::text, '"(r/[^"\\]+)"', 'g') m
+    union select m[1] from public.shares s, regexp_matches(s.data::text, '"(r/[^"\\]+)"', 'g') m
+    union select m[1] from public.audit_log a, regexp_matches(coalesce(a.old::text, '') || coalesce(a.new::text, ''), '"(r/[^"\\]+)"', 'g') m where a.at > since
+    union select m[1] from public.backups b, regexp_matches(b.data::text, '"(r/[^"\\]+)"', 'g') m)
+  select o.name, coalesce((o.metadata ->> 'size')::bigint, 0), o.created_at
+    from storage.objects o
+   where o.bucket_id = 'files' and o.name like 'r/%' and o.created_at < since
+     and public.can_write_register(split_part(o.name, '/', 2))
+     and not exists (select 1 from used u where u.nm = o.name)
+   order by o.created_at;
+end $$;
+
+-- Backups: a full copy of the data every night (14 kept), on demand (10 kept) and before every restore (10 kept).
+-- Downloads leave out other people's private registers; a restore never touches them either.
+create table if not exists public.backups (
+  id bigint generated always as identity primary key,
+  at timestamptz not null default now(),
+  kind text not null default 'manual' check (kind in ('nightly', 'manual', 'before-restore')),
+  by_user uuid,
+  counts jsonb,
+  bytes bigint,
+  data jsonb not null
+);
+alter table public.backups enable row level security;
+revoke all on public.backups from public, anon, authenticated;
+
+create or replace function public.ww_backup(p_kind text) returns bigint
+language plpgsql security definer set search_path = '' as $$
+declare d jsonb; bid bigint;
+begin
+  d := jsonb_build_object('v', 1, 'at', now(),
+    'app_config', (select coalesce(jsonb_agg(jsonb_build_object('id', c.id, 'data', c.data) order by c.id), '[]'::jsonb) from public.app_config c),
+    'registers', (select coalesce(jsonb_agg(jsonb_build_object('id', r.id, 'owner', r.owner, 'visibility', r.visibility, 'data', r.data, 'created_at', r.created_at) order by r.id), '[]'::jsonb) from public.registers r),
+    'records', (select coalesce(jsonb_agg(jsonb_build_object('id', x.id, 'register_id', x.register_id, 'data', x.data, 'created_at', x.created_at, 'created_by', x.created_by) order by x.id), '[]'::jsonb) from public.records x),
+    'publications', (select coalesce(jsonb_agg(to_jsonb(p) order by p.id), '[]'::jsonb) from public.publications p),
+    'feedback', (select coalesce(jsonb_agg(to_jsonb(f) order by f.created_at), '[]'::jsonb) from public.feedback f),
+    'shares', (select coalesce(jsonb_agg(to_jsonb(s) order by s.id), '[]'::jsonb) from public.shares s));
+  insert into public.backups (kind, by_user, counts, bytes, data)
+  values (case when p_kind in ('nightly', 'manual', 'before-restore') then p_kind else 'manual' end, auth.uid(),
+          jsonb_build_object('registers', jsonb_array_length(d -> 'registers'), 'records', jsonb_array_length(d -> 'records'),
+                             'publications', jsonb_array_length(d -> 'publications'), 'feedback', jsonb_array_length(d -> 'feedback')),
+          octet_length(d::text), d)
+  returning id into bid;
+  delete from public.backups b where b.kind = 'nightly' and b.id not in (select b2.id from public.backups b2 where b2.kind = 'nightly' order by b2.id desc limit 14);
+  delete from public.backups b where b.kind = 'manual' and b.id not in (select b2.id from public.backups b2 where b2.kind = 'manual' order by b2.id desc limit 10);
+  delete from public.backups b where b.kind = 'before-restore' and b.id not in (select b2.id from public.backups b2 where b2.kind = 'before-restore' order by b2.id desc limit 10);
+  return bid;
+end $$;
+revoke all on function public.ww_backup(text) from public, anon, authenticated;
+
+create or replace function public.backup_now() returns bigint
+language plpgsql security definer set search_path = '' as $$
+begin
+  if public.my_role() is distinct from 'admin' then raise exception 'Not allowed' using errcode = '42501'; end if;
+  return public.ww_backup('manual');
+end $$;
+
+-- the nightly copy when the database has no scheduler: the first admin or editor to open the site after 20 hours makes it
+create or replace function public.backup_if_due() returns bigint
+language plpgsql security definer set search_path = '' as $$
+begin
+  if auth.uid() is not null and public.my_role() not in ('admin', 'editor') then return null; end if;
+  if exists (select 1 from public.backups b where b.kind = 'nightly' and b.at > now() - interval '20 hours') then return null; end if;
+  perform pg_advisory_xact_lock(hashtext('ww_backup'));
+  if exists (select 1 from public.backups b where b.kind = 'nightly' and b.at > now() - interval '20 hours') then return null; end if;
+  return public.ww_backup('nightly');
+end $$;
+
+create or replace function public.backup_list()
+returns table (id bigint, at timestamptz, kind text, by_name text, counts jsonb, bytes bigint)
+language plpgsql stable security definer set search_path = '' as $$
+begin
+  if public.my_role() is distinct from 'admin' then raise exception 'Not allowed' using errcode = '42501'; end if;
+  return query select b.id, b.at, b.kind, (select coalesce(nullif(p.name, ''), p.email) from public.profiles p where p.id = b.by_user), b.counts, b.bytes
+    from public.backups b order by b.id desc;
+end $$;
+
+create or replace function public.backup_get(p_id bigint) returns jsonb
+language plpgsql stable security definer set search_path = '' as $$
+declare b jsonb; me uuid := auth.uid(); keep jsonb;
+begin
+  if public.my_role() is distinct from 'admin' then raise exception 'Not allowed' using errcode = '42501'; end if;
+  select x.data into b from public.backups x where x.id = p_id;
+  if b is null then raise exception 'Backup % not found', p_id using errcode = 'P0002'; end if;
+  keep := (select coalesce(jsonb_agg(r), '[]'::jsonb) from jsonb_array_elements(b -> 'registers') r
+            where r ->> 'visibility' = 'team' or r ->> 'owner' = me::text);
+  return b || jsonb_build_object('registers', keep,
+    'records', (select coalesce(jsonb_agg(x), '[]'::jsonb) from jsonb_array_elements(b -> 'records') x
+                 where x ->> 'register_id' in (select k ->> 'id' from jsonb_array_elements(keep) k)));
+end $$;
+
+-- Put the team's registers, records and settings back as they were in a backup. Other people's private registers are
+-- left as they are; publications and Owner comments made since are kept. A copy is taken first, so a restore can be undone.
+create or replace function public.backup_restore(p_id bigint, p_confirm text) returns jsonb
+language plpgsql security definer set search_path = '' as $$
+declare b jsonb; me uuid := auth.uid(); res jsonb := '{}'::jsonb; n int;
+begin
+  if public.my_role() is distinct from 'admin' then raise exception 'Not allowed' using errcode = '42501'; end if;
+  if p_confirm is distinct from 'RESTORE' then raise exception 'Type RESTORE to confirm' using errcode = '22023'; end if;
+  select x.data into b from public.backups x where x.id = p_id;
+  if b is null then raise exception 'Backup % not found', p_id using errcode = 'P0002'; end if;
+  perform pg_advisory_xact_lock(hashtext('ww_backup'));
+  res := res || jsonb_build_object('before', public.ww_backup('before-restore'));
+  perform set_config('ww.restoring', '1', true);
+  drop table if exists pg_temp.ww_br, pg_temp.ww_bc;
+  create temp table ww_br on commit drop as
+    select r ->> 'id' as id, (r ->> 'owner')::uuid as owner, r ->> 'visibility' as vis, r -> 'data' as data
+      from jsonb_array_elements(b -> 'registers') r where r ->> 'visibility' = 'team' or r ->> 'owner' = me::text;
+  create temp table ww_bc on commit drop as
+    select x ->> 'id' as id, x ->> 'register_id' as rid, x -> 'data' as data, nullif(x ->> 'created_by', '')::uuid as created_by
+      from jsonb_array_elements(b -> 'records') x where x ->> 'register_id' in (select id from pg_temp.ww_br);
+  -- registers made since the backup (team ones, and the caller's own)
+  delete from public.registers r where (r.visibility = 'team' or r.owner = me)
+    and not exists (select 1 from jsonb_array_elements(b -> 'registers') x where x ->> 'id' = r.id);
+  get diagnostics n = row_count; res := res || jsonb_build_object('registers_removed', n);
+  insert into public.registers (id, owner, visibility, data)
+    select w.id, case when exists (select 1 from auth.users u where u.id = w.owner) then w.owner else me end, w.vis, w.data
+      from pg_temp.ww_br w where not exists (select 1 from public.registers r where r.id = w.id);
+  get diagnostics n = row_count; res := res || jsonb_build_object('registers_back', n);
+  update public.registers r set data = w.data, visibility = w.vis from pg_temp.ww_br w
+   where r.id = w.id and (r.visibility = 'team' or r.owner = me) and (r.data is distinct from w.data or r.visibility is distinct from w.vis);
+  get diagnostics n = row_count; res := res || jsonb_build_object('registers_changed', n);
+  delete from public.records c where c.register_id in (select id from pg_temp.ww_br) and not exists (select 1 from pg_temp.ww_bc x where x.id = c.id)
+    and exists (select 1 from public.registers r where r.id = c.register_id and (r.visibility = 'team' or r.owner = me));
+  get diagnostics n = row_count; res := res || jsonb_build_object('records_removed', n);
+  insert into public.records (id, register_id, data, created_by)
+    select x.id, x.rid, x.data, x.created_by from pg_temp.ww_bc x
+     where not exists (select 1 from public.records c where c.id = x.id) and exists (select 1 from public.registers r where r.id = x.rid and (r.visibility = 'team' or r.owner = me));
+  get diagnostics n = row_count; res := res || jsonb_build_object('records_back', n);
+  update public.records c set data = x.data from pg_temp.ww_bc x where c.id = x.id and c.register_id = x.rid and c.data is distinct from x.data
+    and exists (select 1 from public.registers r where r.id = c.register_id and (r.visibility = 'team' or r.owner = me));
+  get diagnostics n = row_count; res := res || jsonb_build_object('records_changed', n);
+  insert into public.app_config (id, data) select c ->> 'id', c -> 'data' from jsonb_array_elements(b -> 'app_config') c
+    on conflict (id) do update set data = excluded.data, updated_at = now() where public.app_config.data is distinct from excluded.data;
+  insert into public.publications (id, data, created_at, created_by)
+    select p ->> 'id', p -> 'data', (p ->> 'created_at')::timestamptz, nullif(p ->> 'created_by', '')::uuid from jsonb_array_elements(b -> 'publications') p
+    where not exists (select 1 from public.publications x where x.id = p ->> 'id')
+    on conflict (id) do nothing;
+  insert into public.feedback (id, pub_id, item_id, reg_no, body, author, author_name, status, reply, created_at, resolved_at, resolved_by)
+    select (f ->> 'id')::uuid, f ->> 'pub_id', f ->> 'item_id', f ->> 'reg_no', f ->> 'body', (f ->> 'author')::uuid, f ->> 'author_name',
+           coalesce(f ->> 'status', 'open'), f ->> 'reply', (f ->> 'created_at')::timestamptz, (f ->> 'resolved_at')::timestamptz, nullif(f ->> 'resolved_by', '')::uuid
+      from jsonb_array_elements(b -> 'feedback') f
+    on conflict (id) do nothing;
+  return res;
+end $$;
+
+-- nightly at 02:00 Manila time (18:00 UTC) when the database has a scheduler (Supabase: Database → Extensions → pg_cron)
+do $$ begin
+  create extension if not exists pg_cron;
+  perform cron.unschedule(j.jobid) from cron.job j where j.jobname = 'ww-nightly-backup';
+  perform cron.schedule('ww-nightly-backup', '0 18 * * *', 'select public.backup_if_due()');
+exception when others then
+  raise notice 'Nightly backup not scheduled (%): the site makes the daily copy when an admin or editor opens it.', sqlerrm;
+end $$;
+
+do $$ declare f text; begin
+  foreach f in array array['public.ww_path(jsonb,jsonb)', 'public.ww_set(jsonb,text[],jsonb)', 'public.ww_apply_ops(jsonb,jsonb)',
+                           'public.record_ops(text,jsonb)', 'public.records_ops(jsonb)', 'public.register_ops(text,jsonb)', 'public.config_ops(text,jsonb)',
+                           'public.storage_unused(integer)', 'public.backup_now()', 'public.backup_if_due()', 'public.backup_list()',
+                           'public.backup_get(bigint)', 'public.backup_restore(bigint,text)', 'public.ww_restoring()'] loop
     execute 'revoke all on function ' || f || ' from public, anon';
     execute 'grant execute on function ' || f || ' to authenticated';
   end loop; end $$;

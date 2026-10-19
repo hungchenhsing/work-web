@@ -39,7 +39,7 @@ function pkgUpgrade(){
     var mig = {at:new Date().toISOString(), key:j.p.f.key, prev:clone(j.p.f.tree), prevVer:j.p.f.treeVer || '', moves:j.p.moves};
     return STORE.patchReg(j.reg.id, {fields:fs, pkgMig:mig}).then(function(){
       var i = 0; function next(){ var b = j.p.moves.slice(i, i + 20); i += 20; if(!b.length) return Promise.resolve();
-        return Promise.all(b.map(function(m){ var r = getRec(m.id); if(!r) return null; var pt = {}; pt[j.p.f.key] = m.to; moved++; return setRec(r, pt, {silent:true}); })).then(next); }
+        return setRecs(b.map(function(m){ var r = getRec(m.id); if(!r) return null; var pt = {}; pt[j.p.f.key] = m.to; moved++; return {rec:r, patch:pt}; })).then(next); }
       return next(); });
   })).then(function(){ return ctItemsUpgrade(); }).then(function(added){
     if(!jobs.length && !added) return;
@@ -163,7 +163,7 @@ function pkgUndo(regId){
   var back = mg.moves.filter(function(m){ var r = getRec(m.id); return r && r.d[mg.key] === m.to; });
   Promise.all(extra.map(function(id){ return STORE.deleteRec(id); }))
     .then(function(){ return STORE.patchReg(reg.id, {fields:fs, pkgMig:null, ctItems:ci ? {ver:CT_ITEMS_VER, at:ci.at, ids:[], removed:true} : null}); })
-    .then(function(){ return Promise.all(back.map(function(m){ var pt = {}; pt[mg.key] = m.from; return setRec(getRec(m.id), pt, {silent:true}); })); })
+    .then(function(){ return setRecs(back.map(function(m){ var pt = {}; pt[mg.key] = m.from; return {rec:getRec(m.id), patch:pt}; })); })
     .then(function(){ closeModal(); toast(T('Previous packages restored.', '已恢复原来的文件包。')); });
 }
 /* a banner until each person has seen the change once (per browser) */

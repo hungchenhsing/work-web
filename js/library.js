@@ -265,7 +265,7 @@ document.addEventListener('click', function(ev){
     case 'libDel': S.libDel = true; renderMain(); break;
     case 'libDelYes': (function(){ var ids = Object.keys(S.libSel || {}).filter(function(k){ return S.libSel[k]; }); S.libSel = {}; S.libDel = false; Promise.all(ids.map(function(id){ return STORE.deleteRec(id).catch(function(){}); })).then(function(){ toast(T(ids.length + ' deleted — restore them from the Change log', '已删除 ' + ids.length + ' 项，可在修改记录中恢复')); }); renderMain(); })(); break;
     case 'libLinkTo': openModal({kind:'libTarget', q:'', reg:''}); break;
-    case 'libExt': (function(){ var on = v === '1', ids = Object.keys(S.libSel || {}).filter(function(k){ return S.libSel[k]; }), n = 0; ids.forEach(function(id){ var d = getRec(id); if(d && !!d.d.ext !== on){ n++; setRec(d, {ext:on}, {silent:true}); } }); toast(on ? T(n + ' document(s) now shown in Owner-mode presentations', n + ' 个文件已显示于业主计划') : T(n + ' document(s) removed from the Owner plan', n + ' 个文件已移出业主计划')); })(); break;
+    case 'libExt': (function(){ var on = v === '1', ids = Object.keys(S.libSel || {}).filter(function(k){ return S.libSel[k]; }), n = 0; var L0 = []; ids.forEach(function(id){ var d = getRec(id); if(d && !!d.d.ext !== on){ n++; L0.push({rec:d, patch:{ext:on}}); } }); setRecs(L0); toast(on ? T(n + ' document(s) now shown in Owner-mode presentations', n + ' 个文件已显示于业主计划') : T(n + ' document(s) removed from the Owner plan', n + ' 个文件已移出业主计划')); })(); break;
     case 'libTargetGo': (function(){ var tgt = getRec(v), ids = Object.keys(S.libSel || {}).filter(function(k){ return S.libSel[k]; }); closeModal(); if(!tgt || !ids.length) return; addRels(tgt, ids, 'rel').then(function(){ S.libSel = {}; toast(T(ids.length + ' document(s) linked to ' + recLabel(tgt), ids.length + ' 个文件已关联到 ' + recLabel(tgt)), {act:'openRecV', v:tgt.id, label:T('Open', '打开')}); renderMain(); }); })(); break;
   }
 });
@@ -294,7 +294,7 @@ document.addEventListener('change', function(e){
   if(el.dataset.librev && el.files && el.files[0]){ uploadRevision(getRec(el.dataset.librev), el.files[0]); el.value = ''; return; }
   if(el.dataset.libf){ S.lib[el.dataset.libf] = el.value; renderMain(); return; }
   if(el.classList && el.classList.contains('libsel')){ S.libSel = S.libSel || {}; S.libSel[el.dataset.id] = el.checked; S.libDel = false; renderMain(); return; }
-  if(el.id === 'libBulkSt' && el.value){ var st = el.value, ids = Object.keys(S.libSel || {}).filter(function(k){ return S.libSel[k]; }); ids.forEach(function(id){ var d = getRec(id); if(d) setRec(d, {status:st}, {silent:true}); }); toast(T('Status set on ' + ids.length, '已设置 ' + ids.length + ' 项的状态')); return; }
+  if(el.id === 'libBulkSt' && el.value){ var st = el.value, ids = Object.keys(S.libSel || {}).filter(function(k){ return S.libSel[k]; }); setRecs(ids.map(function(id){ return {rec:getRec(id), patch:{status:st}}; })); toast(T('Status set on ' + ids.length, '已设置 ' + ids.length + ' 项的状态')); return; }
 });
 /* drop files on a record (drawer, table row, Related panel) or on the library page */
 function dropTarget(ev){

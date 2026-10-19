@@ -377,7 +377,7 @@ async function shareDeck(deck){
   var max = 0; (STORE.pubs || []).forEach(function(p){ var mm = /PUB-(\d+)/.exec(p.no || ''); if(mm) max = Math.max(max, +mm[1]); });
   var no = 'PUB-' + String(max + 1).padStart(3, '0'), d = deck.d;
   var pub = {kind:'deck', no:no, at:new Date().toISOString(), by:(STORE.me && (STORE.me.name || STORE.me.email)) || '', note:(d.no || '') + ' · ' + (d.date || ''), deckId:deck.id, deckNo:d.no || '', title:{en:d.title || '', zh:d.titleZh || ''}, date:d.date || '', lang:d.lang || 'en', presenter:d.presenter || '', slides:slides, data:keep, theme:theme, count:slides.length};
-  try{ await STORE.createPub(no, pub); toast(T('Shared with the Owner as ' + no, '已作为 ' + no + ' 发给业主') + (bad ? ' · ' + T(bad + ' photo(s) could not be included', bad + ' 张照片未能附上') : '')); }
+  try{ var no2 = await STORE.createPub(no, pub); if(no2) no = no2; toast(T('Shared with the Owner as ' + no, '已作为 ' + no + ' 发给业主') + (bad ? ' · ' + T(bad + ' photo(s) could not be included', bad + ' 张照片未能附上') : '')); }
   catch(e){ toast(errText(e)); }
 }
 function pubDeck(p){ return {id:p.deckId || p.id, d:{no:p.deckNo, title:p.title && p.title.en, titleZh:p.title && p.title.zh, date:p.date, lang:p.lang, aud:'owner', presenter:p.presenter, status:'issued', slides:p.slides, theme:p.theme || null}}; }

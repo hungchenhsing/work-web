@@ -35,13 +35,14 @@ function DemoStore(){
     createRec: function(r){ var o = {id:r.id, reg:r.reg, d:clone(r.d), ca:new Date().toISOString(), ua:new Date().toISOString(), ub:'Demo'}; st.recs.push(o); log({register_id:r.reg, record_id:r.id, action:'insert', new:clone(r.d)}); api.save(); return Promise.resolve(); },
     createRecs: function(arr){ arr.forEach(function(r){ var o = {id:r.id, reg:r.reg, d:clone(r.d), ca:new Date().toISOString(), ua:new Date().toISOString(), ub:'Demo'}; st.recs.push(o); log({register_id:r.reg, record_id:r.id, action:'insert', new:clone(r.d)}); }); api.save(); return Promise.resolve({ok:arr.length, failed:0}); },
     patchRec: function(id, p){ var r = rec(id); if(!r) return Promise.resolve(); var old = clone(r.d); Object.assign(r.d, clone(p)); var k = auditDiff(old, r.d); if(k.length) log({register_id:r.reg, record_id:id, action:'update', keys:k, old:pick(old, k), new:pick(r.d, k)}); r.ua = new Date().toISOString(); r.ub = 'Demo'; api.save(); return Promise.resolve(); },
+    patchRecs: function(list){ var sv = api.save; api.save = function(){}; try{ list.forEach(function(x){ api.patchRec(x.id, x.patch); }); } finally{ api.save = sv; } api.save(); return Promise.resolve({ok:list.length, failed:0}); },
     deleteRec: function(id){ var r = rec(id); if(!r) return Promise.resolve(); st.recs = st.recs.filter(function(x){ return x.id !== id; }); log({register_id:r.reg, record_id:id, action:'delete', old:clone(r.d)}); api.save(); return Promise.resolve(); },
     restoreRec: function(r){ var ex = rec(r.id); if(ex) return api.patchRec(r.id, r.d); return api.createRec(r); },
     ensurePubs: function(){ return Promise.resolve(); },
     auditRow: function(id){ return Promise.resolve(st.audit.filter(function(a){ return a.id === id; })[0] || null); },
     pubFull: function(id){ return Promise.resolve(st.pubs.filter(function(x){ return x.id === id; })[0] || null); },
     loadAudit: function(o){ o = o || {}; var rows = st.audit.filter(function(a){ return (!o.reg || a.register_id === o.reg) && (!o.rec || a.record_id === o.rec) && (!o.before || a.id < o.before) && (!o.since || a.at >= o.since); }); return Promise.resolve(rows.slice(0, o.limit || 200)); },
-    createPub: function(id, data){ st.pubs.unshift(Object.assign({id:id}, clone(data))); api.save(); return Promise.resolve(); },
+    createPub: function(id, data){ st.pubs.unshift(Object.assign({id:id}, clone(data))); api.save(); return Promise.resolve(id); },
     deletePub: function(id){ st.pubs = st.pubs.filter(function(x){ return x.id !== id; }); api.save(); return Promise.resolve(); },
     /* public links (the demo keeps them in this browser and builds the public copy the way the database does) */
     shareList: function(){ return Promise.resolve((st.shares || []).map(function(x){ var d = x.data || {}; return {id:x.id, revoked:!!x.revoked, expires_at:x.expires_at || null, views:x.views || 0, last_view:x.last_view || null, created_at:x.created_at, kind:d.kind, mode:d.mode, title:d.title, cfg:d.cfg, snapAt:d.snapAt || null, v:d.v || null}; })); },
@@ -149,6 +150,8 @@ function CloudStore(url, key){
       api.audit.forEach(function(x){ if(x.id > (api._auditMax || 0)) api._auditMax = x.id; });
       notify();
     }).catch(fail);
+    /* the daily backup when the database has no scheduler (v2.9): made by the first admin or editor who opens the site */
+    if(role === 'admin' || role === 'editor') sb.rpc('backup_if_due').then(function(){}, function(){});
   }
   function seenAt(ts){ if(ts && (!api._sync || ts > api._sync)) api._sync = ts; }
   /* what changed while this page was asleep or offline: rows updated since the newest one seen, deletions from the change log */
@@ -164,9 +167,9 @@ function CloudStore(url, key){
       var ch = 0, fresh = {};
       if(!r[0].error) (r[0].data || []).forEach(function(x){ var o = rowReg(x), i = findI(api.regs, o.id); if(i >= 0) api.regs[i] = o; else api.regs.push(o); seenAt(x.updated_at); ch++; });
       if(!r[1].error) (r[1].data || []).forEach(function(x){ var o = rowRec(x), i = findI(api.recs, o.id); fresh[o.id] = 1; seenAt(x.updated_at);
-        if(i >= 0 && api.recs[i].reg === o.reg && same(api.recs[i].d, o.d)){ api.recs[i].ua = o.ua; return; }
+        if(i >= 0 && api.recs[i].reg === o.reg && sameData(api.recs[i].d, o.d)){ api.recs[i].ua = o.ua; return; }
         if(i >= 0) api.recs[i] = o; else api.recs.push(o); ch++; });
-      if(!r[2].error && r[2].data && r[2].data[0] && !same(api.cfg, r[2].data[0].data)){ api.cfg = r[2].data[0].data; ch++; }
+      if(!r[2].error && r[2].data && r[2].data[0] && !sameData(api.cfg, r[2].data[0].data)){ api.cfg = r[2].data[0].data; ch++; }
       if(r[3] && !r[3].error) (r[3].data || []).forEach(function(a){
         if(a.action === 'delete' && !fresh[a.record_id]){ var i = findI(api.recs, a.record_id); if(i >= 0){ api.recs.splice(i, 1); ch++; } }
         if(a.action === 'reg_delete' && !api.regs.some(function(g){ return g.id === a.register_id && g.ua > a.at; })){ var j = findI(api.regs, a.register_id); if(j >= 0){ api.regs.splice(j, 1); api.recs = api.recs.filter(function(x){ return x.reg !== a.register_id; }); ch++; } }
@@ -187,26 +190,28 @@ function CloudStore(url, key){
       if(p.eventType === 'DELETE'){ var i0 = findI(api.recs, p.old.id); if(i0 >= 0) api.recs.splice(i0, 1); }
       else { var r = rowRec(p.new), i = findI(api.recs, r.id); seenAt(p.new.updated_at);
         /* the echo of our own change: the data is already on screen, so no redraw */
-        if(i >= 0 && api.recs[i].reg === r.reg && same(api.recs[i].d, r.d)){ api.recs[i].ua = r.ua; api.recs[i].ub = r.ub; return; }
+        if(i >= 0 && api.recs[i].reg === r.reg && sameData(api.recs[i].d, r.d)){ api.recs[i].ua = r.ua; api.recs[i].ub = r.ub; return; }
         if(i >= 0) api.recs[i] = r; else api.recs.push(r); }
-      notify();
+      notifyRemote();
     }).on('postgres_changes', {event:'*', schema:'public', table:'registers'}, function(p){
       if(p.eventType === 'DELETE'){ var i0 = findI(api.regs, p.old.id); if(i0 >= 0) api.regs.splice(i0, 1); api.recs = api.recs.filter(function(x){ return x.reg !== p.old.id; }); }
-      else { var r = rowReg(p.new), i = findI(api.regs, r.id); seenAt(p.new.updated_at); if(i >= 0) api.regs[i] = r; else api.regs.push(r); }
-      notify();
+      else { var r = rowReg(p.new), i = findI(api.regs, r.id); seenAt(p.new.updated_at);
+        if(i >= 0 && api.regs[i].vis === r.vis && sameData(api.regs[i].d, r.d)){ api.regs[i].ua = r.ua; return; }   /* the echo of our own change */
+        if(i >= 0) api.regs[i] = r; else api.regs.push(r); }
+      notifyRemote();
     }).on('postgres_changes', {event:'INSERT', schema:'public', table:'audit_log'}, function(p){
       if(p.new.id > (api._auditMax || 0)) api._auditMax = p.new.id;
-      if(!api.audit.some(function(x){ return x.id === p.new.id; })){ api.audit.unshift(p.new); if(api.audit.length > 600) api.audit.length = 600; notifySoft(); }
+      if(!api.audit.some(function(x){ return x.id === p.new.id; })){ api.audit.unshift(p.new); if(api.audit.length > 600) api.audit.length = 600; notifyRemote(true); }
     }).on('postgres_changes', {event:'*', schema:'public', table:'app_config'}, function(p){
-      if(p.eventType !== 'DELETE' && p.new.id === 'main'){ api.cfg = p.new.data; notify(); }
+      if(p.eventType !== 'DELETE' && p.new.id === 'main'){ api.cfg = p.new.data; notifyRemote(); }
     }).on('postgres_changes', {event:'*', schema:'public', table:'publications'}, function(p){
       if(p.eventType === 'DELETE') api.pubs = api.pubs.filter(function(x){ return x.id !== p.old.id; });
       else { var o = Object.assign({}, p.new.data, {id:p.new.id}), i = findI(api.pubs, o.id); if(i >= 0) api.pubs[i] = o; else api.pubs.unshift(o); }
-      notify();
+      notifyRemote();
     }).on('postgres_changes', {event:'*', schema:'public', table:'feedback'}, function(p){
       if(p.eventType === 'DELETE') api.fb = api.fb.filter(function(x){ return x.id !== p.old.id; });
       else { var i = findI(api.fb, p.new.id); if(i >= 0) api.fb[i] = p.new; else api.fb.push(p.new); }
-      notify();
+      notifyRemote();
     }).subscribe(function(status){ api.rt = status === 'SUBSCRIBED' ? 'live' : (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' ? 'off' : 'connecting');
       if(status === 'SUBSCRIBED'){ if(api._wasDown) api.catchUp(); api._wasDown = false; } else if(status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') api._wasDown = true;
       notifySoft(); });
@@ -214,8 +219,19 @@ function CloudStore(url, key){
   /* after a failed write: show what the server has. A failed read (no connection) changes nothing */
   function reloadRec(id){ sb.from('records').select('id,register_id,data,created_at,updated_at,updated_by').eq('id', id).maybeSingle().then(function(r){ if(r.error) return; var i = findI(api.recs, id); if(r.data){ if(i >= 0) api.recs[i] = rowRec(r.data); else api.recs.push(rowRec(r.data)); } else if(i >= 0) api.recs.splice(i, 1); notify(); }); }
   function reloadReg(id){ sb.from('registers').select('id,owner,visibility,data,updated_at').eq('id', id).maybeSingle().then(function(r){ if(r.error) return; var i = findI(api.regs, id); if(r.data){ if(i >= 0) api.regs[i] = rowReg(r.data); } else if(i >= 0) api.regs.splice(i, 1); notify(); }); }
-  api.saveCfg = function(p){ var prev = api.cfg; api.cfg = Object.assign({}, api.cfg || {}, clone(p)); notify();
-    return sb.rpc('config_patch', {p_id:'main', p_patch:p}).then(function(r){ if(r.error) throw r.error; }).catch(function(e){ api.cfg = prev; notify(); failSave(e); throw e; }); };
+  api.saveCfg = function(p){ var prev = api.cfg, ops = patchOps(prev || {}, p); api.cfg = Object.assign({}, api.cfg || {}, clone(p)); notify();
+    if(!ops.length) return Promise.resolve();
+    return opsCall('config_ops', 'config_patch', 'main', ops, p).then(function(r){ if(r.error) throw r.error; })
+      .catch(function(e){ api.cfg = prev; notify(); failSave(e); throw e; }); };
+  /* element-level writes (v2.9): only what changed is sent, and the database applies it to what it holds now.
+     Until schema.sql is updated the older whole-value patch is used. */
+  function noFn(e){ return !!e && (e.code === 'PGRST202' || e.code === '42883' || /could not find the function/i.test(e.message || '')); }
+  function opsCall(fn, oldFn, id, ops, p){
+    if(ops && !api._noOps) return sb.rpc(fn, {p_id:id, p_ops:ops}).then(function(r){ if(r.error && noFn(r.error)){ api._noOps = true; return opsCall(fn, oldFn, id, null, p); } return r; });
+    return sb.rpc(oldFn, {p_id:id, p_patch:p});
+  }
+  function applyLocal(d, p){ Object.keys(p).forEach(function(k){ if(p[k] === undefined) delete d[k]; else d[k] = clone(p[k]); }); }
+  var pend = {};   /* writes still on their way, per record: the server's copy is taken only when the last one returns */
   /* the values a patch replaces, to put back if the server refuses it */
   function before(d, p){ var o = {}; Object.keys(p).forEach(function(k){ o[k] = d[k] === undefined ? undefined : clone(d[k]); }); return o; }
   function putBack(d, o){ Object.keys(o).forEach(function(k){ if(o[k] === undefined) delete d[k]; else d[k] = o[k]; }); }
@@ -226,28 +242,74 @@ function CloudStore(url, key){
     return sb.from('registers').insert({id:r.id, visibility:r.vis || 'team', data:r.d}).then(function(x){ if(x.error) throw x.error; }).catch(function(e){ var i = findI(api.regs, r.id); if(i >= 0) api.regs.splice(i, 1); notify(); throw e; });
   };
   api.restoreReg = api.createReg;
-  api.patchReg = function(id, p){ var i = findI(api.regs, id), old = i >= 0 ? before(api.regs[i].d, p) : {}; if(i >= 0) Object.assign(api.regs[i].d, clone(p)); notify();
-    return sb.rpc('register_patch', {p_id:id, p_patch:p}).then(function(r){ if(r.error) throw r.error; }).catch(function(e){ var j = findI(api.regs, id); if(j >= 0){ putBack(api.regs[j].d, old); notify(); } reloadReg(id); throw e; }); };
+  api.patchReg = function(id, p){ var i = findI(api.regs, id), old = i >= 0 ? before(api.regs[i].d, p) : {}, ops = i >= 0 ? patchOps(api.regs[i].d, p) : null, pk = 'reg:' + id;
+    if(i >= 0) applyLocal(api.regs[i].d, p); notify();
+    if(ops && !ops.length) return Promise.resolve();
+    pend[pk] = (pend[pk] || 0) + 1;
+    function done(){ var last = pend[pk] === 1; if(!--pend[pk]) delete pend[pk]; return last; }
+    return opsCall('register_ops', 'register_patch', id, ops, p).then(function(r){ var last = done(); if(r.error) throw r.error;
+        if(last && r.data && typeof r.data === 'object'){ var j = findI(api.regs, id); if(j >= 0 && !sameData(api.regs[j].d, r.data)){ api.regs[j].d = cleanFields(r.data); notifyRemote(); } } },
+      function(e){ done(); throw e; })
+      .catch(function(e){ var j = findI(api.regs, id); if(j >= 0){ putBack(api.regs[j].d, old); notify(); } reloadReg(id); throw e; }); };
   api.setRegVis = function(id, vis){ var i = findI(api.regs, id); if(i >= 0) api.regs[i].vis = vis; notify(); return sb.from('registers').update({visibility:vis}).eq('id', id).select('id').then(function(r){ if(r.error) throw r.error; if(!r.data || !r.data.length) throw new Error('permission'); }).catch(function(e){ reloadReg(id); throw e; }); };
   api.deleteReg = function(id){ var i = findI(api.regs, id); var keep = i >= 0 ? api.regs[i] : null; if(i >= 0) api.regs.splice(i, 1); var kr = api.recs.filter(function(x){ return x.reg === id; }); api.recs = api.recs.filter(function(x){ return x.reg !== id; }); notify();
     return sb.from('registers').delete().eq('id', id).select('id').then(function(r){ if(r.error) throw r.error; if(!r.data || !r.data.length) throw new Error('permission'); }).catch(function(e){ if(keep){ api.regs.push(keep); api.recs = api.recs.concat(kr); notify(); } throw e; }); };
+  /* the database may give a new item the next free number (someone else took that one meanwhile): take what it stored */
+  function takeServer(sent, row){
+    if(!row || !row.data) return null; var i = findI(api.recs, row.id); if(i < 0) return null; var ch = null;
+    Object.keys(row.data).forEach(function(k){ if(!sameData(sent[k], row.data[k])){ api.recs[i].d[k] = clone(row.data[k]); ch = {key:k, from:sent[k], to:row.data[k]}; } });
+    return ch;
+  }
   api.createRec = function(r){
     api.recs.push({id:r.id, reg:r.reg, d:clone(r.d), ca:new Date().toISOString(), ua:new Date().toISOString()}); notify();
-    return sb.from('records').insert({id:r.id, register_id:r.reg, data:r.d}).then(function(x){ if(x.error) throw x.error; }).catch(function(e){ var i = findI(api.recs, r.id); if(i >= 0) api.recs.splice(i, 1); notify(); throw e; });
+    return sb.from('records').insert({id:r.id, register_id:r.reg, data:r.d}).select('id,data').then(function(x){ if(x.error) throw x.error;
+        var ch = takeServer(r.d, x.data && x.data[0]);
+        if(ch){ notify(); if(typeof ch.to === 'string') toast(T(String(ch.from) + ' was already used — this item is ' + ch.to, String(ch.from) + ' 已被使用，此项编号为 ' + ch.to)); } })
+      .catch(function(e){ var i = findI(api.recs, r.id); if(i >= 0) api.recs.splice(i, 1); notify(); throw e; });
   };
+  /* many new records (import, templates): shown at once, written 200 per request */
   api.createRecs = async function(arr, onProgress){
-    var ok = 0, failed = 0;
+    var ok = 0, failed = 0, renumbered = 0, now = new Date().toISOString(), mine = {};
+    arr.forEach(function(x){ if(findI(api.recs, x.id) < 0){ mine[x.id] = 1; api.recs.push({id:x.id, reg:x.reg, d:clone(x.d), ca:now, ua:now}); } }); notify();
     for(var i = 0; i < arr.length; i += 200){
-      var chunk = arr.slice(i, i + 200);
-      var r = await sb.from('records').insert(chunk.map(function(x){ return {id:x.id, register_id:x.reg, data:x.d}; }));
-      if(r.error){ failed += chunk.length; } else { ok += chunk.length; chunk.forEach(function(x){ if(findI(api.recs, x.id) < 0) api.recs.push({id:x.id, reg:x.reg, d:clone(x.d), ca:new Date().toISOString(), ua:new Date().toISOString()}); }); }
+      var chunk = arr.slice(i, i + 200), r = await sb.from('records').insert(chunk.map(function(x){ return {id:x.id, register_id:x.reg, data:x.d}; })).select('id,data');
+      if(r.error){ failed += chunk.length; var gone = {}; chunk.forEach(function(x){ if(mine[x.id]) gone[x.id] = 1; }); api.recs = api.recs.filter(function(x){ return !gone[x.id]; }); }
+      else { ok += chunk.length; var byId = {}; chunk.forEach(function(x){ byId[x.id] = x; }); (r.data || []).forEach(function(row){ if(byId[row.id] && takeServer(byId[row.id].d, row)) renumbered++; }); }
       if(onProgress) onProgress(Math.min(arr.length, i + 200), arr.length);
     }
-    notify(); return {ok:ok, failed:failed};
+    notify(); return {ok:ok, failed:failed, renumbered:renumbered};
   };
-  api.patchRec = function(id, p){
-    var i = findI(api.recs, id), old = i >= 0 ? before(api.recs[i].d, p) : {}; if(i >= 0){ Object.assign(api.recs[i].d, clone(p)); api.recs[i].ua = new Date().toISOString(); } notify();
-    return sb.rpc('record_patch', {p_id:id, p_patch:p}).then(function(r){ if(r.error) throw r.error; }).catch(function(e){ var j = findI(api.recs, id); if(j >= 0){ putBack(api.recs[j].d, old); notify(); } failSave(e); reloadRec(id); throw e; });
+  /* base (optional): the values the change starts from, when that is not what this page shows now (undo: what I had set) */
+  api.patchRec = function(id, p, base){
+    var i = findI(api.recs, id), old = i >= 0 ? before(api.recs[i].d, p) : {}, ops = i >= 0 ? patchOps(base || api.recs[i].d, p) : null;
+    if(i >= 0){ applyLocal(api.recs[i].d, p); api.recs[i].ua = new Date().toISOString(); } notify();
+    if(ops && !ops.length) return Promise.resolve();
+    pend[id] = (pend[id] || 0) + 1;
+    function done(){ var last = pend[id] === 1; if(!--pend[id]) delete pend[id]; return last; }
+    return opsCall('record_ops', 'record_patch', id, ops, p).then(function(r){ var last = done(); if(r.error) throw r.error;
+        /* what the database now holds (it may include what others changed meanwhile) */
+        if(last && r.data && typeof r.data === 'object'){ var j = findI(api.recs, id); if(j >= 0 && !sameData(api.recs[j].d, r.data)){ api.recs[j].d = r.data; notifyRemote(); } } },
+      function(e){ done(); throw e; })
+      .catch(function(e){ var j = findI(api.recs, id); if(j >= 0){ putBack(api.recs[j].d, old); notify(); } failSave(e); reloadRec(id); throw e; });
+  };
+  /* the same change to many records (bulk edit, renaming a person, import updates): one request per 200 records */
+  api.patchRecs = async function(list, onProgress){
+    var items = [], olds = {}, now = new Date().toISOString();
+    list.forEach(function(x){ var i = findI(api.recs, x.id); if(i < 0) return; var ops = patchOps(api.recs[i].d, x.patch); if(!ops.length) return;
+      olds[x.id] = before(api.recs[i].d, x.patch); applyLocal(api.recs[i].d, x.patch); api.recs[i].ua = now; items.push({id:x.id, ops:ops, patch:x.patch}); });
+    notify();
+    var ok = 0, failed = [], err = null;
+    for(var s = 0; s < items.length; s += 200){
+      var chunk = items.slice(s, s + 200), r = null;
+      if(!api._noOps){ r = await sb.rpc('records_ops', {p_items:chunk.map(function(x){ return {id:x.id, ops:x.ops}; })}); if(r.error && noFn(r.error)){ api._noOps = true; r = null; } }
+      if(!r){ var res = await Promise.all(chunk.map(function(x){ return sb.rpc('record_patch', {p_id:x.id, p_patch:x.patch}).then(function(y){ if(y.error){ err = err || y.error; return x.id; } return null; }, function(e){ err = err || e; return x.id; }); }));
+        res.forEach(function(id){ if(id) failed.push(id); else ok++; }); }
+      else if(r.error){ err = err || r.error; chunk.forEach(function(x){ failed.push(x.id); }); }
+      else { var bad = {}; (r.data || []).forEach(function(e){ if(e && e.error) bad[e.id] = 1; }); chunk.forEach(function(x){ if(bad[x.id]) failed.push(x.id); else ok++; }); }
+      if(onProgress) onProgress(Math.min(items.length, s + 200), items.length);
+    }
+    if(failed.length){ failed.forEach(function(id){ var j = findI(api.recs, id); if(j >= 0) putBack(api.recs[j].d, olds[id]); }); notify(); failSave(err || {message:'permission'}); }
+    return {ok:ok, failed:failed.length};
   };
   api.deleteRec = function(id){ var i = findI(api.recs, id), keep = i >= 0 ? api.recs[i] : null; if(i >= 0) api.recs.splice(i, 1); notify();
     return sb.from('records').delete().eq('id', id).select('id').then(function(r){ if(r.error) throw r.error; if(!r.data || !r.data.length) throw new Error('permission'); }).catch(function(e){ if(keep){ api.recs.push(keep); notify(); } throw e; }); };
@@ -257,7 +319,7 @@ function CloudStore(url, key){
     if(o.reg) q = q.eq('register_id', o.reg); if(o.rec) q = q.eq('record_id', o.rec); if(o.before) q = q.lt('id', o.before); if(o.since) q = q.gte('at', o.since); if(o.action) q = q.eq('action', o.action);
     return q.then(function(r){ if(r.error) throw r.error; return r.data; });
   };
-  api.createPub = function(id, data){ return sb.from('publications').insert({id:id, data:data}).then(function(r){ if(r.error) throw r.error; }); };
+  api.createPub = function(id, data){ return sb.from('publications').insert({id:id, data:data}).select('id').then(function(r){ if(r.error) throw r.error; var nid = (r.data && r.data[0] && r.data[0].id) || id; return nid; }); };
   api.deletePub = function(id){ return sb.from('publications').delete().eq('id', id).then(function(r){ if(r.error) throw r.error; }); };
   /* public links: rows are read and written by admins / editors only (row-level security); visitors use share_get */
   api.shareList = function(){ return sb.from('shares').select('id,revoked,expires_at,views,last_view,created_at,kind:data->>kind,mode:data->>mode,title:data->title,cfg:data->cfg,snapAt:data->>snapAt,v:data->v').order('created_at', {ascending:false}).then(function(r){ if(r.error) throw r.error; return r.data || []; }); };
@@ -278,7 +340,14 @@ function CloudStore(url, key){
     var path = 'r/' + regId + '/' + (recId || 'misc') + '/' + Date.now().toString(36) + '_' + safe;
     return sb.storage.from('files').upload(path, file, {contentType: file.type || undefined, upsert:false}).then(function(r){ if(r.error) throw r.error; return {path:path, name:file.name, type:file.type || '', size:file.size}; });
   };
-  api.removeFile = function(path){ return sb.storage.from('files').remove([path]).then(function(){}); };
+  api.removeFile = function(){ return Promise.resolve(); };   /* kept: undo and the change log can bring the file back (v2.9) */
+  api.deleteFiles = async function(paths){ var n = 0; for(var i = 0; i < paths.length; i += 100){ var r = await sb.storage.from('files').remove(paths.slice(i, i + 100)); if(r.error) throw r.error; n += (r.data || []).length; } return n; };
+  /* backups (admins) */
+  api.backupList = function(){ return sb.rpc('backup_list').then(function(r){ if(r.error) throw r.error; return r.data || []; }); };
+  api.backupNow = function(){ return sb.rpc('backup_now').then(function(r){ if(r.error) throw r.error; return r.data; }); };
+  api.backupGet = function(id){ return sb.rpc('backup_get', {p_id:id}).then(function(r){ if(r.error) throw r.error; return r.data; }); };
+  api.backupRestore = function(id, word){ return sb.rpc('backup_restore', {p_id:id, p_confirm:word}).then(function(r){ if(r.error) throw r.error; return api.loadAll().then(function(){ notify(); return r.data; }); }); };
+  api.storageUnused = function(days){ return sb.rpc('storage_unused', {p_days:days || 30}).then(function(r){ if(r.error) throw r.error; return r.data || []; }); };
   api.fileUrl = function(path){
     var c = urls[path]; if(c && c.exp > Date.now()) return c.url;
     pendingUrls[path] = 1;

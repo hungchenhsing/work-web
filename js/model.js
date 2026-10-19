@@ -171,20 +171,32 @@ function blankData(reg, extra){
 }
 
 /* writes with change log + quick undo */
-function setRec(rec, patch, opts){
-  var reg = getReg(rec.reg); if(!canWrite(reg)) return Promise.resolve();
+/* what a patch really changes (a status that counts as done also sets progress to 100 %) */
+function recChanges(reg, rec, patch){
   var old = {}, changed = {};
   Object.keys(patch).forEach(function(k){ if(!same(rec.d[k], patch[k])){ old[k] = rec.d[k] === undefined ? null : clone(rec.d[k]); changed[k] = patch[k]; } });
   var sf = rf(reg, 'status'), pf = rf(reg, 'progress');
   if(sf && changed[sf.key] !== undefined && pf && pf.type === 'percent' && !isAutoNow(rec, pf)){ var o = optOf(sf, changed[sf.key]); if(o && o.done && num(rec.d[pf.key]) !== 100){ old[pf.key] = rec.d[pf.key] === undefined ? null : rec.d[pf.key]; changed[pf.key] = 100; } }
+  return {old:old, changed:changed};
+}
+/* the same kind of change to many records (bulk edit, renaming a person, import): one request per 200 records (v2.9) */
+function setRecs(list, progress){
+  var items = [];
+  list.forEach(function(x){ if(!x || !x.rec) return; var reg = getReg(x.rec.reg); if(!canWrite(reg)) return; var c = recChanges(reg, x.rec, x.patch); if(Object.keys(c.changed).length) items.push({id:x.rec.id, patch:c.changed}); });
+  if(!items.length) return Promise.resolve({ok:0, failed:0});
+  return STORE.patchRecs(items, progress).catch(function(e){ toast(errText(e)); return {ok:0, failed:items.length}; });
+}
+function setRec(rec, patch, opts){
+  var reg = getReg(rec.reg); if(!canWrite(reg)) return Promise.resolve();
+  var c = recChanges(reg, rec, patch), old = c.old, changed = c.changed;
   if(!Object.keys(changed).length) return Promise.resolve();
   var p = STORE.patchRec(rec.id, changed);
   /* "Saved" once the server has it; a refused save is put back and reported by the store */
-  if(!(opts && opts.silent)){ var undo = {id:rec.id, old:old}; p.then(function(){ S.lastUndo = undo; toast(T('Saved', '已保存'), {act:'quickUndo', label:T('Undo', '撤销')}); }, function(){}); }
+  if(!(opts && opts.silent)){ var undo = {id:rec.id, old:old, now:clone(changed)}; p.then(function(){ S.lastUndo = undo; toast(T('Saved', '已保存'), {act:'quickUndo', label:T('Undo', '撤销')}); }, function(){}); }
   peopleAfterSave(reg, rec, old, changed);
   return p.catch(function(){});
 }
-function quickUndo(){ var u = S.lastUndo; if(!u) return; var rec = getRec(u.id); S.lastUndo = null; if(rec) STORE.patchRec(rec.id, u.old).then(function(){ toast(T('Undone', '已撤销')); }).catch(function(e){ toast(errText(e)); }); }
+function quickUndo(){ var u = S.lastUndo; if(!u) return; var rec = getRec(u.id); S.lastUndo = null; if(rec) STORE.patchRec(rec.id, u.old, u.now ? Object.assign({}, rec.d, u.now) : null).then(function(){ toast(T('Undone', '已撤销')); }).catch(function(e){ toast(errText(e)); }); }
 function createRec(reg, extra, open){
   if(!canWrite(reg)) return Promise.resolve(null);
   var id = uid('r'), d = blankData(reg, extra);
@@ -210,7 +222,8 @@ async function undoAudit(a){
          (nx.status === 'issued' && nx.snap && nx.snapAud && ((nx.aud || 'owner') === 'internal' ? 'internal' : 'owner') !== nx.snapAud))){ toast(T('Reopen the presentation (back to draft) before undoing this change: its frozen figures belong to the other audience.', '请先把演示文稿退回草稿，再撤销这项修改：冻结的数据属于另一种对象。')); return; }
       var cur = pick(rec.d, a.keys || []), conflict = (a.keys || []).filter(function(k){ return !same(cur[k], (a.new || {})[k]); });
       if(conflict.length && !confirm(T('These fields were changed again since: ', '以下字段之后又被修改过：') + conflict.join(', ') + '\n' + T('Undo anyway?', '仍要撤销吗？'))) return;
-      await STORE.patchRec(rec.id, clone(a.old || {}));
+      /* only this change is undone: what others changed since in the same lists and tables stays */
+      await STORE.patchRec(rec.id, clone(a.old || {}), Object.assign({}, rec.d, clone(a.new || {})));
     } else if(a.action === 'insert'){
       if(!getRec(a.record_id)){ toast(T('Already removed.', '已删除。')); return; }
       if(!confirm(T('Undo this addition (delete the record)?', '撤销这次新增（删除该记录）？'))) return;

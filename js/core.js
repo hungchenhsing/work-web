@@ -18,6 +18,75 @@ function clone(o){ return o === undefined ? undefined : JSON.parse(JSON.stringif
 function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
 function same(a, b){ return JSON.stringify(a === undefined ? null : a) === JSON.stringify(b === undefined ? null : b); }
 function isEmpty(v){ return v == null || v === '' || (Array.isArray(v) && !v.length); }
+/* equal as stored data: the database keeps object keys in its own order, so key order does not count */
+function sameData(a, b){
+  if(a === b) return true;
+  if(a == null || b == null) return a == null && b == null;
+  if(typeof a !== 'object' || typeof b !== 'object' || Array.isArray(a) !== Array.isArray(b)) return false;
+  if(Array.isArray(a)){ if(a.length !== b.length) return false; for(var i = 0; i < a.length; i++) if(!sameData(a[i], b[i])) return false; return true; }
+  var ka = Object.keys(a).filter(function(k){ return a[k] != null; }), kb = Object.keys(b).filter(function(k){ return b[k] != null; });   /* an empty (null) value counts as no value */
+  if(ka.length !== kb.length) return false;
+  for(var j = 0; j < ka.length; j++){ if(!hasOwn(b, ka[j]) || b[ka[j]] == null || !sameData(a[ka[j]], b[ka[j]])) return false; }
+  return true;
+}
+
+/* ---- what a change does, as small operations (v2.9) ----
+   The database applies them to what it holds at that moment (ww_apply_ops in schema.sql), so two people changing different
+   rows of a sub-table, different options of a multi-select or different files of one record never overwrite each other.
+   Lists of objects are matched by _id / id / key / v / path; lists of plain values by value. */
+var OPS_IDS = ['_id', 'id', 'key', 'v', 'path'];
+function isPlainObj(x){ return x !== null && typeof x === 'object' && !Array.isArray(x); }
+function hasOwn(o, k){ return Object.prototype.hasOwnProperty.call(o, k); }
+function own(o, k){ return o != null && hasOwn(o, k) ? o[k] : undefined; }
+function opsBlank(x){ return x == null || (Array.isArray(x) && !x.length) || (isPlainObj(x) && Object.keys(x).every(function(k){ return opsBlank(x[k]); })); }
+function opsUniq(arr, k){ var s = {}; for(var i = 0; i < arr.length; i++){ var v = k ? String(arr[i][k]) : JSON.stringify(arr[i]); if(s['~' + v]) return false; s['~' + v] = 1; } return true; }
+function opsListKey(a, b){
+  var all = a.concat(b);
+  if(all.every(function(x){ return x === null || typeof x !== 'object'; })) return opsUniq(a, null) && opsUniq(b, null) ? '' : null;
+  if(!all.every(isPlainObj)) return null;
+  for(var i = 0; i < OPS_IDS.length; i++){ var k = OPS_IDS[i];
+    if(all.every(function(x){ var v = own(x, k); return (typeof v === 'string' && v !== '') || (typeof v === 'number' && Number.isSafeInteger(v)); }) && opsUniq(a, k) && opsUniq(b, k)) return k; }
+  return null;
+}
+function opsDiff(a, b, path, out, depth){
+  if(sameData(a, b)) return;
+  if(b === undefined){ out.push({op:'unset', path:path}); return; }
+  if(depth < 8 && isPlainObj(a) && isPlainObj(b)){
+    Object.keys(a).forEach(function(k){ if(a[k] !== undefined && own(b, k) === undefined) out.push({op:'unset', path:path.concat([k])}); });
+    Object.keys(b).forEach(function(k){ if(b[k] !== undefined) opsDiff(own(a, k), b[k], path.concat([k]), out, depth + 1); });
+    return;
+  }
+  /* a list that was empty here may already hold what someone else added: add to it rather than replace it.
+     A new object is sent whole (the database never re-creates a container someone else removed). */
+  if(a == null && Array.isArray(b) && !opsBlank(b)) a = [];
+  if(depth < 8 && Array.isArray(a) && Array.isArray(b)){ var by = opsListKey(a, b); if(by !== null){ opsList(a, b, path, out, by, depth); return; } }
+  out.push({op:'set', path:path, value:b});
+}
+function opsList(a, b, path, out, by, depth){
+  var id = by ? function(x){ return String(x[by]); } : function(x){ return JSON.stringify(x); };
+  var inA = {}, inB = {}, sim = [];
+  a.forEach(function(x){ inA['~' + id(x)] = x; }); b.forEach(function(x){ inB['~' + id(x)] = x; });
+  a.forEach(function(x){ var k = id(x); if(inB['~' + k] === undefined) out.push(by ? {op:'del', path:path, by:by, eq:k} : {op:'del', path:path, value:x}); else sim.push(k); });
+  if(by) b.forEach(function(x){ var k = id(x); if(inA['~' + k] !== undefined) opsDiff(inA['~' + k], x, path.concat([{by:by, eq:k}]), out, depth + 1); });
+  b.forEach(function(x, i){ var k = id(x); if(inA['~' + k] !== undefined) return;
+    var op = {op:'add', path:path, value:x}; if(by) op.by = by;
+    if(!i){ op.at = 'start'; sim.unshift(k); }
+    else if(!by && b[i - 1] === null) sim.push(k);   /* null cannot mark a position: added at the end, then put in order */
+    else { var pk = id(b[i - 1]), at = sim.indexOf(pk); op.after = by ? pk : b[i - 1]; if(at < 0) sim.push(k); else sim.splice(at + 1, 0, k); }
+    out.push(op); });
+  var want = b.map(id);
+  if(sim.join('\u0001') !== want.join('\u0001')) out.push(by ? {op:'order', path:path, by:by, ids:want} : {op:'order', path:path, ids:b});
+}
+/* the operations for a patch {key: new value} on data d; a key whose change would take very many operations is sent whole */
+function patchOps(d, p){
+  var per = Object.keys(p).map(function(k){ var o = []; opsDiff(own(d, k), p[k], [k], o, 0);
+    if(o.length > 300) o = [p[k] === undefined ? {op:'unset', path:[k]} : {op:'set', path:[k], value:p[k]}];
+    return {k:k, o:o}; });
+  var tot = per.reduce(function(s0, x){ return s0 + x.o.length; }, 0);
+  per.slice().sort(function(x, y){ return y.o.length - x.o.length; }).forEach(function(x){ if(tot <= 1000 || x.o.length <= 1) return; tot -= x.o.length - 1; x.o = [p[x.k] === undefined ? {op:'unset', path:[x.k]} : {op:'set', path:[x.k], value:p[x.k]}]; });
+  var out = []; per.forEach(function(x){ out.push.apply(out, x.o); });
+  return out;
+}
 var NOW = new Date();
 var TODAY_S = NOW.getFullYear() + '-' + pad(NOW.getMonth() + 1) + '-' + pad(NOW.getDate());
 function d2n(s){ if(!s) return null; var m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(String(s)); if(!m) return null; return Math.round(Date.UTC(+m[1], +m[2] - 1, +m[3]) / 864e5); }
