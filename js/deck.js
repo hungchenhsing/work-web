@@ -43,14 +43,14 @@ var DK_CACHE = null;
 function isLeaf(r){ var idx = DK_CACHE ? (DK_CACHE[r.reg] || (DK_CACHE[r.reg] = kidsIndex(r.reg))) : kidsIndex(r.reg); return !idx[r.id]; }
 function mxDef(reg, c){ var ro = rolesOf(reg); return {row:(c && c.row) || (reg.d.matrix && reg.d.matrix.row) || ro.tree || ro.status || '', col:(c && c.col) || (reg.d.matrix && reg.d.matrix.col) || ro.block || ''}; }
 
-/* owner mode: only Owner-visible fields, External records (for registers that publish to the Owner), never private registers */
+/* owner mode: only fields the Owner can see, External records (for registers that publish to the Owner), never private registers */
 function dctx(deck){ return {deck:deck, owner:(deck.d.aud || 'owner') !== 'internal', asOf:d2n(deck.d.date) != null ? d2n(deck.d.date) : asOfN(), lang:deck.d.lang || 'en'}; }
 /* decks are team-visible, so private (Only me) registers never feed a slide — not even an internal deck. */
 function regOk(ctx, reg){ return !!reg && reg.d.kind !== 'decks' && !isPrivate(reg); }
 /* ctx.focus (present mode “Focus”): only one block, only overdue, only key items */
 function focusOk(f, reg, r){ if(f.blk){ var bf = rf(reg, 'block'); if(bf && asArr(r.d[bf.key]).indexOf(f.blk) < 0) return false; } if(f.od && !isOverdue(reg, r)) return false; if(f.star && !r.d.star) return false; return true; }
 function recOk(ctx, reg, r){ if(ctx.focus && !focusOk(ctx.focus, reg, r)) return false; if(!ctx.owner) return true; if(isPrivate(reg)) return false; return !ownerGated(reg) || !!r.d.ext; }
-/* registers on a slide that Owner mode cuts down: published-to-Owner registers show only records marked “Show in Owner plan” */
+/* registers on a slide that Owner mode cuts down: published-to-Owner registers show only records marked “Owner can see” */
 function slideRegIds(s){
   var out = [];
   function take(c){ if(!c) return; (c.regs || []).forEach(function(id){ out.push(id); }); ['reg', 'ms', 'iss'].forEach(function(k){ if(c[k]) out.push(c[k]); }); }
@@ -67,10 +67,10 @@ function ownerGaps(deck, s){
 function ownerGapHtml(gaps, ed, strong){
   if(!gaps.length) return '';
   var list = gaps.map(function(g){ return '<b>' + esc(regName(g.reg)) + '</b> ' + g.ext + ' / ' + g.total; }).join(' · ');
-  var msg = strong ? L('Owner mode · records shared with the Owner: ', '业主模式 · 对业主公开的记录：') + list : L('Owner mode shows only records marked “Show in Owner plan”: ', '业主模式只显示标记「显示于业主计划」的记录：') + list;
-  return '<div class="dk-ogap' + (strong ? ' strong' : '') + '">' + uic('eye', 13) + ' <span title="' + esc(T('Owner mode shows only records marked “Show in Owner plan”.', '业主模式只显示标记「显示于业主计划」的记录。')) + '">' + msg + '</span>' +
+  var msg = strong ? L('Owner mode · records shared with the Owner: ', '业主模式 · 对业主公开的记录：') + list : L('Owner mode shows only records marked “Owner can see”: ', '业主模式只显示标记「业主可见」的记录：') + list;
+  return '<div class="dk-ogap' + (strong ? ' strong' : '') + '">' + uic('eye', 13) + ' <span title="' + esc(T('Owner mode shows only records marked “Owner can see”.', '业主模式只显示标记「业主可见」的记录。')) + '">' + msg + '</span>' +
     (ed ? '<button type="button" class="btn sm" data-act="dkSet" data-k="aud" data-v="internal">' + L('Use Internal', '改为内部') + '</button>' +
-      gaps.map(function(g){ return '<button type="button" class="btn sm" data-act="reg" data-v="' + esc(g.reg.id) + '" title="' + esc(T('Open the register, tick rows and use “Show in Owner plan”', '打开台账，勾选记录后点「显示于业主计划」')) + '">' + L('Choose records', '选择记录') + (gaps.length > 1 ? ' · ' + esc(regName(g.reg)) : '') + ' →</button>'; }).join('') : '') + '</div>';
+      gaps.map(function(g){ return '<button type="button" class="btn sm" data-act="reg" data-v="' + esc(g.reg.id) + '" title="' + esc(T('Open the register, tick rows and use “Show to the Owner”', '打开台账，勾选记录后点「对业主显示」')) + '">' + L('Choose records', '选择记录') + (gaps.length > 1 ? ' · ' + esc(regName(g.reg)) : '') + ' →</button>'; }).join('') : '') + '</div>';
 }
 function fieldOk(ctx, reg, f){ if(!ctx.owner) return true; var ro = rolesOf(reg); if(reg.d.kind === 'library' && LIB_OWNER_KEYS.indexOf(f.key) >= 0) return true; return !!f.ext || [ro.title, ro.title2, ro.no].indexOf(f.key) >= 0; }
 function defCols(reg){ var ro = rolesOf(reg); return [ro.no, ro.title, ro.block, ro.start, ro.finish, ro.progress, ro.status].filter(function(k, i, a){ return k && fieldOf(reg, k) && a.indexOf(k) === i; }); }
@@ -199,7 +199,7 @@ var SLIDE_DATA = {
     if(c.meeting && c.meeting !== 'latest') m = getRec(c.meeting);
     if(!m) m = recsOf(reg.id).filter(function(r){ var n = d2n(r.d[ro.start]); return asArr(r.d[sub.key]).length && (n == null || n <= ctx.asOf); }).sort(function(a, b){ return String(b.d[ro.start] || '').localeCompare(String(a.d[ro.start] || '')); })[0];
     if(!m || !recOk(ctx, reg, m)) return {meeting:null, rows:[]};
-    var rows = asArr(m.d[sub.key]).filter(function(x){ return (!c.open || !x[ck]) && (c.hide || []).indexOf('a:' + x._id) < 0; }).map(function(x){ var n = d2n(x[dk]); return {id:x._id, a:x[tk] || '', who:x[wk] || '', due:x[dk] || '', done:!!x[ck], od:!x[ck] && n != null && n < ctx.asOf}; });
+    var rows = asArr(m.d[sub.key]).filter(function(x){ return (!c.open || !x[ck]) && (c.hide || []).indexOf('a:' + x._id) < 0; }).map(function(x){ var n = d2n(x[dk]); return {id:x._id, a:x[tk] || '', who:subVal(sub.cols.filter(function(cc){ return cc.key === wk; })[0], x[wk]) || '', due:x[dk] || '', done:!!x[ck], od:!x[ck] && n != null && n < ctx.asOf}; });
     return {meeting:{no:recNo(reg, m), t:recPair(reg, m), date:m.d[ro.start] || ''}, rows:rows}; },
   text:function(c){ return {body:c.body || '', body2:c.body2 || ''}; },
   section:function(c){ return {sub:c.sub || ''}; }

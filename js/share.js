@@ -253,12 +253,12 @@ function shareNewModal(m){
     if(m.mode === 'snap') m._cfg.ids = view.map(function(r){ return r.id; });
     /* exactly what the database will send: the same rules run here on the same data */
     var pv = shareProject(shareSrc(), [reg.id], shareOpt({kind:'reg', cfg:m._cfg}, m.mode === 'snap' ? 'freeze' : 'live')), pr = pv.regs[0], n = pv.recs.length, hid = shareGated(reg) ? Math.max(0, view.length - n) : 0;
-    h += '<div class="shs"><b>' + esc(regName(reg)) + '</b><span>' + L(n + ' records will be shown', '将显示 ' + n + ' 条记录') + (hid ? ' · ' + L(hid + ' not marked “Show in Owner plan” stay hidden', hid + ' 条未标记「显示于业主计划」，不公开') : '') + '</span>' +
+    h += '<div class="shs"><b>' + esc(regName(reg)) + '</b><span>' + L(n + ' records will be shown', '将显示 ' + n + ' 条记录') + (hid ? ' · ' + L(hid + ' not marked “Owner can see” stay hidden', hid + ' 条未标记「业主可见」，不公开') : '') + '</span>' +
       '<span>' + L('Columns: ', '列：') + esc((pr ? pr.d.fields : []).map(function(f){ return T1(f.en, f.zh); }).join(' · ') || '—') + '</span></div>';
     if(sf.dropped.length) notes.push(L('These filters use fields the link does not carry and are left out: ', '以下筛选条件用到不公开的字段，链接中不保留：') + esc(sf.dropped.join(', ')));
     if(sf.snapOnly.length) notes.push(L('A live link keeps filters by field values and package only. Left out: ', '实时链接只保留按字段值和文件包的筛选。未保留：') + esc(sf.snapOnly.join(', ')) + L(' — choose Snapshot to keep them.', '。如需保留，请选择「快照」。'));
-    if(!n){ notes.push(L('No record would be visible. In the register, tick records and use “Show in Owner plan”.', '目前没有可显示的记录。请在台账中勾选记录，点「显示于业主计划」。')); }
-    notes.push(L('Only the columns listed above go out: fields marked External among the visible columns, plus No. and title. To show another column (e.g. Package or Block), mark it External in Fields & columns and show it in the table.', '只公开上面列出的列：表格中可见、且标记为「对外」的字段，以及编号和名称。要显示其他列（如文件包、区域），请在「字段与列」中把它设为「对外」并在表格中显示。'));
+    if(!n){ notes.push(L('No record would be visible. In the register, tick records and use “Show to the Owner”.', '目前没有可显示的记录。请在台账中勾选记录，点「对业主显示」。')); }
+    notes.push(L('Only the columns listed above go out: fields marked “Owner can see” among the visible columns, plus No. and title. To show another column (e.g. Package or Block), mark it “Owner can see” in Fields & columns and show it in the table.', '只公开上面列出的列：表格中可见、且标记为「业主可见」的字段，以及编号和名称。要显示其他列（如文件包、区域），请在「字段与列」中把它设为「业主可见」并在表格中显示。'));
     if(!m.title) m.title = regName(reg);
   } else if(m.sk === 'deck'){
     var deck = getRec(m.deck); if(!deck) return {title:'', html:''};
@@ -271,7 +271,7 @@ function shareNewModal(m){
     var cands = shareCandidates(); if(!m.regs) m.regs = cands.filter(function(r){ return !shareGated(r) || recsOf(r.id).some(function(x){ return x.d.ext === true; }); }).map(function(r){ return r.id; });
     h += '<div class="fl"><span class="flab">' + L('Registers in the overview', '总览包含的台账') + '</span><div class="dk-cl">' + cands.map(function(r){ var on = m.regs.indexOf(r.id) >= 0, g = shareGated(r), nn = g ? recsOf(r.id).filter(function(x){ return x.d.ext === true; }).length : recsOf(r.id).length;
       return '<label class="chk"><input type="checkbox" data-shreg="' + esc(r.id) + '"' + (on ? ' checked' : '') + '>' + esc(regName(r)) + ' <span class="note">' + (g ? L(nn + ' marked for the Owner', nn + ' 条对业主公开') : L(nn + ' records', nn + ' 条')) + '</span></label>'; }).join('') + '</div></div>';
-    notes.push(L('The overview shows headline figures, milestones, the programme, block progress and status per package, built the same way as Owner-mode slides: besides External fields, the charts use dates, progress, status, block and package of the shared records. Other fields (remarks, contacts…) go out only if marked External; files, links and field explanations never do.', '总览包括关键数字、里程碑、进度计划、区域进度和各文件包状态，规则与业主模式简报相同：除「对外」字段外，图表会用到所公开记录的日期、进度、状态、区域和文件包。其他字段（备注、联系人等）只有标记为「对外」才会公开；附件、关联和字段说明永不公开。'));
+    notes.push(L('The overview shows headline figures, milestones, the programme, block progress and status per package, built the same way as Owner-mode slides: besides fields marked “Owner can see”, the charts use dates, progress, status, block and package of the shared records. Other fields (remarks, contacts…) go out only if marked “Owner can see”; files, links and field explanations never do.', '总览包括关键数字、里程碑、进度计划、区域进度和各文件包状态，规则与业主模式简报相同：除「业主可见」字段外，图表会用到所公开记录的日期、进度、状态、区域和文件包。其他字段（备注、联系人等）只有标记为「业主可见」才会公开；附件、关联和字段说明永不公开。'));
     if(!m.regs.length){ ok = false; }
     if(!m.title) m.title = T('Progress overview', '进度总览');
   }
@@ -317,7 +317,7 @@ async function deckMedia(deck){
 function setLinks(){
   if(!canTeamEdit()) return '<div class="card empty">' + L('Only admins and editors manage public links.', '只有管理员和编辑可以管理公开链接。') + '</div>';
   if(S.shares == null && !S.sharesBusy){ S.sharesBusy = true; STORE.shareList().then(function(x){ S.shares = x || []; S.sharesErr = ''; }).catch(function(e){ S.shares = []; S.sharesErr = shareErr(e); }).then(function(){ S.sharesBusy = false; renderMain(); }); }
-  var h = '<div class="card sec"><div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:8px"><p class="note" style="margin:0;max-width:760px">' + L('A public link opens a read-only page without signing in. It follows the Owner rules: registers published to the Owner show only records marked “Show in Owner plan”, and only External fields are listed. Make links from a register (⋯ menu), a presentation (Issue & share) or here.', '公开链接无需登录即可只读查看，规则与业主相同：发布给业主的台账只显示标记「显示于业主计划」的记录，只列出「对外」字段。可在台账（⋯ 菜单）、演示文稿（定稿与分享）或这里生成。') + '</p>' +
+  var h = '<div class="card sec"><div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:8px"><p class="note" style="margin:0;max-width:760px">' + L('A public link opens a read-only page without signing in. It follows the Owner rules: registers published to the Owner show only records marked “Owner can see”, and only fields marked “Owner can see” are listed. Make links from a register (⋯ menu), a presentation (Issue & share) or here.', '公开链接无需登录即可只读查看，规则与业主相同：发布给业主的台账只显示标记「业主可见」的记录，只列出「业主可见」字段。可在台账（⋯ 菜单）、演示文稿（定稿与分享）或这里生成。') + '</p>' +
     '<button type="button" class="btn pri" data-act="shareOverview">' + uic('plus', 14) + ' ' + L('Progress overview link…', '进度总览链接…') + '</button></div></div>';
   if(S.sharesErr) h += '<div class="card" style="color:var(--warn);background:var(--warn-soft)">' + esc(S.sharesErr) + '</div>';
   if(S.shares == null) return h + '<div class="card empty">' + L('Loading…', '正在加载…') + '</div>';
@@ -379,6 +379,8 @@ function PublicStore(token, fetcher){
       return Promise.resolve().then(function(){ return fetcher(token); }).then(function(res){
         api.share = res || null;
         if(res && res.data){ var d = res.data, src = d.mode === 'live' ? d.live : (d.kind === 'deck' ? null : d.snap);
+          /* the page opens in the language the link was made in, until the visitor picks one here */
+          var pl = LS.get('ww.publang', null); if(['en', 'zh', 'both'].indexOf(pl) >= 0) S.lang = pl; else if(['en', 'zh', 'both'].indexOf(d.lang) >= 0) S.lang = d.lang;
           if(src){ api.regs = (src.regs || []).map(function(r){ cleanFields(r.d); return r; }); api.recs = src.recs || []; api.cfg = src.cfg || {}; }
           else api.cfg = d.cfgProject || {}; }
         api.ready = true; notify();
@@ -404,7 +406,7 @@ function renderPublic(){
   var sh = STORE.share, d = sh && sh.data, c = cfg();
   $('#top').innerHTML = '<div class="brand"><b>' + esc(c.projectEn || 'work-web') + '</b><span>' + esc(c.projectZh || '') + '</span></div>' +
     '<div class="tools"><span class="sync"><span class="dot live"></span><span class="stx">' + (d ? (d.mode === 'live' ? L('Read-only · live', '只读 · 实时') : L('Read-only · snapshot ', '只读 · 快照 ') + esc(fmtTime(d.snapAt || d.at || sh.created_at))) : L('Read-only', '只读')) + '</span></span>' +
-    '<div class="seg">' + [['en', 'EN'], ['both', 'EN + 中'], ['zh', '中']].map(function(o){ return '<button type="button" data-act="lang" data-v="' + o[0] + '"' + (S.lang === o[0] ? ' class="on"' : '') + '>' + o[1] + '</button>'; }).join('') + '</div></div>';
+    '<div class="seg" role="group" aria-label="Language">' + [['en', 'EN'], ['both', 'EN + 中'], ['zh', '中']].map(function(o){ return '<button type="button" data-act="lang" data-v="' + o[0] + '" aria-pressed="' + (S.lang === o[0]) + '">' + o[1] + '</button>'; }).join('') + '</div></div>';
   $('#side').innerHTML = '';
   var m = $('#main'), h;
   if(!STORE.ready) h = '<div class="card empty">' + L('Loading…', '正在加载…') + '</div>';

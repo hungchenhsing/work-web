@@ -255,7 +255,7 @@ var TEMPLATES = {
     F('ownerResult','Owner result','业主结果','select',{opts:[O('pending','Pending review','待审查','blue'),O('accepted','Accepted','接受','green'),O('accepted_c','Accepted w/ comments','带意见接受','green'),O('revise','Revise & resubmit','退回重交','red'),O('rejected','Rejected','拒绝','red')], hide:true}),
     F('s2','Notes','说明','section'),
     F('explanation','Explanation','解释说明','long'),F('remarks','Remarks / comments','备注 / 意见','long'),F('contacts','Contacts','对接人','select',{list:'people', multi:true}),
-    F('updates','Updates','更新记录','sub',{cols:UPDATES_COLS, hide:true}),F('extNote','External note','对外备注','long',{ext:true, hide:true}),
+    F('updates','Updates','更新记录','sub',{cols:UPDATES_COLS, hide:true}),F('extNote','Note for the Owner','给业主的说明','long',{ext:true, hide:true}),
     F('attachments','Files','文件','files',{hide:true}),F('links','Related records','关联记录','link',{hide:true})
   ], roles:{title:'en', title2:'zh', no:'regNo', start:'start', finish:'finish', progress:'progress', status:'status', block:'areas', tree:'node', kind:'type', astart:'actualStart', afinish:'actualEnd'}, view:'table'},
 
@@ -308,7 +308,7 @@ var TEMPLATES = {
     F('agenda','Agenda','议程','sub',{cols:[F('topic','Topic','议题','text'),F('by','Presenter','汇报人','text'),F('notes','Notes','说明','long')], hide:true}),
     F('s2','Minutes','纪要','section'),
     F('minutes','Minutes','会议纪要','long',{hide:true}),
-    F('actions','Action items','待办事项','sub',{cols:[F('action','Action','事项','long'),F('who','Owner','负责人','text'),F('due','Due','期限','date'),F('done','Done','完成','check')], hide:true}),
+    F('actions','Action items','待办事项','sub',{cols:[F('action','Action','事项','long'),F('who','Owner','负责人','select',{list:'people'}),F('due','Due','期限','date'),F('done','Done','完成','check')], hide:true}),
     F('files','Files','附件','files',{hide:true}),F('links','Related records','关联记录','link',{hide:true})
   ], roles:{title:'en', title2:'zh', no:'regNo', start:'date', finish:'date', status:'status'}, view:'table', meeting:true},
 
@@ -374,6 +374,7 @@ var UI_ICONS = {
   star:'<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>', print:'<path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M6 14h12v7H6z"/>',
   camera:'<path d="M4 7h3l2-3h6l2 3h3v13H4z"/><circle cx="12" cy="13" r="4"/>', up:'<path d="M12 19V5M5 12l7-7 7 7"/>', down:'<path d="M12 5v14M5 12l7 7 7-7"/>',
   link:'<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>', copy:'<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V4H4v12h4"/>',
-  trash:'<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>', eye:'<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>'
+  trash:'<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>', eye:'<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+  user:'<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/>'
 };
 function uic(name, size){ return '<svg class="ic" width="' + (size || 16) + '" height="' + (size || 16) + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (UI_ICONS[name] || '') + '</svg>'; }

@@ -40,7 +40,8 @@ function viewHome(){
   var acts = [];
   regs.forEach(function(r){ dataFields(r).filter(function(f){ return f.type === 'sub' && (f.cols || []).some(function(c){ return c.type === 'check'; }) && (f.cols || []).some(function(c){ return c.type === 'date'; }); }).forEach(function(f){
     var ck = f.cols.filter(function(c){ return c.type === 'check'; })[0].key, dk = f.cols.filter(function(c){ return c.type === 'date'; })[0].key, tk = (f.cols.filter(function(c){ return c.type === 'text' || c.type === 'long'; })[0] || {}).key, wk = (f.cols.filter(function(c){ return /who|owner|resp/i.test(c.key); })[0] || {}).key;
-    recsOf(r.id).forEach(function(x){ asArr(x.d[f.key]).forEach(function(row){ if(!row[ck]) acts.push({r:r, x:x, t:row[tk], who:row[wk], due:row[dk]}); }); }); }); });
+    var wc = f.cols.filter(function(c){ return c.key === wk; })[0];
+    recsOf(r.id).forEach(function(x){ asArr(x.d[f.key]).forEach(function(row){ if(!row[ck]) acts.push({r:r, x:x, t:row[tk], who:subVal(wc, row[wk]), due:row[dk]}); }); }); }); });
   acts.sort(function(a, b){ return (d2n(a.due) || 1e9) - (d2n(b.due) || 1e9); });
   h += '<div class="cols3"><section class="card sec"><div class="sech"><h2>' + L('Overdue', '已逾期') + ' <span class="cnt">' + late.length + '</span></h2></div>' + (late.length ? lst(late) : '<div class="note">' + L('Nothing overdue', '没有逾期项') + '</div>') + '</section>' +
     '<section class="card sec"><div class="sech"><h2>' + L('Due in the next 14 days', '未来 14 天到期') + ' <span class="cnt">' + soon.length + '</span></h2></div>' + (soon.length ? lst(soon) : '<div class="note">' + L('Nothing due', '没有到期项') + '</div>') + '</section>' +
@@ -109,7 +110,7 @@ function regFilters(reg){
   if(rolesOf(reg).start || rolesOf(reg).finish) h += '<span class="drange"><span class="muted">' + L('Dates', '日期') + '</span><input class="in" type="date" id="ffrom" value="' + esc(f.from) + '" aria-label="From">–<input class="in" type="date" id="fto" value="' + esc(f.to) + '" aria-label="To"></span>';
   h += (rolesOf(reg).finish ? '<label class="chk"><input type="checkbox" id="fod"' + (f.od ? ' checked' : '') + '>' + L('Overdue', '逾期') + '</label>' : '') +
     '<label class="chk"><input type="checkbox" id="fstar"' + (f.star ? ' checked' : '') + '>★ ' + L('Key', '重点') + '</label>' +
-    (reg.d.ownerPublish ? '<label class="chk"><input type="checkbox" id="fext"' + (f.ext ? ' checked' : '') + '>' + L('External', '对外') + '</label>' : '') +
+    (reg.d.ownerPublish ? '<label class="chk"><input type="checkbox" id="fext"' + (f.ext ? ' checked' : '') + '>' + L('Owner can see', '业主可见') + '</label>' : '') +
     (n ? '<button type="button" class="btn sm" data-act="fClear">' + L('Clear', '清除') + '</button>' : '') + '</div></div>';
   return h;
 }
@@ -128,13 +129,14 @@ function viewTable(reg, list){
   if(selIds.length && ed){
     h += '<div class="bulk"><b>' + L(selIds.length + ' selected', '已选 ' + selIds.length) + '</b><select class="in" id="bulkField"><option value="">' + esc(T('Set a field…', '批量设置字段…')) + '</option>' + dataFields(reg).filter(function(f){ return ['text','number','percent','date','select','tree','check','long'].indexOf(f.type) >= 0 && !(f.type === 'percent' && f.auto); }).map(function(f){ return '<option value="' + esc(f.key) + '">' + esc(T1(f.en, f.zh)) + '</option>'; }).join('') + '</select>' +
       (S.bulkF ? bulkInput(reg, fieldOf(reg, S.bulkF)) : '') +
-      (reg.d.ownerPublish && !isPrivate(reg) ? '<button type="button" class="btn sm" data-act="bulkExt" data-v="1">' + L('Show in Owner plan', '显示于业主计划') + '</button><button type="button" class="btn sm" data-act="bulkExt" data-v="0">' + L('Remove from Owner plan', '移出业主计划') + '</button>' : '') +
+      (reg.d.ownerPublish && !isPrivate(reg) ? '<button type="button" class="btn sm" data-act="bulkExt" data-v="1">' + uic('eye', 13) + ' ' + L('Show to the Owner', '对业主显示') + '</button><button type="button" class="btn sm" data-act="bulkExt" data-v="0">' + L('Hide from the Owner', '对业主隐藏') + '</button>' : '') +
       (S.bulkDel ? '<button type="button" class="btn sm danger" data-act="bulkDelYes">' + L('Confirm delete ' + selIds.length, '确认删除 ' + selIds.length + ' 项') + '</button>' : '<button type="button" class="btn sm danger-o" data-act="bulkDel">' + L('Delete', '删除') + '</button>') +
       '<button type="button" class="btn sm" data-act="selClear">' + L('Clear selection', '取消选择') + '</button></div>';
   }
   var th = '<tr>' + (ed ? '<th class="sel"><input type="checkbox" id="selall" aria-label="Select all"></th>' : '') + cols.map(function(f){
     var sorted = s.k === f.key;
-    return '<th style="' + (fieldW(f) ? 'min-width:' + fieldW(f) + 'px' : '') + '"><button type="button" class="thb" data-act="sort" data-v="' + esc(f.key) + '">' + L(f.en, f.zh) + (sorted ? (s.d > 0 ? ' ↑' : ' ↓') : '') + '</button></th>';
+    var fc = f.key === ro.no ? ' class="no"' : f.key === ro.title ? ' class="tt"' : '';
+    return '<th' + fc + ' style="' + (fieldW(f) ? 'min-width:' + fieldW(f) + 'px' : '') + '"><button type="button" class="thb" data-act="sort" data-v="' + esc(f.key) + '">' + L(f.en, f.zh) + (sorted ? (s.d > 0 ? ' ↑' : ' ↓') : '') + '</button></th>';
   }).join('') + (canSchemaEdit(reg) ? '<th class="addcol"><button type="button" class="ib" data-act="fieldsOpen" data-v="' + esc(reg.id) + '" title="' + esc(T('Add a field', '添加字段')) + '">' + uic('plus', 14) + '</button></th>' : '') + '</tr>';
   var body = '', groups = gk === 'none' ? [{k:'all', items:list}] : groupRecs(reg, list, gk), span = cols.length + (ed ? 1 : 0) + (canSchemaEdit(reg) ? 1 : 0);
   groups.forEach(function(g){
@@ -172,7 +174,7 @@ function tableRow(reg, r, cols, ed, h){
       inner = f.type === 'long' ? '<textarea class="in ie" data-ie="1" data-fk="ie" rows="3">' + esc(v) + '</textarea>' : '<input class="in ie" data-ie="1" data-fk="ie" type="' + (f.type === 'date' ? 'date' : f.type === 'number' || f.type === 'percent' ? 'number' : 'text') + '" value="' + esc(v) + '">';
       return '<td class="editing">' + inner + '</td>';
     }
-    if(f.key === ro.no) return '<td class="no"><button type="button" class="lnk mono" data-act="openRec" data-id="' + esc(r.id) + '">' + esc(r.d[f.key] || '—') + '</button>' + (r.d.star ? ' <span class="kst">★</span>' : '') + (cm ? '<span class="rdot"></span>' : '') + (function(){ var n = relCount(r); return n ? '<button type="button" class="rlk" data-act="openRecTab" data-v="' + esc(r.id) + '" title="' + esc(T(n + ' linked', n + ' 项关联')) + '">' + uic('link', 11) + n + '</button>' : ''; })() + '</td>';
+    if(f.key === ro.no) return '<td class="no"><button type="button" class="lnk mono" data-act="openRec" data-id="' + esc(r.id) + '">' + esc(r.d[f.key] || '—') + '</button>' + (r.d.star ? ' <span class="kst">★</span>' : '') + (r.d.ext && ownerGated(reg) && !isPrivate(reg) ? ' <span class="oeye" title="' + esc(T('Owner can see', '业主可见')) + '" aria-label="' + esc(T('Owner can see', '业主可见')) + '">' + uic('eye', 12) + '</span>' : '') + (cm ? '<span class="rdot"></span>' : '') + (function(){ var n = relCount(r); return n ? '<button type="button" class="rlk" data-act="openRecTab" data-v="' + esc(r.id) + '" title="' + esc(T(n + ' linked', n + ' 项关联')) + '">' + uic('link', 11) + n + '</button>' : ''; })() + '</td>';
     if(f.key === ro.title){ var lead = '<span class="ind" style="width:' + (h.depth * 22) + 'px"></span>' + (h.kids.length ? '<button type="button" class="cx" data-act="rexp" data-v="' + esc(r.id) + '" aria-expanded="' + !!h.open + '" title="' + esc(T('Show sub-items', '展开子项')) + '">' + (h.open ? '▾' : '▸') + '</button>' : (h.depth ? '<span class="cx0">└</span>' : ''));
       return '<td class="tt' + (ce ? ' ce' : '') + '"' + (ce ? ' data-ce="1" data-id="' + esc(r.id) + '" data-k="' + esc(f.key) + '"' : '') + '><div class="ttw">' + lead + '<div class="ttx">' + (h.orphan ? '<span class="pp">↳ ' + esc(recNo(reg, h.orphan) || recTitle(reg, h.orphan)) + '</span>' : '') + '<span class="tt1" title="' + esc(r.d[f.key] || recTitle(reg, r) || '') + '">' + esc(r.d[f.key] || recTitle(reg, r) || '—') + '</span>' + (recTitle2(reg, r) && !tableCols(reg).some(function(c){ return c.key === ro.title2; }) ? '<span class="tt2" title="' + esc(recTitle2(reg, r)) + '">' + esc(recTitle2(reg, r)) + '</span>' : '') + (ru ? '<button type="button" class="kc" data-act="rexp" data-v="' + esc(r.id) + '">' + L(ru.done + '/' + ru.n + ' sub-items done', ru.n + ' 个子项，已完成 ' + ru.done) + '</button>' : '') + '</div></div></td>'; }
     if(f.key === ro.progress && ru && (r.d[f.key] == null || r.d[f.key] === '') && !isAutoNow(r, f)) return '<td class="t-percent">' + pbar(ru.pct, '<span class="auto" title="' + esc(T('Rolled up from sub-items', '由子项汇总')) + '">Σ</span>') + '</td>';
@@ -196,7 +198,7 @@ function recCard(reg, r, drag){
   var u = img && STORE.fileUrl(img.path);
   var who = dataFields(reg).filter(function(f){ return f.list === 'people' && f.key !== 'attendees'; })[0];
   return '<button type="button" class="rc card' + (od ? ' od' : '') + (r.d.star ? ' star' : '') + '" data-act="openRec" data-id="' + esc(r.id) + '"' + (drag ? ' draggable="true" data-drag="' + esc(r.id) + '"' : '') + '>' + (u ? '<img src="' + esc(u) + '" alt="" loading="lazy">' : '') +
-    '<span class="rc1"><span class="mono muted">' + esc(recNo(reg, r)) + '</span>' + (statusOpt(reg, r) && !drag ? optChip(statusOpt(reg, r)) : '') + (r.d.star ? '<span class="kst">★</span>' : '') + '</span>' +
+    '<span class="rc1"><span class="mono muted">' + esc(recNo(reg, r)) + '</span>' + (statusOpt(reg, r) && !drag ? (canWrite(reg) && rf(reg, 'status') ? '<span class="rcst" role="button" tabindex="0" data-act="pick" data-id="' + esc(r.id) + '" data-k="' + esc(rf(reg, 'status').key) + '" aria-label="' + esc(T('Change status', '更改状态')) + '">' + optChip(statusOpt(reg, r)) + uic('chev', 11) + '</span>' : optChip(statusOpt(reg, r))) : '') + (r.d.star ? '<span class="kst">★</span>' : '') + (r.d.ext && ownerGated(reg) && !isPrivate(reg) ? '<span class="oeye" title="' + esc(T('Owner can see', '业主可见')) + '">' + uic('eye', 12) + '</span>' : '') + '</span>' +
     '<span class="rct">' + esc(recTitle(reg, r) || '—') + '</span>' + (recTitle2(reg, r) ? '<span class="rct2">' + esc(recTitle2(reg, r)) + '</span>' : '') +
     '<span class="rc2">' + (bf ? blockChips(r.d[bf.key], bf) : '') + (p ? '<span class="mono' + (od ? ' od' : '') + '">' + esc(md(n2d(p.f))) + (od ? ' !' : '') + '</span>' : '') + (who && !isEmpty(r.d[who.key]) ? '<span class="muted ppl">' + esc(textOf(reg, who, r)) + '</span>' : '') + '</span>' +
     (pr != null && rf(reg, 'progress') ? pbar(pr) : '') + '</button>';
@@ -280,7 +282,7 @@ function ganttHtml(sets, o){
   var grid = 'width:' + W + 'px;background-size:' + colW + 'px 100%';
   var h = '<div class="tbar"><div class="seg">' + [['day','Day','日'],['week','Week','周'],['month','Month','月']].map(function(z){ return '<button type="button" data-act="gzoom" data-v="' + z[0] + '" aria-pressed="' + (g === z[0]) + '">' + L(z[1], z[2]) + '</button>'; }).join('') + '</div>' +
     (o.reg ? '<label class="fl row">' + L('Group', '分组') + '<select class="in" id="ggroup"><option value="none">' + esc(T('None', '不分组')) + '</option>' + groupable(o.reg).map(function(f){ return '<option value="' + esc(f.key) + '"' + (o.group === f.key ? ' selected' : '') + '>' + esc(T1(f.en, f.zh)) + '</option>'; }).join('') + '</select></label>' : '') +
-    '<label class="fl row" style="color:var(--asof)">' + L('Status date', '状态日期') + '<input class="in" type="date" id="gAsOf" value="' + esc(n2d(A)) + '"></label>' +
+    '<label class="fl row" style="color:var(--asof-ink)">' + L('Status date', '状态日期') + '<input class="in" type="date" id="gAsOf" value="' + esc(n2d(A)) + '"></label>' +
     '<button type="button" class="btn" data-act="gToday">' + L('Go to status date', '跳到状态日期') + '</button>' +
     '<span class="legend"><span><i class="g-b"></i>' + L('Plan', '计划') + '</span><span><i class="g-g"></i>' + L('Progress', '完成') + '</span><span><i class="g-x"></i>' + L('Delay', '延误') + '</span><span><i style="background:var(--asof);width:3px"></i>' + L('Status date', '状态日期') + '</span>' + (canTeamEdit() ? '<span class="note">' + L('Drag bars to move, drag ends to change dates', '拖动条形移动，拖两端改日期') + '</span>' : '') + '</span></div>';
   if(!rows.length) return h + '<div class="card empty">' + L('Nothing with dates to show.', '没有带日期的记录。') + '</div>';

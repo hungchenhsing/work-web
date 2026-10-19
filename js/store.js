@@ -88,7 +88,8 @@ function CloudStore(url, key){
     /* back from sleep, a lost connection or a hidden tab: fetch what changed meanwhile */
     var hiddenAt = 0;
     document.addEventListener('visibilitychange', function(){ if(document.hidden) hiddenAt = Date.now(); else if(hiddenAt && Date.now() - hiddenAt > 30000) api.catchUp(); });
-    window.addEventListener('online', function(){ api.catchUp(); });
+    window.addEventListener('online', function(){ if(api.rt === 'off' && api._rtPrev) api.rt = api._rtPrev; notifySoft(); api.catchUp(); });
+    window.addEventListener('offline', function(){ if(api.rt !== 'off') api._rtPrev = api.rt; api.rt = 'off'; notifySoft(); toast(T('You are offline — changes made now may not be saved', '已离线：现在的修改可能无法保存')); });
     return sb.auth.getSession().then(function(r){ api.session = r.data && r.data.session; return api.boot(); });
   };
   /* one start per signed-in user: the session is announced both by getSession and by a SIGNED_IN event */

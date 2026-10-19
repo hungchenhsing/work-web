@@ -14,7 +14,7 @@ function guessField(reg, header){
   var n = normH(header); if(!n) return '';
   if(/提交阶段|submissionphase|^phase$/.test(n)) return '__phase';
   if(/任务文件|taskdocument/.test(n)) return '__task';
-  if(/^对外$|^external$|^external对外$|^对外external$/.test(n)) return '__ext';
+  if(/^对外$|^external$|^external对外$|^对外external$|^业主可见$|^ownercansee$|^ownercansee业主可见$/.test(n)) return '__ext';
   if(/^重点$|^key$|^key重点$|^重点key$|^★/.test(n)) return '__star';
   if(/parent|上级|父项/.test(n)) return '__parent';
   var best = '', bl = 0;
@@ -137,7 +137,7 @@ function impPlan(m, reg, apply){
       if(k === '__phase'){ var s = String(raw || ''), pm = /PH\s*-?\s*(\d+)/i.exec(s); if(pm){ var w = phaseRange(+pm[1]); if(w){ d.__ph = w; } else warn.push((ri + 2) + ': ' + s + ' ?'); } return; }
       if(k === '__task'){ String(raw || '').split(/\s*\/\s*/).forEach(function(p){ p = p.trim(); if(!p) return; if(/[一-鿿]/.test(p)){ if(ro.title2 && !d[ro.title2]) d[ro.title2] = p; else if(!d[ro.title]) d[ro.title] = p; } else if(ro.title) d[ro.title] = d[ro.title] ? d[ro.title] + ' / ' + p : p; }); return; }
       if(k === '__actual'){ var a = String(raw instanceof Date ? parseDate(raw) : raw || ''), am = /(\d{4}[.\-\/]\d{1,2}[.\-\/]\d{1,2})(?:\s*[-–~至]\s*(\d{4}[.\-\/]\d{1,2}[.\-\/]\d{1,2}))?/.exec(a); if(am){ d.actualStart = parseDate(am[1]); if(am[2]) d.actualEnd = parseDate(am[2]); } return; }
-      if(k === '__ext'){ var e = String(raw || '').trim(); if(e) d.ext = /^(y|yes|true|1|是|对外)/i.test(e); return; }
+      if(k === '__ext'){ var e = String(raw || '').trim(); if(e) d.ext = /^(y|yes|true|1|是|对外|可见|业主可见)/i.test(e); return; }
       if(k === '__parent'){ var pv = String(raw == null ? '' : raw).trim(); if(pv) d.__parentNo = pv; return; }
       if(k === '__star'){ var st = String(raw || '').trim(); if(st) d.star = /^(y|yes|true|1|是|★|重点)/i.test(st); return; }
       var f = fieldOf(reg, k); if(!f) return;
@@ -189,7 +189,7 @@ async function impRun(){
 function regSheet(reg, list){
   var fs = dataFields(reg).filter(function(f){ return f.type !== 'section'; });
   var head = fs.map(function(f){ return f.en + (f.zh && f.zh !== f.en ? ' ' + f.zh : ''); });
-  if(reg.d.ownerPublish) head.push('External 对外'); head.push('Key 重点'); head.push('Parent No. 上级编号');
+  if(reg.d.ownerPublish) head.push('Owner can see 业主可见'); head.push('Key 重点'); head.push('Parent No. 上级编号');
   var rows = list.map(function(r){
     var row = fs.map(function(f){
       var v = val(r, f);
@@ -234,11 +234,14 @@ function saveJson(data, name){
 function printMinutes(rec){
   var reg = getReg(rec.reg), d = rec.d, c = cfg();
   function fv(k){ var f = fieldOf(reg, k); return f ? esc(textOf(reg, f, rec)) : ''; }
-  function sub(k){ var f = fieldOf(reg, k); if(!f) return ''; var rows = asArr(d[k]); if(!rows.length) return '<p class="m">—</p>'; return '<table><thead><tr><th>#</th>' + (f.cols || []).map(function(cc){ return '<th>' + esc(cc.en) + (cc.zh ? '<br><small>' + esc(cc.zh) + '</small>' : '') + '</th>'; }).join('') + '</tr></thead><tbody>' + rows.map(function(r, i){ return '<tr><td>' + (i + 1) + '</td>' + (f.cols || []).map(function(cc){ var v = r[cc.key]; return '<td>' + (cc.type === 'check' ? (v ? '✓' : '') : esc(v == null ? '' : v)).replace(/\n/g, '<br>') + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table>'; }
+  function carryPrint(){ var f = fieldOf(reg, 'actions'); if(!isActionField(f)) return ''; var list = earlierActions(reg, rec, f); if(!list.length) return '';
+    return '<h2>Still open from earlier meetings 之前会议未完成的待办</h2><table><thead><tr><th>#</th><th>Action<br><small>事项</small></th><th>Owner<br><small>负责人</small></th><th>Due<br><small>期限</small></th><th>From<br><small>来自</small></th></tr></thead><tbody>' +
+      list.map(function(x, i){ return '<tr><td>' + (i + 1) + '</td><td>' + esc(x.text).replace(/\n/g, '<br>') + '</td><td>' + esc(x.who) + '</td><td>' + esc(x.due != null ? n2d(x.due) : '') + '</td><td>' + esc(recNo(reg, x.rec)) + '</td></tr>'; }).join('') + '</tbody></table>'; }
+  function sub(k){ var f = fieldOf(reg, k); if(!f) return ''; var rows = asArr(d[k]); if(!rows.length) return '<p class="m">—</p>'; return '<table><thead><tr><th>#</th>' + (f.cols || []).map(function(cc){ return '<th>' + esc(cc.en) + (cc.zh ? '<br><small>' + esc(cc.zh) + '</small>' : '') + '</th>'; }).join('') + '</tr></thead><tbody>' + rows.map(function(r, i){ return '<tr><td>' + (i + 1) + '</td>' + (f.cols || []).map(function(cc){ var v = r[cc.key]; return '<td>' + (cc.type === 'check' ? (v ? '✓' : '') : esc(subVal(cc, v))).replace(/\n/g, '<br>') + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table>'; }
   var html = '<!doctype html><html><head><meta charset="utf-8"><title>' + esc(recLabel(rec)) + '</title><style>body{font:13px/1.5 system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;color:#111;margin:28px}h1{font-size:19px;margin:0 0 2px}h2{font-size:14px;margin:18px 0 6px;border-bottom:1px solid #999;padding-bottom:2px}table{border-collapse:collapse;width:100%}td,th{border:1px solid #bbb;padding:5px 7px;text-align:left;vertical-align:top}th{background:#f1f1f1}.meta td{border:0;padding:2px 10px 2px 0}.m{color:#666}small{color:#666;font-weight:400}td:first-child,th:first-child{width:30px}@media print{body{margin:12mm}}</style></head><body>' +
     '<div class="m">' + esc(c.projectEn + ' · ' + c.projectZh) + '</div><h1>' + esc(recTitle(reg, rec)) + '</h1>' + (d.zh && d.en ? '<div>' + esc(d.zh) + '</div>' : '') +
     '<table class="meta"><tr><td><b>No.</b> ' + esc(recNo(reg, rec)) + '</td><td><b>Date 日期</b> ' + fv('date') + ' ' + fv('time') + '</td><td><b>Type 类型</b> ' + fv('mtype') + '</td><td><b>Location 地点</b> ' + fv('loc') + '</td></tr><tr><td colspan="4"><b>Chair 主持</b> ' + fv('chair') + ' &nbsp; <b>Attendees 参会人</b> ' + fv('attendees') + '</td></tr></table>' +
-    '<h2>Agenda 议程</h2>' + sub('agenda') + '<h2>Minutes 会议纪要</h2><div>' + esc(d.minutes || '—').replace(/\n/g, '<br>') + '</div><h2>Action items 待办事项</h2>' + sub('actions') +
+    '<h2>Agenda 议程</h2>' + sub('agenda') + '<h2>Minutes 会议纪要</h2><div>' + esc(d.minutes || '—').replace(/\n/g, '<br>') + '</div><h2>Action items 待办事项</h2>' + sub('actions') + carryPrint() +
     '<p class="m" style="margin-top:24px">Printed ' + esc(fmtTime(new Date().toISOString())) + '</p></body></html>';
   var w = window.open('', '_blank'); if(!w){ toast(T('Allow pop-ups to print.', '请允许弹出窗口以打印。')); return; }
   w.document.open(); w.document.write(html); w.document.close(); setTimeout(function(){ try{ w.focus(); w.print(); }catch(e){} }, 300);

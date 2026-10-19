@@ -27,7 +27,7 @@ document.addEventListener('click', function(e){
     case 'side': S.sideOpen = !S.sideOpen; renderSide(); break;
     case 'page': goPage(v); break;
     case 'reg': goReg(v); break;
-    case 'lang': S.lang = v; LS.set('ww.lang', v); renderAll(); break;
+    case 'lang': S.lang = v; if(STORE && STORE.mode === 'public') LS.set('ww.publang', v); else LS.set('ww.lang', v); renderAll(); break;
     case 'signout': STORE.signOut && STORE.signOut(); break;
     case 'recheck': STORE.boot(true); break;
     case 'authTab': S.auth = {tab:v}; renderGate(); break;
@@ -262,6 +262,8 @@ document.addEventListener('focusout', function(e){ if(e.target.dataset && e.targ
 /* ---------------- keyboard ---------------- */
 document.addEventListener('keydown', function(e){
   var el = e.target;
+  /* elements that act as buttons without being one (e.g. the status inside a card): Enter / Space */
+  if(el.getAttribute && el.getAttribute('role') === 'button' && el.tagName !== 'BUTTON' && (e.key === 'Enter' || e.key === ' ')){ e.preventDefault(); e.stopPropagation(); el.click(); return; }
   if(el.dataset && el.dataset.ie){
     if(e.key === 'Escape'){ e.preventDefault(); commitEdit(true); return; }
     if(e.key === 'Enter' && (el.tagName !== 'TEXTAREA' || e.ctrlKey || e.metaKey)){ e.preventDefault(); commitEdit(false); return; }
@@ -325,6 +327,9 @@ document.addEventListener('change', function(e){
   if(el.id === 'schOpen'){ S.schOpen = el.checked; renderMain(); return; }
   if(el.id === 'actReg' || el.id === 'actType'){ S.act[el.id === 'actReg' ? 'reg' : 'type'] = el.value; S.act.rows = null; renderMain(); return; }
   if(el.id === 'actWho'){ S.act.who = el.value; renderMain(); return; }
+  if(el.dataset && el.dataset.act === 'carryDone'){ var cr = getRec(el.dataset.id); if(!cr) return; var ck = actionCols(fieldOf(getReg(cr.reg), el.dataset.k)).ck;
+    setRec(cr, mk(el.dataset.k, asArr(cr.d[el.dataset.k]).map(function(x){ if(x && x._id === el.dataset.row){ x = clone(x); x[ck] = el.checked; } return x; }))); return; }
+  if(el.id === 'mePick'){ LS.set('ww2.mePid', el.value || null); renderAll(); return; }
   if(el.id === 'fileReg'){ S.files.reg = el.value; renderMain(); return; }
   if(el.id === 'oreg'){ S.oreg = el.value; renderMain(); return; }
   if(el.id === 'pubSel'){ S.pubSel = el.value; S.fbFor = null; renderMain(); return; }

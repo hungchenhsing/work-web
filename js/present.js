@@ -93,7 +93,7 @@ function menuHtml(p){
     var deck = presDeck(), ctx = deck ? dctx(deck) : {owner:false};
     return '<div class="pres-menu" data-pm="1"><b>' + L('Open a register view', '打开台账视图') + '</b><div class="pres-regs">' + allRegs().filter(function(g){ return regOk(ctx, g); }).map(function(g){ var ro = rolesOf(g), types = [['table', 'Table', '表格']].concat(ro.start || ro.finish ? [['gantt', 'Gantt', '甘特图']] : []).concat(ro.block ? [['matrix', 'Matrix', '矩阵']] : []).concat(rf(g, 'status') ? [['breakdown', 'Status', '状态']] : []);
       return '<div class="pres-reg"><span>' + icon(g.d.icon, 14) + ' ' + esc(regName(g)) + '</span><span class="pres-chips">' + types.map(function(t){ return '<button type="button" class="pres-chip" data-act="presLv" data-v="' + esc(g.id + '|' + t[0]) + '">' + L(t[1], t[2]) + '</button>'; }).join('') + '</span></div>'; }).join('') + '</div>' +
-      (ctx.owner ? '<p class="note">' + L('Owner mode: only Owner-visible fields and records are shown.', '业主模式：只显示业主可见的字段与记录。') + '</p>' : '') + '</div>';
+      (ctx.owner ? '<p class="note">' + L('Owner mode: only fields the Owner can see and records are shown.', '业主模式：只显示业主可见的字段与记录。') + '</p>' : '') + '</div>';
   }
   return '';
 }
@@ -129,7 +129,7 @@ function drillHtml(id){
   var close = '<button type="button" class="ib pres-dx" data-act="presDrillClose" aria-label="Close">' + uic('x', 18) + '</button>';
   if(!r || !reg || isPrivate(reg) || (ctx.owner && !recOk({owner:true}, reg, r))) return close + '<p class="muted">' + L('Details are not available for this item.', '此项无法显示详情。') + '</p>';
   var ro = rolesOf(reg), own = !!ctx.owner, fOk = function(k){ var f = k && fieldOf(reg, k); return !own || (f && fieldOk(ctx, reg, f)); };
-  /* Owner mode (the Owner is in the room): only Owner-visible fields and records, no library documents */
+  /* Owner mode (the Owner is in the room): only fields the Owner can see and records, no library documents */
   var st = statusOpt(reg, r), p = fOk(ro.start) || fOk(ro.finish) ? planOf(reg, r) : null, b = own ? null : baseOf(reg, r), a = own ? null : actOf(reg, r), pr = fOk(ro.progress) ? progressOf(reg, r) : null, kids = childrenOf(r).filter(function(k){ return !own || recOk({owner:true}, reg, k); });
   var h = close + '<div class="pd-h"><span class="muted">' + icon(reg.d.icon, 13) + ' ' + esc(regName(reg)) + ' · <span class="mono">' + esc(recNo(reg, r)) + '</span></span><h2>' + esc(recTitle(reg, r) || '—') + '</h2>' + (recTitle2(reg, r) ? '<div class="muted">' + esc(recTitle2(reg, r)) + '</div>' : '') +
     '<div class="pd-chips">' + (st ? optChip(st) : '') + (isOverdue(reg, r) ? chip('red', L('Overdue', '逾期')) : '') + (r.d.star ? chip('amber', '★ ' + L('Key', '重点')) : '') + (rf(reg, 'block') && fOk(ro.block) ? blockChips(r.d[rf(reg, 'block').key], rf(reg, 'block')) : '') + '</div></div>';

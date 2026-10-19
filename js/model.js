@@ -47,7 +47,7 @@ function regNameL(reg){ return reg ? L(reg.d.en || '', reg.d.zh || '') : ''; }
 function fieldsOf(reg){ return (reg && reg.d.fields) || []; }
 function dataFields(reg){ return fieldsOf(reg).filter(function(f){ return f.type !== 'section'; }); }
 function fieldOf(reg, key){ return fieldsOf(reg).filter(function(f){ return f.key === key; })[0] || null; }
-/* registers whose records reach the Owner only when marked “Show in Owner plan” (ext): published registers and the document library */
+/* registers whose records reach the Owner only when marked “Owner can see” (ext): published registers and the document library */
 function ownerGated(reg){ return !!reg && (!!reg.d.ownerPublish || reg.d.kind === 'library'); }
 function rolesOf(reg){ return (reg && reg.d.roles) || {}; }
 function rf(reg, roleName){ var k = rolesOf(reg)[roleName]; return k ? fieldOf(reg, k) : null; }
@@ -171,6 +171,8 @@ function blankData(reg, extra){
 }
 
 /* writes with change log + quick undo */
+/* a sub-table cell as text: a person's or option's name instead of its code */
+function subVal(c, v){ if(c && c.type === 'select') return asArr(v).map(function(x){ var o = optOf(c, x); return o ? nm(o) : x; }).join(', '); return v == null ? '' : v; }
 /* what a patch really changes (a status that counts as done also sets progress to 100 %) */
 function recChanges(reg, rec, patch){
   var old = {}, changed = {};
@@ -200,7 +202,29 @@ function quickUndo(){ var u = S.lastUndo; if(!u) return; var rec = getRec(u.id);
 function createRec(reg, extra, open){
   if(!canWrite(reg)) return Promise.resolve(null);
   var id = uid('r'), d = blankData(reg, extra);
-  return STORE.createRec({id:id, reg:reg.id, d:d}).then(function(){ if(open !== false){ S.open = id; S.dtab = 'details'; renderDrawer(); } return id; }).catch(function(e){ toast(errText(e)); return null; });
+  return STORE.createRec({id:id, reg:reg.id, d:d}).then(function(){ if(open !== false){ S.open = id; S.dtab = 'details'; var r0 = getRec(id); S.newBlank = {id:id, d:clone(r0 ? r0.d : d)}; renderDrawer(); } return id; }).catch(function(e){ toast(errText(e)); return null; });
+}
+/* a new item opened with New and closed without anything typed in it is removed again (v3.0) */
+function dropIfBlank(){
+  var nb = S.newBlank; if(!nb || S.open === nb.id) return; S.newBlank = null;
+  var r = getRec(nb.id); if(!r || !sameData(r.d, nb.d) || descendantsOf(r).length) return;
+  STORE.deleteRec(r.id).then(function(){ toast(T('Empty item removed', '已移除未填写的新项')); }, function(){});
+}
+
+/* ---- meeting actions still open from earlier meetings (v3.0) ----
+   Actions stay in the meeting that raised them; the next meeting lists the open ones and they are updated in place. */
+function actionCols(f){ var cs = (f && f.cols) || [], pk = function(t){ return (cs.filter(function(c){ return c.type === t; })[0] || {}).key; };
+  return {ck:pk('check'), dk:pk('date'), tk:(cs.filter(function(c){ return c.type === 'long' || c.type === 'text'; })[0] || {}).key, wc:cs.filter(function(c){ return /who|owner|resp/i.test(c.key); })[0] || null}; }
+function isActionField(f){ var a = actionCols(f); return f && f.type === 'sub' && !!a.ck && !!a.dk; }
+function earlierActions(reg, rec, f){
+  var a = actionCols(f), ro = rolesOf(reg), dk = ro.start, mine = d2n(rec.d[dk]), tf = fieldOf(reg, 'mtype') ? 'mtype' : null, out = [];
+  recsOf(reg.id).forEach(function(r){
+    if(r.id === rec.id) return;
+    var n = d2n(r.d[dk]); if(mine != null ? (n == null || n >= mine) : String(r.ca || '') >= String(rec.ca || '')) return;
+    if(tf && rec.d[tf] && r.d[tf] && r.d[tf] !== rec.d[tf]) return;   /* the same series of meetings */
+    asArr(r.d[f.key]).forEach(function(row){ if(row && !row[a.ck]) out.push({rec:r, row:row, due:d2n(row[a.dk]), text:row[a.tk] || '', who:subVal(a.wc, a.wc ? row[a.wc.key] : '')}); });
+  });
+  return out.sort(function(x, y){ return (x.due == null ? 1e9 : x.due) - (y.due == null ? 1e9 : y.due); });
 }
 
 /* undo any change-log row */

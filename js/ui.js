@@ -22,11 +22,13 @@ function restoreFocus(f){ if(!f) return; var el = document.querySelector('[data-
 
 function renderAll(){
   if(!STORE) return;
+  if(S.newBlank && typeof dropIfBlank === 'function') dropIfBlank();
   var fk = focusKey(document.activeElement);
   document.documentElement.lang = S.lang === 'zh' ? 'zh-CN' : 'en';
   if(STORE.mode === 'public'){ renderPublic(); return; }
   renderTop();
   if(typeof pkgUpgrade === 'function') setTimeout(pkgUpgrade, 0);
+  if(typeof peopleSubUpgrade === 'function') setTimeout(peopleSubUpgrade, 0);
   if(STORE.mode === 'cloud' && (!STORE.ready || !STORE.session || !STORE.me || role() === 'pending' || role() === 'none' || S.recovery)){ $('#side').innerHTML = ''; document.body.classList.add('gate'); renderGate(); renderDrawer(); renderPop(); renderModal(); return; }
   document.body.classList.remove('gate');
   if(role() === 'owner'){ $('#side').innerHTML = ''; document.body.classList.add('gate'); $('#main').innerHTML = viewOwnerPortal(); fitSlides(); renderDrawer(); renderPop(); renderModal(); return; }
@@ -40,13 +42,13 @@ function renderAll(){
 /* ---------------- top bar & side navigation ---------------- */
 function renderTop(){
   var c = cfg(), st = '';
-  if(STORE){ if(STORE.mode === 'demo') st = ['Demo · this browser only', '演示 · 仅本浏览器', 'demo']; else if(appReady()) st = STORE.rt === 'live' ? ['Live', '在线', 'live'] : STORE.rt === 'off' ? ['Offline — changes may not sync', '离线，修改可能未同步', 'off'] : ['Connecting…', '连接中…', 'wait']; }
+  if(STORE){ if(STORE.mode === 'demo') st = ['Demo · this browser only', '演示 · 仅本浏览器', 'demo']; else if(appReady()) st = STORE.rt === 'live' ? ['Live', '在线', 'live'] : STORE.rt === 'off' ? ['Offline', '离线', 'off', 'Offline — changes may not be saved until the connection is back', '离线：恢复连接前修改可能无法保存'] : ['Connecting…', '连接中…', 'wait']; }
   var signed = STORE && STORE.mode === 'cloud' && STORE.me && STORE.session;
   $('#top').innerHTML =
     '<button type="button" class="ib sidebtn" data-act="side" aria-label="Menu">' + uic('menu', 20) + '</button>' +
     '<div class="brand"><b>' + esc(c.projectEn) + '</b><span>' + esc(c.projectZh) + '</span></div>' +
     (appReady() && isInternal() || (STORE && STORE.mode === 'demo') ? '<label class="gsearch">' + uic('search', 15) + '<input id="gq" type="search" data-fk="gq" placeholder="' + esc(T('Search all registers', '搜索全部台账')) + '" value="' + esc(S.q) + '" autocomplete="off"></label>' : '<span style="flex:1"></span>') +
-    '<div class="tools">' + (st ? '<span class="sync" title="' + esc(T(st[0], st[1])) + '"><span class="dot ' + st[2] + '"></span><span class="stx">' + L(st[0], st[1]) + '</span></span>' : '') +
+    '<div class="tools">' + (st ? '<span class="sync ' + st[2] + '" role="status" title="' + esc(st[3] ? T(st[3], st[4]) : T(st[0], st[1])) + '"><span class="dot ' + st[2] + '"></span><span class="stx">' + L(st[0], st[1]) + '</span></span>' : '') +
     '<div class="seg" role="group" aria-label="Language">' + [['en','EN'],['both','EN + 中'],['zh','中']].map(function(o){ return '<button type="button" data-act="lang" data-v="' + o[0] + '" aria-pressed="' + (S.lang === o[0]) + '">' + o[1] + '</button>'; }).join('') + '</div>' +
     (signed ? '<details class="menu um"><summary class="btn sm">' + esc(STORE.me.name || STORE.me.email || '') + ' · ' + esc(roleName(role())) + '</summary><div class="pop pop-r"><div class="note" style="padding:6px 10px">' + esc(STORE.me.email || '') + '</div><button type="button" data-act="signout">' + L('Sign out', '退出登录') + '</button></div></details>' : '') + '</div>' +
     (S.q && appReady() ? searchResults() : '');
@@ -58,7 +60,7 @@ function searchResults(){
   return '<div class="gres card">' + (out.length ? out.map(function(x){ return '<button type="button" data-act="openRec" data-id="' + esc(x.rec.id) + '">' + icon(x.reg.d.icon, 14) + '<span class="mono muted">' + esc(recNo(x.reg, x.rec)) + '</span> ' + esc(recTitle(x.reg, x.rec) || '—') + ' <span class="muted" style="margin-left:auto;font-size:12px">' + esc(regName(x.reg)) + '</span></button>'; }).join('') : '<div class="note" style="padding:10px">' + L('No matches', '没有匹配') + '</div>') + '</div>';
 }
 function renderSide(){
-  var pages = [['home','home','Overview','总览'],['schedule','cal','Schedule','进度计划'],['decks','present','Presentations','演示文稿'],['activity','hist','Change log','修改记录'],['files','file','Documents','文件库'],['owner','owner','Owner plan','业主计划'],['settings','gear','Settings','设置']];
+  var pages = [['home','home','Overview','总览']].concat(peopleDir() && (isInternal() || STORE.mode === 'demo') ? [['mine','user','My work','我的工作']] : []).concat([['schedule','cal','Schedule','进度计划'],['decks','present','Presentations','演示文稿'],['activity','hist','Change log','修改记录'],['files','file','Documents','文件库'],['owner','owner','Owner plan','业主计划'],['settings','gear','Settings','设置']]);
   var h = '<div class="snav">' + pages.map(function(p){ return '<button type="button" data-act="page" data-v="' + p[0] + '"' + (S.page === p[0] ? ' aria-current="page"' : '') + '>' + uic(p[1]) + '<span>' + L(p[2], p[3]) + '</span></button>'; }).join('') + '</div>';
   var regs = allRegs(), secs = SECS.map(function(s){ return {s:s, regs:regs.filter(function(r){ return !isPrivate(r) && (r.d.sec || 'other') === s[0]; })}; });
   secs.push({s:['private','Only me','仅自己可见'], regs:regs.filter(isPrivate)});
@@ -86,6 +88,7 @@ function renderMain0(){
     else if(S.page === 'owner') h = viewOwner();
     else if(S.page === 'settings') h = viewSettings();
     else if(S.page === 'decks') h = viewDecks();
+    else if(S.page === 'mine') h = viewMine();
     else { S.page = 'home'; h = viewHome(); }
   }catch(e){ console.error(e); h = '<div class="card empty">' + L('Something went wrong showing this page.', '页面显示出错。') + '<pre class="note">' + esc(e && e.message) + '</pre></div>'; }
   var banner = '';
@@ -103,7 +106,19 @@ function renderMain0(){
   if(same && tsc){ var t2 = $('.tbl-wrap'); if(t2){ t2.scrollLeft = tsc[0]; t2.scrollTop = tsc[1]; } }
   if(S.page === 'reg' || S.page === 'schedule') afterGantt(same && S.gKeep ? gsc : null);
   vwAfterRender();
+  stickyCols();
   if(S.page === 'decks'){ fitSlides(); enableInline(); }
+}
+/* the number and title columns stay in view while a wide table scrolls sideways (when they are the first columns) */
+function stickyCols(){
+  $$('table.tbl').forEach(function(t){
+    var sel = t.querySelector('thead th.sel'), no = t.querySelector('thead th.no'), tt = t.querySelector('thead th.tt'); if(window.innerWidth < 700 || (!no && !tt)){ t.classList.remove('sk-no', 'sk-tt'); return; }
+    var x = sel ? sel.offsetWidth : 0, noFirst = no && (!tt || no.cellIndex < tt.cellIndex);
+    /* the number column sticks only when it comes first; the title sticks next to it (columns between scroll underneath) */
+    if(noFirst){ t.style.setProperty('--sl-no', x + 'px'); x += no.offsetWidth; }
+    if(tt) t.style.setProperty('--sl-tt', x + 'px');
+    t.classList.toggle('sk-no', !!noFirst); t.classList.toggle('sk-tt', !!tt && x + tt.offsetWidth < t.parentElement.clientWidth * 0.6);
+  });
 }
 
 /* ---------------- region patching ----------------
@@ -214,6 +229,12 @@ function chip(color, html){ return '<span class="chip c-' + esc(color || 'grey')
 function optChip(o, v){ return o ? chip(o.color, esc(nm(o))) : chip('grey', esc(v)); }
 function blockChips(arr, f){ arr = asArr(arr); if(!arr.length) return '<span class="ar c-grey">' + esc(S.lang === 'zh' ? '全场' : 'Site') + '</span>'; return arr.map(function(v){ var o = optOf(f, v); return '<span class="ar c-' + esc(o ? o.color : 'grey') + '" title="' + esc(o ? nm(o) : v) + '">' + esc(v) + '</span>'; }).join(''); }
 function pbar(p, extra){ p = clamp(Math.round(+p || 0), 0, 100); return '<div class="prog"><i><b style="width:' + p + '%"></b></i><span class="mono">' + p + '</span>' + (extra || '') + '</div>'; }
+/* phone numbers and email addresses open the phone or mail app (v3.0) */
+var EMAIL_RE = /^[^\s@<>"']+@[^\s@<>"']+\.[^\s@<>"']+$/;
+function contactHref(f, v){ v = String(v == null ? '' : v).trim(); if(!v) return '';
+  if(EMAIL_RE.test(v)) return 'mailto:' + v;
+  if(/phone|tel|mobile/i.test(f.key || '') && /^[+()\d][\d\s().\-\/]{5,}$/.test(v) && (v.match(/\d/g) || []).length >= 6) return 'tel:' + v.split('/')[0].replace(/[^\d+]/g, '');
+  return ''; }
 function cellHtml(reg, f, rec, opts){
   var v = val(rec, f);
   switch(f.type){
@@ -238,7 +259,7 @@ function cellHtml(reg, f, rec, opts){
     case 'sub': var rows = asArr(v); if(!rows.length) return '<span class="muted">—</span>'; var open = f.key === 'actions' ? rows.filter(function(x){ return !x.done; }).length : null; return '<span class="mono muted">' + rows.length + (open != null ? ' · ' + open + ' ' + T('open', '未完成') : '') + '</span>';
     case 'url': return v ? '<a href="' + esc(/^https?:/i.test(v) ? v : 'https://' + v) + '" target="_blank" rel="noopener">' + uic('link', 13) + ' ' + esc(String(v).replace(/^https?:\/\//, '').slice(0, 28)) + '</a>' : '<span class="muted">—</span>';
     case 'long': return v ? '<span class="clamp">' + esc(v) + '</span>' : '<span class="muted">—</span>';
-    default: return isEmpty(v) ? '<span class="muted">—</span>' : '<span class="clamp">' + esc(v) + '</span>';
+    default: if(isEmpty(v)) return '<span class="muted">—</span>'; var ch = f.type === 'text' ? contactHref(f, v) : ''; return ch ? '<a class="ctl" href="' + esc(ch) + '">' + esc(v) + '</a>' : '<span class="clamp">' + esc(v) + '</span>';
   }
 }
 function canInline(f){ return ['text','number','percent','date','url','long'].indexOf(f.type) >= 0; }
@@ -314,6 +335,14 @@ function mk(k, v){ var o = {}; o[k] = v; return o; }
 
 /* ---------------- sub-tables ---------------- */
 function subSet(rec, key, rowId, col, v){ var rows = clone(asArr(rec.d[key])); rows.forEach(function(r){ if(r._id === rowId) r[col] = v; }); setRec(rec, mk(key, rows), {silent:true}); }
+function carryHtml(reg, rec, f, ed){
+  var list = earlierActions(reg, rec, f); if(!list.length) return ''; var A = asOfN();
+  return '<div class="carry"><h4>' + L('Still open from earlier meetings', '之前会议未完成的待办') + ' <span class="cnt">' + list.length + '</span></h4><table class="subt"><thead><tr><th>' + L('Action', '事项') + '</th><th>' + L('Owner', '负责人') + '</th><th>' + L('Due', '期限') + '</th><th>' + L('From', '来自') + '</th><th>' + L('Done', '完成') + '</th></tr></thead><tbody>' +
+    list.map(function(x){ var od = x.due != null && x.due < A;
+      return '<tr><td>' + esc(x.text || '—') + '</td><td>' + esc(x.who || '—') + '</td><td class="mono nowrap' + (od ? ' od' : '') + '">' + (x.due != null ? esc(md(n2d(x.due))) + (od ? ' !' : '') : '—') + '</td><td><button type="button" class="lnk mono" data-act="openRec" data-id="' + esc(x.rec.id) + '">' + esc(recNo(reg, x.rec)) + '</button></td>' +
+        '<td><input type="checkbox" data-act="carryDone" data-id="' + esc(x.rec.id) + '" data-k="' + esc(f.key) + '" data-row="' + esc(x.row._id || '') + '"' + (ed && canWrite(reg) ? '' : ' disabled') + ' aria-label="' + esc(T('Mark done', '标记完成')) + '"></td></tr>'; }).join('') +
+    '</tbody></table><p class="note">' + L('Ticking one marks it done in the meeting that raised it.', '勾选后会在提出它的那次会议中标记为完成。') + '</p></div>';
+}
 function subEditor(reg, f, rec, ed){
   var rows = asArr(rec.d[f.key]), cols = f.cols || [];
   var h = '<div class="subwrap"><table class="subt"><thead><tr>' + cols.map(function(c){ return '<th>' + L(c.en, c.zh) + '</th>'; }).join('') + (ed ? '<th></th>' : '') + '</tr></thead><tbody>';
@@ -322,7 +351,7 @@ function subEditor(reg, f, rec, ed){
       var v = r[c.key], a = ' data-sub="' + esc(f.key) + '" data-row="' + esc(r._id) + '" data-col="' + esc(c.key) + '"' + (ed ? '' : ' disabled');
       if(c.type === 'check') return '<td class="tc"><input type="checkbox"' + a + (v ? ' checked' : '') + '></td>';
       if(c.type === 'long') return '<td><textarea class="in" rows="2"' + a + ' data-fk="sub:' + esc(f.key + ':' + r._id + ':' + c.key) + '">' + esc(v || '') + '</textarea></td>';
-      if(c.type === 'select'){ var o = (c.opts || []).filter(function(x){ return x.v === v; })[0]; return '<td><button type="button" class="pickbtn" data-act="subPick"' + a + '>' + (o ? optChip(o, v) : '<span class="muted">—</span>') + '</button></td>'; }
+      if(c.type === 'select'){ var o = optOf(c, v); return '<td><button type="button" class="pickbtn" data-act="subPick"' + a + '>' + (c.list === 'people' && v ? '<span class="ppl">' + esc(o ? nm(o) : v) + '</span>' : o ? optChip(o, v) : v ? esc(v) : '<span class="muted">—</span>') + '</button></td>'; }
       return '<td><input class="in" type="' + (c.type === 'date' ? 'date' : c.type === 'number' ? 'number' : 'text') + '"' + a + ' value="' + esc(v == null ? '' : v) + '" data-fk="sub:' + esc(f.key + ':' + r._id + ':' + c.key) + '"></td>';
     }).join('') + (ed ? '<td class="tc"><button type="button" class="ib" data-act="subDel" data-sub="' + esc(f.key) + '" data-row="' + esc(r._id) + '" title="' + esc(T('Remove row', '删除行')) + '">' + uic('x', 14) + '</button></td>' : '') + '</tr>';
   });
@@ -348,7 +377,7 @@ function renderDrawer(){
     (reg.d.meeting ? '<button type="button" class="ib" data-act="printMom" title="' + esc(T('Print minutes', '打印纪要')) + '">' + uic('print', 16) + '</button>' : '') +
     '<button type="button" class="ib" data-act="close" aria-label="Close">' + uic('x', 18) + '</button></span></div>' +
     '<div class="dtitle">' + esc(recTitle(reg, rec) || T('Untitled', '未命名')) + '</div>' + (recTitle2(reg, rec) ? '<div class="muted">' + esc(recTitle2(reg, rec)) + '</div>' : '') +
-    '<div class="dchips">' + (statusOpt(reg, rec) ? optChip(statusOpt(reg, rec)) : '') + (rf(reg, 'block') ? ' ' + blockChips(rec.d[rf(reg, 'block').key], rf(reg, 'block')) : '') + (isOverdue(reg, rec) ? ' ' + chip('red', L('Overdue', '逾期')) : '') + (rec.d.ext ? ' ' + chip('violet', L('External', '对外')) : '') + '</div>' + (reg.d.meeting && !isPrivate(reg) ? meetingDeckStrip(rec) : '') +
+    '<div class="dchips">' + (statusOpt(reg, rec) ? optChip(statusOpt(reg, rec)) : '') + (rf(reg, 'block') ? ' ' + blockChips(rec.d[rf(reg, 'block').key], rf(reg, 'block')) : '') + (isOverdue(reg, rec) ? ' ' + chip('red', L('Overdue', '逾期')) : '') + (rec.d.ext ? ' ' + chip('violet', L('Owner can see', '业主可见')) : '') + '</div>' + (reg.d.meeting && !isPrivate(reg) ? meetingDeckStrip(rec) : '') +
     '<div class="dtabs" role="tablist">' + tabs.map(function(t){ return '<button type="button" role="tab" data-act="dtab" data-v="' + t[0] + '" aria-selected="' + (S.dtab === t[0]) + '">' + L(t[1], t[2]) + (t[3] ? ' <span class="cnt">' + t[3] + '</span>' : '') + '</button>'; }).join('') + '</div></div><div class="dbody">';
   if(S.dtab === 'files') h += drawerFiles(reg, rec, ed);
   else if(S.dtab === 'links') h += drawerLinks(reg, rec, ed);
@@ -357,16 +386,17 @@ function renderDrawer(){
   else if(S.dtab === 'comments') h += drawerComments(reg, rec);
   else if(S.dtab === 'work' && isPeopleReg(reg)) h += peopleWork(reg, rec);
   else h += (lib ? docPreview(rec, ed) : relStrip(rec, ed)) + drawerForm(reg, rec, ed);
-  h += '</div><div class="dfoot">' + (ed ? '<button type="button" class="btn sm" data-act="dupRec">' + uic('copy', 14) + ' ' + L('Duplicate', '复制') + '</button>' + (ownerGated(reg) && !isPrivate(reg) ? '<label class="chk"><input type="checkbox" data-act="extTog"' + (rec.d.ext ? ' checked' : '') + '>' + L('Show in Owner plan', '显示于业主计划') + '</label>' : '') +
+  h += '</div><div class="dfoot">' + (ed ? '<button type="button" class="btn sm" data-act="dupRec">' + uic('copy', 14) + ' ' + L('Duplicate', '复制') + '</button>' + (ownerGated(reg) && !isPrivate(reg) ? '<label class="chk"><input type="checkbox" data-act="extTog"' + (rec.d.ext ? ' checked' : '') + '>' + L('Owner can see', '业主可见') + '</label>' : '') +
     (S.delAsk ? '<span class="dl"><button type="button" class="btn sm danger" data-act="delYes">' + (descendantsOf(rec).length ? L('Delete with ' + descendantsOf(rec).length + ' sub-items', '连同 ' + descendantsOf(rec).length + ' 个子项一起删除') : L('Confirm delete', '确认删除')) + '</button><button type="button" class="btn sm" data-act="delNo">' + L('Cancel', '取消') + '</button></span>' : '<button type="button" class="btn sm danger-o" data-act="delAsk">' + uic('trash', 14) + ' ' + L('Delete', '删除') + '</button>') : '<span class="note">' + L('Read only', '只读') + '</span>') + '</div></aside>';
   root.innerHTML = h; document.body.classList.add('dopen');
   var b = $('.dbody'); if(b) b.scrollTop = ds;
   restoreFocus(fk);
 }
 function fieldInput(reg, f, rec, ed){
-  var v = rec.d[f.key], dis = ed ? '' : ' disabled', a = ' data-df="' + esc(f.key) + '" data-fk="df:' + esc(rec.id + ':' + f.key) + '"' + dis;
+  var v = rec.d[f.key], dis = ed ? '' : ' disabled', a = ' data-df="' + esc(f.key) + '" data-fk="df:' + esc(rec.id + ':' + f.key) + '" aria-label="' + esc(T(f.en || f.key, f.zh)) + '"' + dis;
   switch(f.type){
-    case 'text': case 'url': return '<input class="in" type="' + (f.type === 'url' ? 'url' : 'text') + '"' + a + ' value="' + esc(v == null ? '' : v) + '">';
+    case 'text': case 'url': var chf = f.type === 'text' ? contactHref(f, v) : '', inp = '<input class="in" type="' + (f.type === 'url' ? 'url' : chf.indexOf('mailto:') === 0 ? 'email' : chf ? 'tel' : 'text') + '"' + a + ' value="' + esc(v == null ? '' : v) + '">';
+      return chf ? '<div class="inu">' + inp + '<a class="btn sm" href="' + esc(chf) + '">' + (chf.indexOf('tel:') === 0 ? L('Call', '拨打') : L('Email', '发邮件')) + '</a></div>' : inp;
     case 'long': return '<textarea class="in" rows="' + (f.key === 'minutes' ? 8 : 3) + '"' + a + '>' + esc(v || '') + '</textarea>';
     case 'number': return '<div class="inu"><input class="in" type="number" step="any"' + a + ' value="' + esc(v == null ? '' : v) + '">' + (f.unit ? '<span class="muted">' + esc(f.unit) + '</span>' : '') + '</div>';
     case 'percent': if(isAutoNow(rec, f)) return '<div class="ro">' + pbar(val(rec, f)) + ' <span class="note">' + L('calculated from quantities', '按工程量计算') + '</span></div>'; return '<input class="in" type="number" min="0" max="100" step="5"' + a + ' value="' + esc(v == null ? '' : v) + '">';
@@ -377,7 +407,7 @@ function fieldInput(reg, f, rec, ed){
     case 'calc': return '<div class="ro">' + cellHtml(reg, f, rec) + '</div>';
     case 'files': return libShow(reg) && !isLibRec(rec) && (dataFields(reg).filter(function(x){ return x.type === 'files'; })[0] || {}).key === f.key ? docGridHtml(rec, ed) + (asArr(v).length ? '<div class="note" style="margin-top:6px">' + L('Attached directly:', '直接附加：') + '</div>' + fileList(reg, f, rec, ed) : '') : fileList(reg, f, rec, ed);
     case 'link': return linkList(reg, f, rec, ed);
-    case 'sub': return subEditor(reg, f, rec, ed);
+    case 'sub': return subEditor(reg, f, rec, ed) + (isActionField(f) && reg.d.meeting ? carryHtml(reg, rec, f, ed) : '');
     default: return esc(v);
   }
 }
@@ -388,7 +418,7 @@ function drawerForm(reg, rec, ed){
     if(lib && f.type === 'files') return;
     if(f.type === 'section'){ h += '<h3 class="fsec full">' + L(f.en, f.zh) + '</h3>'; return; }
     var wide = ['long','sub','files','link'].indexOf(f.type) >= 0 || f.key === rolesOf(reg).title || f.key === rolesOf(reg).title2;
-    h += '<div class="fl' + (wide ? ' full' : '') + '"><span class="flab">' + L(f.en, f.zh) + (f.help ? ' <span class="note">' + esc(f.help) + '</span>' : '') + '</span>' + fieldInput(reg, f, rec, ed) + '</div>';
+    h += '<div class="fl' + (wide ? ' full' : '') + '" role="group" aria-label="' + esc(T(f.en || f.key, f.zh)) + '"><span class="flab">' + L(f.en, f.zh) + (f.help ? ' <span class="note">' + esc(f.help) + '</span>' : '') + '</span>' + fieldInput(reg, f, rec, ed) + '</div>';
   });
   h += '</div>';
   h += baseInfo(reg, rec);
