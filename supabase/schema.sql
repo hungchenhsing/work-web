@@ -1016,35 +1016,8 @@ end $$;
 drop trigger if exists number_publication on public.publications;
 create trigger number_publication before insert on public.publications for each row execute function public.number_publication();
 
--- Owner comments: the author and the time come from the database, the text can never be edited afterwards,
--- and only the team can reply or close a comment (who closed it, and when, is recorded).
+-- Owner comments: the author and the time come from the database (guard_feedback, in the v3.1 section below).
 alter table public.feedback add column if not exists resolved_by uuid;
-create or replace function public.guard_feedback() returns trigger
-language plpgsql security definer set search_path = '' as $$
-begin
-  if auth.uid() is null or public.ww_restoring() then return new; end if;   -- the SQL editor, or a backup being restored
-  if tg_op = 'INSERT' then
-    new.author := auth.uid();
-    new.author_name := (select coalesce(nullif(p.name, ''), p.email) from public.profiles p where p.id = auth.uid());
-    new.status := 'open'; new.reply := null; new.resolved_at := null; new.resolved_by := null; new.created_at := now();
-    if public.my_role() = 'owner' and not exists (select 1 from public.publications p where p.id = new.pub_id) then
-      raise exception 'Comments belong to a published plan' using errcode = '42501';
-    end if;
-    return new;
-  end if;
-  if new.id is distinct from old.id or new.pub_id is distinct from old.pub_id or new.item_id is distinct from old.item_id
-     or new.reg_no is distinct from old.reg_no or new.body is distinct from old.body or new.author is distinct from old.author
-     or new.author_name is distinct from old.author_name or new.created_at is distinct from old.created_at then
-    raise exception 'A comment''s text and author cannot be changed' using errcode = '42501';
-  end if;
-  if new.status = 'resolved' and old.status is distinct from 'resolved' then new.resolved_at := now(); new.resolved_by := auth.uid();
-  elsif new.status = 'open' then new.resolved_at := null; new.resolved_by := null;
-  else new.resolved_at := old.resolved_at; new.resolved_by := old.resolved_by;
-  end if;
-  return new;
-end $$;
-drop trigger if exists guard_feedback on public.feedback;
-create trigger guard_feedback before insert or update on public.feedback for each row execute function public.guard_feedback();
 
 -- Files: removing a file from a record no longer deletes it at once (undo and the change log can bring it back).
 -- An admin clears files nobody uses from Settings → Data & backup; only admins may delete stored files.
@@ -1204,9 +1177,10 @@ begin
     select p ->> 'id', p -> 'data', (p ->> 'created_at')::timestamptz, nullif(p ->> 'created_by', '')::uuid from jsonb_array_elements(b -> 'publications') p
     where not exists (select 1 from public.publications x where x.id = p ->> 'id')
     on conflict (id) do nothing;
-  insert into public.feedback (id, pub_id, item_id, reg_no, body, author, author_name, status, reply, created_at, resolved_at, resolved_by)
+  insert into public.feedback (id, pub_id, item_id, reg_no, body, author, author_name, status, reply, created_at, resolved_at, resolved_by, code, kind)
     select (f ->> 'id')::uuid, f ->> 'pub_id', f ->> 'item_id', f ->> 'reg_no', f ->> 'body', (f ->> 'author')::uuid, f ->> 'author_name',
-           coalesce(f ->> 'status', 'open'), f ->> 'reply', (f ->> 'created_at')::timestamptz, (f ->> 'resolved_at')::timestamptz, nullif(f ->> 'resolved_by', '')::uuid
+           coalesce(f ->> 'status', 'open'), f ->> 'reply', (f ->> 'created_at')::timestamptz, (f ->> 'resolved_at')::timestamptz, nullif(f ->> 'resolved_by', '')::uuid,
+           f ->> 'code', f ->> 'kind'
       from jsonb_array_elements(b -> 'feedback') f
     on conflict (id) do nothing;
   return res;
@@ -1226,6 +1200,146 @@ do $$ declare f text; begin
                            'public.record_ops(text,jsonb)', 'public.records_ops(jsonb)', 'public.register_ops(text,jsonb)', 'public.config_ops(text,jsonb)',
                            'public.storage_unused(integer)', 'public.backup_now()', 'public.backup_if_due()', 'public.backup_list()',
                            'public.backup_get(bigint)', 'public.backup_restore(bigint,text)', 'public.ww_restoring()'] loop
+    execute 'revoke all on function ' || f || ' from public, anon';
+    execute 'grant execute on function ' || f || ' to authenticated';
+  end loop; end $$;
+
+-- =====================================================================
+-- v3.1: handover — transmittals, the Owner's responses, files the Owner may download
+-- =====================================================================
+-- A transmittal is a record of the "transmittals" register; d.items lists the documents sent
+-- ([{_id, rid, rev, files:[{path, sha}], code, comment, ...}]). Once it is sent, the documents, revisions, files and
+-- fingerprints in it are fixed, it never goes back to draft, and only an admin may delete it. The Owner answers each
+-- document in the Owner portal: a feedback row of kind 'response' with a code, which the database writes into the
+-- transmittal and into the document's "Owner result" (only while the document is still at the revision answered).
+
+alter table public.feedback add column if not exists code text;
+alter table public.feedback add column if not exists kind text;
+
+-- Owner comments and responses: author and time come from the database, the text and code can never be edited
+-- afterwards, and only the team can reply or close one (who closed it, and when, is recorded).
+create or replace function public.guard_feedback() returns trigger
+language plpgsql security definer set search_path = '' as $$
+declare p jsonb;
+begin
+  if auth.uid() is null or public.ww_restoring() then return new; end if;   -- the SQL editor, or a backup being restored
+  if tg_op = 'INSERT' then
+    new.author := auth.uid();
+    new.author_name := (select coalesce(nullif(x.name, ''), x.email) from public.profiles x where x.id = auth.uid());
+    new.status := 'open'; new.reply := null; new.resolved_at := null; new.resolved_by := null; new.created_at := now();
+    if new.kind is distinct from 'response' then new.kind := null; new.code := null; end if;
+    select data into p from public.publications where id = new.pub_id;
+    if public.my_role() = 'owner' and p is null then
+      raise exception 'Comments belong to a published plan' using errcode = '42501';
+    end if;
+    if new.kind = 'response' then
+      if new.code is null or new.code not in ('accepted', 'accepted_c', 'revise', 'rejected') then
+        raise exception 'Unknown response code' using errcode = '22023';
+      end if;
+      if p is null or p ->> 'kind' is distinct from 'transmittal' or not exists (
+           select 1 from jsonb_array_elements(case when jsonb_typeof(p -> 'items') = 'array' then p -> 'items' else '[]'::jsonb end) x
+            where x ->> '_id' = new.item_id) then
+        raise exception 'A response belongs to a document of a transmittal' using errcode = '42501';
+      end if;
+    end if;
+    return new;
+  end if;
+  if new.id is distinct from old.id or new.pub_id is distinct from old.pub_id or new.item_id is distinct from old.item_id
+     or new.reg_no is distinct from old.reg_no or new.body is distinct from old.body or new.author is distinct from old.author
+     or new.author_name is distinct from old.author_name or new.created_at is distinct from old.created_at
+     or new.code is distinct from old.code or new.kind is distinct from old.kind then
+    raise exception 'A comment''s text and author cannot be changed' using errcode = '42501';
+  end if;
+  if new.status = 'resolved' and old.status is distinct from 'resolved' then new.resolved_at := now(); new.resolved_by := auth.uid();
+  elsif new.status = 'open' then new.resolved_at := null; new.resolved_by := null;
+  else new.resolved_at := old.resolved_at; new.resolved_by := old.resolved_by;
+  end if;
+  return new;
+end $$;
+drop trigger if exists guard_feedback on public.feedback;
+create trigger guard_feedback before insert or update on public.feedback for each row execute function public.guard_feedback();
+
+-- what may not change once a transmittal is sent: each document, its revision, its files and their fingerprints
+create or replace function public.trn_ident(p jsonb) returns jsonb
+language sql immutable set search_path = '' as $$
+  select coalesce(jsonb_agg(jsonb_build_object('_id', x -> '_id', 'rid', x -> 'rid', 'rev', x -> 'rev', 'files',
+           (select coalesce(jsonb_agg(jsonb_build_object('path', f -> 'path', 'sha', f -> 'sha') order by f ->> 'path', f ->> 'sha'), '[]'::jsonb)
+              from jsonb_array_elements(case when jsonb_typeof(x -> 'files') = 'array' then x -> 'files' else '[]'::jsonb end) f))
+         order by x ->> '_id'), '[]'::jsonb)
+    from jsonb_array_elements(case when jsonb_typeof(p) = 'array' then p else '[]'::jsonb end) x
+$$;
+create or replace function public.guard_transmittal() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  if auth.uid() is null or public.ww_restoring() then return coalesce(new, old); end if;
+  if coalesce(old.data ->> 'status', 'draft') = 'draft'
+     or not exists (select 1 from public.registers r where r.id = old.register_id and r.data ->> 'kind' = 'transmittals') then
+    return coalesce(new, old);
+  end if;
+  if tg_op = 'DELETE' then
+    if public.my_role() is distinct from 'admin' then
+      raise exception 'Only an admin can delete a transmittal that was sent' using errcode = '42501';
+    end if;
+    return old;
+  end if;
+  if coalesce(new.data ->> 'status', 'draft') = 'draft' then
+    raise exception 'A transmittal that was sent cannot go back to draft' using errcode = '42501';
+  end if;
+  if public.trn_ident(old.data -> 'items') is distinct from public.trn_ident(new.data -> 'items') then
+    raise exception 'The documents, revisions and files of a sent transmittal cannot be changed — put a new revision in a new transmittal' using errcode = '42501';
+  end if;
+  return new;
+end $$;
+drop trigger if exists guard_transmittal on public.records;
+create trigger guard_transmittal before update or delete on public.records for each row
+  when (old.data ? 'items') execute function public.guard_transmittal();
+
+-- the Owner's response goes into the transmittal (and its status) and into the document's Owner result
+create or replace function public.apply_owner_response() returns trigger
+language plpgsql security definer set search_path = '' as $$
+declare p jsonb; t record; items jsonb; i integer; it jsonb; st text;
+begin
+  if new.kind is distinct from 'response' or new.code is null or public.ww_restoring() then return null; end if;
+  select data into p from public.publications where id = new.pub_id;
+  if p is null or p ->> 'kind' is distinct from 'transmittal' then return null; end if;
+  select r.id, r.data into t from public.records r where r.id = p ->> 'trnId' for update;
+  if not found or jsonb_typeof(t.data -> 'items') is distinct from 'array' then return null; end if;
+  items := t.data -> 'items';
+  select e.n - 1 into i from jsonb_array_elements(items) with ordinality e(x, n) where e.x ->> '_id' = new.item_id limit 1;
+  if i is null then return null; end if;
+  it := (items -> i) || jsonb_build_object('code', new.code, 'comment', case when new.body = new.code then '' else new.body end,
+        'at', to_jsonb(new.created_at), 'by', coalesce(new.author_name, ''), 'src', 'portal', 'fb', new.id::text);
+  items := jsonb_set(items, array[i::text], it);
+  st := t.data ->> 'status';
+  if st = 'sent' and not exists (select 1 from jsonb_array_elements(items) x where coalesce(x ->> 'code', '') = '') then st := 'responded'; end if;
+  update public.records set data = data || jsonb_build_object('items', items)
+         || case when st is distinct from t.data ->> 'status' then jsonb_build_object('status', st) else '{}'::jsonb end
+   where id = t.id;
+  update public.records d set data = d.data || jsonb_build_object('ownerResult', new.code)
+   where d.id = it ->> 'rid' and d.data ->> 'ownerResult' is distinct from new.code
+     and (coalesce(d.data ->> 'rev', '') = '' or coalesce(it ->> 'rev', '') = '' or d.data ->> 'rev' = it ->> 'rev')
+     and exists (select 1 from public.registers r
+                  cross join lateral jsonb_array_elements(case when jsonb_typeof(r.data -> 'fields') = 'array' then r.data -> 'fields' else '[]'::jsonb end) f
+                  where r.id = d.register_id and f ->> 'key' = 'ownerResult');
+  return null;
+end $$;
+drop trigger if exists apply_owner_response on public.feedback;
+create trigger apply_owner_response after insert on public.feedback for each row execute function public.apply_owner_response();
+
+-- the Owner may download exactly the files listed in a transmittal shown to them
+create or replace function public.owner_can_read_file(p_name text) returns boolean
+language sql stable security definer set search_path = '' as $$
+  select exists (select 1 from public.publications p where p.data ->> 'kind' = 'transmittal' and p.data -> 'paths' ? p_name)
+$$;
+drop policy if exists ww_files_read on storage.objects;
+create policy ww_files_read on storage.objects for select to authenticated
+  using (bucket_id = 'files' and (
+    (name like 'r/%' and public.can_read_register(split_part(name, '/', 2))) or
+    (name not like 'r/%' and public.my_role() in ('admin','editor','viewer')) or
+    (public.my_role() = 'owner' and public.owner_can_read_file(name))));
+
+do $$ declare f text; begin
+  foreach f in array array['public.trn_ident(jsonb)', 'public.owner_can_read_file(text)'] loop
     execute 'revoke all on function ' || f || ' from public, anon';
     execute 'grant execute on function ' || f || ' to authenticated';
   end loop; end $$;

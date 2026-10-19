@@ -58,7 +58,8 @@ function DemoStore(){
       if(res && (!x.last_view || Date.now() - Date.parse(x.last_view) >= 20000)){ x.views = (x.views || 0) + 1; x.last_view = new Date().toISOString(); LS.set(KEY, st); }
       return Promise.resolve(res);
     },
-    addFeedback: function(o){ st.fb.push(Object.assign({id:uid('f'), status:'open', created_at:new Date().toISOString(), author:'demo', author_name:'Demo'}, o)); api.save(); return Promise.resolve(); },
+    addFeedback: function(o){ var f = Object.assign({id:uid('f'), status:'open', created_at:new Date().toISOString(), author:'demo', author_name:'Demo'}, o); st.fb.push(f); api.save();
+      return o.kind === 'response' && typeof trnApplyResponse === 'function' ? trnApplyResponse(f) : Promise.resolve(); },   // the demo does what the database trigger does (v3.1)
     updateFeedback: function(id, p){ st.fb.forEach(function(f){ if(f.id === id) Object.assign(f, p); }); api.save(); return Promise.resolve(); },
     resetDemo: function(){ LS.del(KEY); location.reload(); },
     upload: function(file){ var id = 'demo:' + uid('b'); blobs[id] = URL.createObjectURL(file); return Promise.resolve({path:id, name:file.name, type:file.type || '', size:file.size}); },
@@ -137,7 +138,7 @@ function CloudStore(url, key){
   };
   /* after the first screen: recent changes (light: no before/after values), publication list (light: no slides or photos),
      Owner comments and, for admins, the user list. A publication's full content is fetched when it is opened. */
-  var PUB_COLS = 'id,created_at,kind:data->>kind,no:data->>no,at:data->>at,by:data->>by,note:data->>note,deckId:data->>deckId,deckNo:data->>deckNo,title:data->title,date:data->>date,reg:data->reg,count:data->count,lang:data->>lang,presenter:data->>presenter';
+  var PUB_COLS = 'id,created_at,kind:data->>kind,no:data->>no,at:data->>at,by:data->>by,note:data->>note,deckId:data->>deckId,deckNo:data->>deckNo,title:data->title,date:data->>date,reg:data->reg,count:data->count,lang:data->>lang,presenter:data->>presenter,trnNo:data->>trnNo,trnId:data->>trnId';
   function pubList(){ return sb.from('publications').select(PUB_COLS).order('created_at', {ascending:false}).then(function(r){ if(r.error) throw r.error; return (r.data || []).map(function(x){ var o = Object.assign({}, x, {_light:true}); delete o.created_at; return o; }); }); }
   api.ensurePubs = function(){ return api._pubsLoaded ? Promise.resolve() : pubList().then(function(list){ var have = {}; api.pubs.forEach(function(x){ have[x.id] = 1; }); api.pubs = api.pubs.concat(list.filter(function(x){ return !have[x.id]; })); api._pubsLoaded = true; }); };
   function loadRest(role){
@@ -349,19 +350,24 @@ function CloudStore(url, key){
   api.backupGet = function(id){ return sb.rpc('backup_get', {p_id:id}).then(function(r){ if(r.error) throw r.error; return r.data; }); };
   api.backupRestore = function(id, word){ return sb.rpc('backup_restore', {p_id:id, p_confirm:word}).then(function(r){ if(r.error) throw r.error; return api.loadAll().then(function(){ notify(); return r.data; }); }); };
   api.storageUnused = function(days){ return sb.rpc('storage_unused', {p_days:days || 30}).then(function(r){ if(r.error) throw r.error; return r.data || []; }); };
+  /* a file that cannot be signed (deleted, or not readable for this user) is not asked for again for a minute (v3.1) */
+  var urlFail = {};
+  function urlsGot(paths, r){ (r && r.data || []).forEach(function(x){ if(x.signedUrl) urls[x.path] = {url:x.signedUrl, exp:Date.now() + 3300e3}; });
+    paths.forEach(function(p){ var c = urls[p]; if(!(c && c.exp > Date.now())) urlFail[p] = Date.now() + 60e3; }); }
   api.fileUrl = function(path){
     var c = urls[path]; if(c && c.exp > Date.now()) return c.url;
+    if(urlFail[path] > Date.now()) return null;
     pendingUrls[path] = 1;
     if(!urlTimer) urlTimer = setTimeout(function(){
       var paths = Object.keys(pendingUrls); pendingUrls = {}; urlTimer = null;
-      sb.storage.from('files').createSignedUrls(paths, 3600).then(function(r){ (r.data || []).forEach(function(x){ if(x.signedUrl) urls[x.path] = {url:x.signedUrl, exp:Date.now() + 3300e3}; }); notifySoft(); });
+      sb.storage.from('files').createSignedUrls(paths, 3600).then(function(r){ urlsGot(paths, r); notifySoft(); }, function(){ urlsGot(paths, null); });
     }, 30);
     return null;
   };
   api.signUrls = function(paths){
     var need = (paths || []).filter(function(p, i, a){ var c = urls[p]; return p && a.indexOf(p) === i && !(c && c.exp > Date.now() + 60e3); });
     if(!need.length) return Promise.resolve();
-    return sb.storage.from('files').createSignedUrls(need, 3600).then(function(r){ (r.data || []).forEach(function(x){ if(x.signedUrl) urls[x.path] = {url:x.signedUrl, exp:Date.now() + 3300e3}; }); }).catch(function(){});
+    return sb.storage.from('files').createSignedUrls(need, 3600).then(function(r){ urlsGot(need, r); }, function(){ urlsGot(need, null); });
   };
   api.signIn = function(email, pw){ return sb.auth.signInWithPassword({email:email, password:pw}); };
   api.signUp = function(email, pw, name){ return sb.auth.signUp({email:email, password:pw, options:{data:{name:name}, emailRedirectTo: location.origin + location.pathname}}); };

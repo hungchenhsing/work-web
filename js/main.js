@@ -38,7 +38,8 @@ document.addEventListener('click', function(e){
     case 'star': setRec(rec, {star:!rec.d.star}, {silent:true}); break;
     case 'msTog': setRec(rec, {ms:!rec.d.ms}); break;
     case 'printMom': printMinutes(rec); break;
-    case 'dupRec': (function(){ var d = clone(rec.d); var ro = rolesOf(drReg); if(ro.no) d[ro.no] = nextNo(drReg); dataFields(drReg).forEach(function(f){ if(f.type === 'files') delete d[f.key]; }); var id = uid('r'); STORE.createRec({id:id, reg:drReg.id, d:d}).then(function(){ openRec(id); toast(T('Duplicated', '已复制')); }).catch(function(er){ toast(errText(er)); }); })(); break;
+    case 'dupRec': (function(){ var d = clone(rec.d); var ro = rolesOf(drReg); if(ro.no) d[ro.no] = nextNo(drReg); dataFields(drReg).forEach(function(f){ if(f.type === 'files') delete d[f.key]; });
+      if(typeof isTrnReg === 'function' && isTrnReg(drReg)){ d.status = 'draft'; delete d.pub; delete d.date; d.items = asArr(d.items).map(function(it){ return {_id:uid('t'), rid:it.rid, no:it.no, docNo:it.docNo, title:it.title, title2:it.title2, rev:it.rev, files:asArr(it.files).map(function(f){ return {path:f.path, name:f.name, size:f.size, type:f.type}; })}; }); } var id = uid('r'); STORE.createRec({id:id, reg:drReg.id, d:d}).then(function(){ openRec(id); toast(T('Duplicated', '已复制')); }).catch(function(er){ toast(errText(er)); }); })(); break;
     case 'delAsk': S.delAsk = true; renderDrawer(); break;
     case 'delNo': S.delAsk = false; renderDrawer(); break;
     case 'delYes': (function(){ var id = rec.id, lab = recLabel(rec), desc = descendantsOf(rec); S.open = null; S.delAsk = false; desc.reverse().forEach(function(k){ STORE.deleteRec(k.id).catch(function(){}); }); STORE.deleteRec(id).then(function(){ toast(T('Deleted ', '已删除 ') + lab + ' — ' + T('restore it from the Change log', '可在修改记录中恢复')); }).catch(function(er){ toast(errText(er)); }); renderAll(); })(); break;
@@ -203,7 +204,7 @@ function selIds(reg){ return Object.keys(S.sel).filter(function(id){ var r = S.s
 function bulkApply(reg, f, value){
   var ids = selIds(reg); if(!ids.length || !f) return;
   var v = value; if(f.type === 'select' && f.multi && v != null) v = [v]; if(v == null) v = f.type === 'select' && f.multi ? [] : '';
-  setRecs(ids.map(function(id){ return {rec:getRec(id), patch:mk(f.key, clone(v))}; })).then(function(res){ toast(T('Updated ' + ids.length, '已更新 ' + ids.length + ' 项') + (res && res.failed ? T(' · ' + res.failed + ' not saved', ' · ' + res.failed + ' 项未保存') : '')); S.bulkF = null; renderMain(); });
+  setRecs(ids.map(function(id){ return {rec:getRec(id), patch:mk(f.key, clone(v))}; }), null, {check:true}).then(function(res){ if(res && res.cancelled){ renderMain(); return; } toast(T('Updated ' + ids.length, '已更新 ' + ids.length + ' 项') + (res && res.failed ? T(' · ' + res.failed + ' not saved', ' · ' + res.failed + ' 项未保存') : '')); S.bulkF = null; renderMain(); });
 }
 function fxPick(reg, key, anchor){
   var fd = fieldOf(reg, key), f = rfil(reg.id);

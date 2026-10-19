@@ -182,9 +182,13 @@ function recChanges(reg, rec, patch){
   return {old:old, changed:changed};
 }
 /* the same kind of change to many records (bulk edit, renaming a person, import): one request per 200 records (v2.9) */
-function setRecs(list, progress){
-  var items = [];
-  list.forEach(function(x){ if(!x || !x.rec) return; var reg = getReg(x.rec.reg); if(!canWrite(reg)) return; var c = recChanges(reg, x.rec, x.patch); if(Object.keys(c.changed).length) items.push({id:x.rec.id, patch:c.changed}); });
+function setRecs(list, progress, opts){
+  var items = [], issues = [], chk = !!(opts && opts.check);
+  list.forEach(function(x){ if(!x || !x.rec) return; var reg = getReg(x.rec.reg); if(!canWrite(reg)) return; var c = recChanges(reg, x.rec, x.patch); if(!Object.keys(c.changed).length) return;
+    if(chk && typeof trnStatusIssue === 'function' && trnStatusIssue(reg, x.rec, c.changed)) return;   // a transmittal's status follows Send… (v3.1)
+    if(chk && typeof closeIssues === 'function'){ var ci = closeIssues(reg, x.rec, c.changed); if(ci.length) issues.push({rec:x.rec, issues:ci}); }
+    items.push({id:x.rec.id, patch:c.changed}); });
+  if(issues.length && !closeAsk(issues)) return Promise.resolve({ok:0, failed:0, cancelled:true});
   if(!items.length) return Promise.resolve({ok:0, failed:0});
   return STORE.patchRecs(items, progress).catch(function(e){ toast(errText(e)); return {ok:0, failed:items.length}; });
 }
@@ -192,6 +196,13 @@ function setRec(rec, patch, opts){
   var reg = getReg(rec.reg); if(!canWrite(reg)) return Promise.resolve();
   var c = recChanges(reg, rec, patch), old = c.old, changed = c.changed;
   if(!Object.keys(changed).length) return Promise.resolve();
+  /* v3.1: a transmittal's status follows Send…; marking a document or punch item complete checks its closing list (asks, never blocks) */
+  if(!(opts && opts.noCheck)){
+    var ti = typeof trnStatusIssue === 'function' ? trnStatusIssue(reg, rec, changed) : '';
+    if(ti){ toast(ti); renderAll(); return Promise.resolve(); }
+    var ci = typeof closeIssues === 'function' ? closeIssues(reg, rec, changed) : [];
+    if(ci.length && !closeAsk([{rec:rec, issues:ci}])){ renderAll(); return Promise.resolve(); }
+  }
   var p = STORE.patchRec(rec.id, changed);
   /* "Saved" once the server has it; a refused save is put back and reported by the store */
   if(!(opts && opts.silent)){ var undo = {id:rec.id, old:old, now:clone(changed)}; p.then(function(){ S.lastUndo = undo; toast(T('Saved', '已保存'), {act:'quickUndo', label:T('Undo', '撤销')}); }, function(){}); }

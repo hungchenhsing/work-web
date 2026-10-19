@@ -908,3 +908,18 @@ body.pubv .top .tools{margin-left:auto;display:flex;align-items:center;gap:10px}
   .seg button{min-height:36px}
   .chip[data-act],.tn[data-act]{padding-top:6px;padding-bottom:6px}
 }
+
+/* v3.1 · transmittals, Owner responses, closing checklist */
+.trn-h{margin:0 0 10px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.trn-t td{vertical-align:top}
+.trn-t td:first-child{min-width:150px}
+.trn-f{display:flex;flex-wrap:wrap;gap:4px 6px;align-items:baseline;font-size:12.5px;padding:2px 0;word-break:break-word}
+.trn-f.chk{cursor:pointer}
+.in.trn-rev{width:64px;font-family:var(--f-mono)}
+.ccl{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;padding:8px 12px;margin:0 0 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface2);font-size:12.5px}
+.ccl .ok{color:var(--ok)} .ccl .no{color:var(--bad)}
+.otrn{display:grid;grid-template-columns:minmax(0,1fr) minmax(220px,300px);gap:14px;padding:12px 0;border-top:1px solid var(--line)}
+.otrn:first-of-type{border-top:0}
+.otrn-r{display:flex;flex-direction:column;gap:6px}
+.otrn-r .btn{align-self:flex-start}
+@media (max-width:640px){ .otrn{grid-template-columns:1fr} }
