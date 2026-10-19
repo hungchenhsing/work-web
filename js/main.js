@@ -401,7 +401,8 @@ document.addEventListener('drop', function(e){ var col = e.target.closest && e.t
 /* ---------------- start ---------------- */
 window.addEventListener('resize', function(){ clearTimeout(window.__rz); window.__rz = setTimeout(function(){ if(S.page === 'reg' || S.page === 'schedule') renderMain(); }, 200); });
 (function boot(){
-  var C = window.WW_CONFIG || {};
+  var C = window.WW_CONFIG || {}, sm = /^#s=([A-Za-z0-9_-]{20,64})$/.exec(location.hash || '');
+  if(sm){ startPublic(sm[1], C); window.__ww = {S:S, get STORE(){ return STORE; }}; return; }   // a public link: read-only page, no sign-in
   if(C.supabaseUrl && C.supabaseKey && window.supabase){ STORE = CloudStore(C.supabaseUrl, C.supabaseKey); renderAll(); STORE.init(); }
   else { STORE = DemoStore(); renderAll(); }
   window.__ww = {S:S, get STORE(){ return STORE; }};

@@ -16,6 +16,7 @@ function renderAll(){
   if(!STORE) return;
   var fk = focusKey(document.activeElement);
   document.documentElement.lang = S.lang === 'zh' ? 'zh-CN' : 'en';
+  if(STORE.mode === 'public'){ renderPublic(); return; }
   renderTop();
   if(typeof pkgUpgrade === 'function') setTimeout(pkgUpgrade, 0);
   if(STORE.mode === 'cloud' && (!STORE.ready || !STORE.session || !STORE.me || role() === 'pending' || role() === 'none' || S.recovery)){ $('#side').innerHTML = ''; document.body.classList.add('gate'); renderGate(); renderDrawer(); renderPop(); renderModal(); return; }

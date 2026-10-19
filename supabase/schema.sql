@@ -352,3 +352,129 @@ create policy ww_files_delete on storage.objects for delete to authenticated
   using (bucket_id = 'files' and (
     (name like 'r/%' and public.can_write_register(split_part(name, '/', 2))) or
     (name not like 'r/%' and public.my_role() in ('admin','editor'))));
+
+-- =====================================================================
+-- v2.6: public links — read-only pages anyone with the link can open, no sign-in
+-- =====================================================================
+-- A link is a random id (20+ characters). Visitors never read tables: the only way in is
+-- share_get(id), which returns one share and nothing else. What it shows follows the Owner rules:
+--   * private ("Only me") registers and presentations' internal data never leave the database;
+--   * registers published to the Owner (and the document library): only records marked "Show in Owner plan";
+--   * fields: those marked External, plus the ones charts need (No., title, dates, progress, status,
+--     block, package, type, baseline). Remarks, explanations, contacts, files and links never go out.
+-- Admins and editors create, revoke and delete links on the site (Settings → Public links).
+create table if not exists public.shares (
+  id text primary key check (id ~ '^[A-Za-z0-9_-]{20,64}$'),
+  data jsonb not null default '{}'::jsonb,       -- {kind: reg|deck|overview, mode: snap|live, title, lang, cfg, snap}
+  revoked boolean not null default false,
+  expires_at timestamptz,
+  views integer not null default 0,
+  last_view timestamptz,
+  created_at timestamptz not null default now(),
+  created_by uuid default auth.uid(),
+  updated_at timestamptz not null default now()
+);
+alter table public.shares enable row level security;
+drop policy if exists shares_read on public.shares;
+create policy shares_read on public.shares for select to authenticated using (public.my_role() in ('admin','editor'));
+drop policy if exists shares_insert on public.shares;
+create policy shares_insert on public.shares for insert to authenticated with check (public.my_role() in ('admin','editor'));
+drop policy if exists shares_update on public.shares;
+create policy shares_update on public.shares for update to authenticated using (public.my_role() in ('admin','editor')) with check (public.my_role() in ('admin','editor'));
+drop policy if exists shares_delete on public.shares;
+create policy shares_delete on public.shares for delete to authenticated using (public.my_role() in ('admin','editor'));
+revoke all on public.shares from anon;
+grant select, insert, update, delete on public.shares to authenticated;
+
+-- the public copy of some registers: whitelisted register settings, allowed fields only, allowed records only.
+-- p_strict (register views): only External fields plus No. and title — nothing extra for charts.
+drop function if exists public.share_project(text[]);
+create or replace function public.share_project(p_regs text[], p_strict boolean default false) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  g record; keys text[]; gated boolean; lib boolean; flds jsonb; rls jsonb; lst text[] := '{}';
+  out_regs jsonb := '[]'::jsonb; out_recs jsonb := '[]'::jsonb; c jsonb; lists jsonb := '{}'::jsonb;
+  role_keys constant text[] := array['no','title','title2','start','finish','progress','status','block','tree','kind','astart','afinish','base'];
+  lib_keys constant text[] := array['no','title','titleZh','docNo','rev','disc','status','date'];
+  bad_types constant text[] := array['files','link','sub','section'];
+begin
+  for g in select r.id, r.data from public.registers r
+            where r.id = any(coalesce(p_regs, '{}'::text[])) and r.visibility = 'team'
+              and coalesce(r.data->>'kind', '') not in ('decks', 'snaps')
+            order by array_position(p_regs, r.id) loop
+    lib := coalesce(g.data->>'kind', '') = 'library';
+    gated := lib or coalesce((g.data->>'ownerPublish')::boolean, false);
+    select coalesce(array_agg(distinct k), '{}') into keys from (
+      select f->>'key' as k from jsonb_array_elements(coalesce(g.data->'fields', '[]'::jsonb)) f
+       where coalesce(f->>'type', '') <> all(bad_types)
+         and (coalesce((f->>'ext')::boolean, false) or (lib and f->>'key' = any(lib_keys)))
+      union select e.value #>> '{}' from jsonb_each(coalesce(g.data->'roles', '{}'::jsonb)) e where e.key = any(case when p_strict then array['no','title','title2'] else role_keys end)
+      union select f->'auto'->>'a' from jsonb_array_elements(coalesce(g.data->'fields', '[]'::jsonb)) f where not p_strict and f->>'key' = g.data->'roles'->>'progress'
+      union select f->'auto'->>'b' from jsonb_array_elements(coalesce(g.data->'fields', '[]'::jsonb)) f where not p_strict and f->>'key' = g.data->'roles'->>'progress'
+      union select g.data->'matrix'->>'row' where not p_strict union select g.data->'matrix'->>'col' where not p_strict
+      union select unnest(array['baseStart', 'baseFinish']) where not p_strict
+    ) x where k is not null and k <> '';
+    -- a role pointing at a file / link / sub-table field is still not shared
+    keys := array(select k from unnest(keys) k where not exists (
+      select 1 from jsonb_array_elements(coalesce(g.data->'fields', '[]'::jsonb)) f where f->>'key' = k and coalesce(f->>'type', '') = any(bad_types)));
+    select coalesce(jsonb_agg(f), '[]'::jsonb) into flds from jsonb_array_elements(coalesce(g.data->'fields', '[]'::jsonb)) f where f->>'key' = any(keys);
+    select coalesce(jsonb_object_agg(e.key, e.value), '{}'::jsonb) into rls from jsonb_each(coalesce(g.data->'roles', '{}'::jsonb)) e where e.key = any(role_keys) and (e.value #>> '{}') = any(keys);
+    lst := lst || array(select f->>'list' from jsonb_array_elements(flds) f where f->>'list' is not null);
+    out_regs := out_regs || jsonb_build_array(jsonb_build_object('id', g.id, 'vis', 'team', 'd', jsonb_strip_nulls(jsonb_build_object(
+      'kind', g.data->'kind', 'en', g.data->'en', 'zh', g.data->'zh', 'icon', g.data->'icon', 'color', g.data->'color', 'sec', g.data->'sec',
+      'prefix', g.data->'prefix', 'tpl', g.data->'tpl', 'ownerPublish', g.data->'ownerPublish', 'allMs', g.data->'allMs', 'view', g.data->'view',
+      'matrix', g.data->'matrix', 'roles', rls, 'fields', flds))));
+    out_recs := out_recs || coalesce((select jsonb_agg(jsonb_build_object('id', r.id, 'reg', r.register_id, 'd',
+        (select coalesce(jsonb_object_agg(e.key, e.value), '{}'::jsonb) from jsonb_each(r.data) e where e.key = any(keys || array['parent', 'ms', 'ext']))) order by r.created_at, r.id)
+      from public.records r where r.register_id = g.id and (not gated or coalesce((r.data->>'ext')::boolean, false))), '[]'::jsonb);
+  end loop;
+  select a.data into c from public.app_config a where a.id = 'main';
+  c := coalesce(c, '{}'::jsonb);
+  select coalesce(jsonb_object_agg(e.key, e.value), '{}'::jsonb) into lists from jsonb_each(coalesce(c->'lists', '{}'::jsonb)) e where e.key = any(lst);
+  return jsonb_build_object('regs', out_regs, 'recs', out_recs, 'cfg', jsonb_strip_nulls(jsonb_build_object('v2', true,
+    'projectEn', c->'projectEn', 'projectZh', c->'projectZh', 'asOf', c->'asOf', 'ganttStart', c->'ganttStart', 'ganttEnd', c->'ganttEnd', 'lists', lists)));
+end $$;
+revoke all on function public.share_project(text[], boolean) from public, anon, authenticated;
+
+-- what a visitor's browser asks for: one link, nothing else
+create or replace function public.share_get(p_token text) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare s public.shares; d jsonb; regs text[]; dk jsonb;
+begin
+  if p_token is null or p_token !~ '^[A-Za-z0-9_-]{20,64}$' then return null; end if;
+  select * into s from public.shares where id = p_token;
+  if not found or s.revoked or (s.expires_at is not null and s.expires_at <= now()) then return null; end if;
+  update public.shares set views = views + 1, last_view = now() where id = s.id;
+  d := s.data;
+  if d->>'mode' = 'live' then
+    select coalesce(array_agg(x), '{}') into regs from jsonb_array_elements_text(coalesce(d->'cfg'->'regs', '[]'::jsonb)) x;
+    d := (d - 'snap') || jsonb_build_object('live', public.share_project(regs, d->>'kind' = 'reg'));
+    if d->>'kind' = 'deck' then
+      -- the presentation as it is now: slides and theme only (no speaker notes, comments or frozen internal figures)
+      select jsonb_build_object('id', r.id, 'd', jsonb_strip_nulls(jsonb_build_object('no', r.data->'no', 'title', r.data->'title', 'titleZh', r.data->'titleZh',
+               'date', r.data->'date', 'lang', r.data->'lang', 'presenter', r.data->'presenter', 'theme', r.data->'theme', 'aud', 'owner',
+               'slides', coalesce((select jsonb_agg(sl - 'note') from jsonb_array_elements(coalesce(r.data->'slides', '[]'::jsonb)) sl), '[]'::jsonb))))
+        into dk from public.records r join public.registers g on g.id = r.register_id
+       where r.id = d->'cfg'->>'deck' and g.visibility = 'team' and g.data->>'kind' = 'decks' and coalesce(r.data->>'aud', 'owner') <> 'internal';
+      if dk is null then return null; end if;
+      d := d || jsonb_build_object('deck', dk);
+    end if;
+  end if;
+  return jsonb_build_object('id', s.id, 'at', now(), 'created_at', s.created_at, 'expires_at', s.expires_at, 'data', d);
+end $$;
+revoke all on function public.share_get(text) from public;
+grant execute on function public.share_get(text) to anon, authenticated;
+
+-- freeze a register / overview link: the same public copy, stored with the link (admins and editors)
+create or replace function public.share_freeze(p_id text) returns void
+language plpgsql security definer set search_path = public as $$
+declare s public.shares; regs text[];
+begin
+  if public.my_role() not in ('admin', 'editor') then raise exception 'Not allowed' using errcode = '42501'; end if;
+  select * into s from public.shares where id = p_id;
+  if not found then raise exception 'Link % not found', p_id using errcode = 'P0002'; end if;
+  select coalesce(array_agg(x), '{}') into regs from jsonb_array_elements_text(coalesce(s.data->'cfg'->'regs', '[]'::jsonb)) x;
+  update public.shares set data = data || jsonb_build_object('snap', public.share_project(regs, s.data->>'kind' = 'reg'), 'snapAt', now()), updated_at = now() where id = p_id;
+end $$;
+revoke all on function public.share_freeze(text) from public, anon;
+grant execute on function public.share_freeze(text) to authenticated;

@@ -334,12 +334,8 @@ function imgToData(url, max){
     im.onerror = function(){ res(null); }; im.src = url; });
 }
 function imgToDataPng(url){ return new Promise(function(res){ var im = new Image(); im.crossOrigin = 'anonymous'; im.onload = function(){ try{ var s = Math.min(1, 600 / Math.max(im.naturalWidth, im.naturalHeight)), c = document.createElement('canvas'); c.width = Math.round(im.naturalWidth * s); c.height = Math.round(im.naturalHeight * s); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); res(c.toDataURL('image/png')); }catch(e){ res(null); } }; im.onerror = function(){ res(null); }; im.src = url; }); }
-async function shareDeck(deck){
-  if((deck.d.aud || 'owner') === 'internal'){ toast(T('Switch the audience to Owner mode before sharing.', '请先切换到业主模式再发给业主。')); return; }
-  if(deck.d.status !== 'issued'){ if(!confirm(T('Sharing issues the presentation: its figures are frozen as they are now, and the Owner sees exactly this version. Continue?', '发给业主会同时定稿：数据按当前冻结，业主看到的就是这一版。继续？'))) return; await issueDeck(deck); deck = getRec(deck.id); if(!deck || deck.d.status !== 'issued' || !deck.d.snap){ toast(T('Could not issue the presentation, so nothing was shared.', '无法定稿，因此没有发出。')); return; } }
-  else if(!confirm(T('Publish this issued presentation to the Owner?', '把这份已定稿的演示文稿发布给业主？'))) return;
-  toast(T('Preparing the Owner copy…', '正在准备业主版本…'));
-  if(STORE.ensurePubs) await STORE.ensurePubs();
+/* the Owner copy of a presentation: visible slides, figures frozen with Owner rules, photos and images embedded (no storage paths) */
+async function deckPubPayload(deck){
   function pubEl(e){ if(!e || !okId(e.id)) return null; if(e.k === 'data') return {id:e.id, k:'data', type:e.type, ttl:e.ttl || null, x:e.x, y:e.y, w:e.w, h:e.h, cfg:{hide:clone((e.cfg && e.cfg.hide) || []), size:(e.cfg && e.cfg.size) || ''}}; return clone(e); }
   function pubPart(x){ return x ? {type:x.type, title:x.title || null, cfg:{hide:clone(x.cfg && x.cfg.hide || [])}} : undefined; }
   var data = clone(deck.d.snap || deckData(deck)), slides = (deck.d.slides || []).filter(function(s){ return !s.hidden; }).map(function(s){ var c = s.cfg || {}; return {id:s.id, type:s.type, title:s.title, box:cleanBox(s.box), cfg:{msg:c.msg || '', side:c.side || '', sub:s.type === 'section' ? (c.sub || '') : undefined, noHead:!!c.noHead, size:c.size || '', hide:clone(c.hide || []), L:pubPart(c.L), R:pubPart(c.R)}, els:(s.els || []).map(pubEl).filter(Boolean)}; });
@@ -352,6 +348,16 @@ async function shareDeck(deck){
   if(elPaths.length && STORE.signUrls) await STORE.signUrls(elPaths);
   for(var a = 0; a < slides.length; a++){ var els = slides[a].els || []; for(var b = 0; b < els.length; b++){ if(els[b].path){ var u2 = STORE.fileUrl(els[b].path); els[b].src = u2 ? await imgToData(u2, 1600) : null; delete els[b].path; } } }
   for(var lk of ['logoL', 'logoR']){ var lg = th[lk]; if(lg && (lg.path || lg.src)){ var u3 = lg.src || STORE.fileUrl(lg.path); theme[lk] = {src:u3 ? await imgToDataPng(u3) : null}; } }
+  var d = deck.d;
+  return {kind:'deck', deckId:deck.id, deckNo:d.no || '', title:{en:d.title || '', zh:d.titleZh || ''}, date:d.date || '', lang:d.lang || 'en', presenter:d.presenter || '', slides:slides, data:keep, theme:theme, bad:bad};
+}
+async function shareDeck(deck){
+  if((deck.d.aud || 'owner') === 'internal'){ toast(T('Switch the audience to Owner mode before sharing.', '请先切换到业主模式再发给业主。')); return; }
+  if(deck.d.status !== 'issued'){ if(!confirm(T('Sharing issues the presentation: its figures are frozen as they are now, and the Owner sees exactly this version. Continue?', '发给业主会同时定稿：数据按当前冻结，业主看到的就是这一版。继续？'))) return; await issueDeck(deck); deck = getRec(deck.id); if(!deck || deck.d.status !== 'issued' || !deck.d.snap){ toast(T('Could not issue the presentation, so nothing was shared.', '无法定稿，因此没有发出。')); return; } }
+  else if(!confirm(T('Publish this issued presentation to the Owner?', '把这份已定稿的演示文稿发布给业主？'))) return;
+  toast(T('Preparing the Owner copy…', '正在准备业主版本…'));
+  if(STORE.ensurePubs) await STORE.ensurePubs();
+  var P = await deckPubPayload(deck), slides = P.slides, keep = P.data, theme = P.theme, bad = P.bad;
   var max = 0; (STORE.pubs || []).forEach(function(p){ var mm = /PUB-(\d+)/.exec(p.no || ''); if(mm) max = Math.max(max, +mm[1]); });
   var no = 'PUB-' + String(max + 1).padStart(3, '0'), d = deck.d;
   var pub = {kind:'deck', no:no, at:new Date().toISOString(), by:(STORE.me && (STORE.me.name || STORE.me.email)) || '', note:(d.no || '') + ' · ' + (d.date || ''), deckId:deck.id, deckNo:d.no || '', title:{en:d.title || '', zh:d.titleZh || ''}, date:d.date || '', lang:d.lang || 'en', presenter:d.presenter || '', slides:slides, data:keep, theme:theme, count:slides.length};

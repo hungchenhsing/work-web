@@ -857,3 +857,14 @@ tr.vsp td{padding:0!important;border:0!important;background:none!important}
 .tbl .tt1{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .tbl .tt2{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .tbl.vwt td .ppl,.tbl.vwt td.t-select{max-height:3.2em;overflow:hidden}
+
+/* v2.6 public links: the read-only page and the "make a link" dialog */
+body.pubv .main{max-width:1500px;margin:0 auto;width:100%}
+body.pubv .top .tools{margin-left:auto;display:flex;align-items:center;gap:10px}
+.pub-bar{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:10px 12px}
+.pub-bar .gsearch{flex:1 1 260px;max-width:420px}
+.pub-chips{display:flex;flex-wrap:wrap;gap:6px}
+.pub-chips .fbtn b{margin-left:4px;font-weight:600}
+.pub-gone{max-width:560px;margin:40px auto;text-align:center}
+.shs{display:flex;flex-direction:column;gap:4px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface2);font-size:13px;margin:6px 0 10px}
+.shs span{color:var(--muted)}

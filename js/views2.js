@@ -97,6 +97,7 @@ function viewOwnerPortal(){
 function viewSettings(){
   var tabs = [['project','Project','项目'],['registers','Registers','台账'],['lists','Shared lists','共享列表']];
   if(role() === 'admin') tabs.push(['users','Users & access','用户与权限']);
+  if(canTeamEdit()) tabs.push(['links','Public links','公开链接']);
   tabs.push(['data','Data & backup','数据与备份']);
   if(!tabs.some(function(t){ return t[0] === S.stab; })) S.stab = 'project';
   var h = '<div class="ph"><div><h1 class="vtitle">' + L('Settings', '设置') + '</h1><span class="muted">' + L('Everything here is editable on the site — registers, fields, option lists, users.', '这里的一切都可以在网站上修改：台账、字段、选项列表、用户。') + '</span></div></div><div class="seg" style="margin-bottom:12px;flex-wrap:wrap">' + tabs.map(function(t){ return '<button type="button" data-act="stab" data-v="' + t[0] + '" aria-pressed="' + (S.stab === t[0]) + '">' + L(t[1], t[2]) + '</button>'; }).join('') + '</div>';
@@ -104,6 +105,7 @@ function viewSettings(){
   if(S.stab === 'lists') return h + setLists();
   if(S.stab === 'users') return h + setUsers();
   if(S.stab === 'data') return h + setData();
+  if(S.stab === 'links') return h + setLinks();
   return h + setProject();
 }
 function setProject(){
