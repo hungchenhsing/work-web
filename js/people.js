@@ -2,25 +2,30 @@
    One register of kind 'people' is the source of every "people" dropdown (Responsible, Contacts, Raised by, Chair,
    Attendees…): the options are its records, by name. People who left stay on old records but are not offered again.
    Relations: "Reports to" links people to people; each person's record lists where they are assigned across registers.
-   Names are the stored values, so a rename can be carried into every record that uses the old name, and the
-   "Match names" tool maps names typed or imported in other spellings onto directory entries. */
+   What records store is the person's dropdown code (e.g. "jj") or, when it is empty, the name: with a code a rename
+   changes nothing in the records; without one, a rename can be carried into every record using the old name.
+   The "Match names" tool maps names typed or imported in other spellings onto directory entries. */
 'use strict';
 
 function peopleDir(){ return memo('peopleDir', function(){ return allRegs().filter(function(r){ return r.d.kind === 'people' && !isPrivate(r); })[0] || null; }); }
 function isPeopleReg(reg){ return !!reg && reg.d.kind === 'people'; }
 function personNames(rec){ var dir = rec && getReg(rec.reg), ro = rolesOf(dir); return [rec && rec.d[ro.title], rec && rec.d[ro.title2]].map(function(x){ return typeof x === 'string' ? x.trim() : ''; }).filter(Boolean); }
 function personName(rec){ return personNames(rec)[0] || ''; }
+/* what records store for a person: the dropdown code, else the name */
+function personValueOf(reg, d){ var ro = rolesOf(reg), k = String((d && d.key) || '').trim(); return k || String((d && d[ro.title]) || '').trim() || String((d && d[ro.title2]) || '').trim(); }
+function personValue(rec){ return personValueOf(getReg(rec.reg), rec.d); }
+function personKeys(rec){ var a = [personValue(rec)].concat(personNames(rec)); return a.filter(function(x, i){ return x && a.indexOf(x) === i; }); }
 /* the dropdown options: one per person, by name; people who left are kept for display but not offered */
 function peopleOpts(){
   var dir = peopleDir(); if(!dir) return null;
   return memo('peopleOpts', function(){
     var ro = rolesOf(dir), out = [], seen = {};
     recsOf(dir.id).forEach(function(r){
-      var en = String(r.d[ro.title] || '').trim(), zh = String(r.d[ro.title2] || '').trim(), v = en || zh;
+      var en = String(r.d[ro.title] || '').trim(), zh = String(r.d[ro.title2] || '').trim(), v = personValueOf(dir, r.d);
       if(!v || seen[v]) return; seen[v] = 1;
-      out.push({v:v, en:v, zh:en && zh ? zh : '', color:'grey', left:r.d.active === 'left', pid:r.id});
+      out.push({v:v, en:en || zh || v, zh:en && zh ? zh : '', color:'grey', left:r.d.active === 'left', pid:r.id});
     });
-    return out.sort(function(a, b){ return a.v.localeCompare(b.v); });
+    return out.sort(function(a, b){ return a.en.localeCompare(b.en); });
   });
 }
 function peopleFields(reg){ return dataFields(reg).filter(function(f){ return f.type === 'select' && f.list === 'people'; }); }
@@ -48,11 +53,10 @@ function peopleReplace(from, to){
   });
   return Promise.all(ps).then(function(){ return n; });
 }
-/* after a person's name changes: offer to carry it into the records that use the old name */
+/* after what records store for a person changes (code, or the name when there is no code): offer to carry it over */
 function peopleAfterSave(reg, rec, old, changed){
-  if(!isPeopleReg(reg)) return; var ro = rolesOf(reg), k = ro.title;
-  if(!k || changed[k] === undefined) return;
-  var from = String(old[k] || '').trim(), to = String(changed[k] || '').trim(); if(!from || !to || from === to) return;
+  if(!isPeopleReg(reg)) return;
+  var from = personValueOf(reg, Object.assign({}, rec.d, old)), to = personValueOf(reg, Object.assign({}, rec.d, changed)); if(!from || !to || from === to) return;
   var n = peopleRefs([from]).length; if(!n) return;
   S.pRename = {from:from, to:to};
   setTimeout(function(){ toast(T(n + ' records still use “' + from + '”. Update them to “' + to + '”?', n + ' 条记录仍使用「' + from + '」，改为「' + to + '」？'), {act:'peopleRename', label:T('Update', '更新')}); }, 300);
@@ -70,11 +74,11 @@ function peopleAdd(label){
 }
 
 /* ---------------- a person's record: who reports to them, and where they are assigned ---------------- */
-function peopleWorkCount(reg, rec){ return memo('pwork:' + rec.id, function(){ return peopleRefs(personNames(rec)).length + peopleReports(reg, rec).length; }); }
+function peopleWorkCount(reg, rec){ return memo('pwork:' + rec.id, function(){ return peopleRefs(personKeys(rec)).length + peopleReports(reg, rec).length; }); }
 function peopleReports(reg, rec){ var lk = dataFields(reg).filter(function(f){ return f.type === 'link' && (f.link || []).indexOf('self') >= 0; })[0]; if(!lk) return [];
   return recsOf(reg.id).filter(function(r){ return asArr(r.d[lk.key]).indexOf(rec.id) >= 0; }); }
 function peopleWork(reg, rec){
-  var names = personNames(rec), reps = peopleReports(reg, rec), refs = peopleRefs(names), h = '';
+  var names = personKeys(rec), reps = peopleReports(reg, rec), refs = peopleRefs(names), h = '';
   h += '<h3 class="fsec">' + L('Reporting to this person', '向此人汇报') + ' <span class="cnt">' + reps.length + '</span></h3>' +
     (reps.length ? '<div class="links">' + reps.map(function(r){ return recRow(r); }).join('') + '</div>' : '<p class="note">' + L('Nobody yet. Set “Reports to” on a team member’s record.', '暂无。可在成员记录中设置「汇报对象」。') + '</p>');
   h += '<h3 class="fsec">' + L('Assigned in registers', '在各台账中的事项') + ' <span class="cnt">' + refs.length + '</span></h3>';
@@ -103,7 +107,7 @@ function peopleUnmatched(){
 function peopleGuess(v){
   var dir = peopleDir(); if(!dir) return '';
   var nv = pnorm(v), tv = ptoks(v), hit = '';
-  recsOf(dir.id).some(function(r){ var names = personNames(r), main = names[0]; if(!main) return false;
+  recsOf(dir.id).some(function(r){ var names = personNames(r), main = personValue(r); if(!main) return false;
     var ok = names.some(function(n){ var pn = pnorm(n); return pn === nv || ptoks(n) === tv ||
       (pn.length >= 2 && nv.indexOf(pn) >= 0 && /[一-鿿]/.test(n)) ||     /* "Wang Lei 王磊" written for the person 王磊 */
       (nv.length >= 2 && /^[一-鿿]+$/.test(nv) && pn.indexOf(nv) >= 0); });   /* "王磊" written for "Wang Lei 王磊" */

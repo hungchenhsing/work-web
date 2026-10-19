@@ -258,6 +258,7 @@ var TEMPLATES = {
   /* the people directory: every "people" dropdown on the site lists its records (see people.js) */
   team: {en:'Team & contacts', zh:'团队与联系人', icon:'team', sec:'other', prefix:'P', kind:'people', group:'dept', fields:[
     F('code','No.','编号','text',{w:70}),F('en','Name','姓名','text',{w:170}),F('zh','Name (中文)','中文名','text',{w:100}),
+    F('key','Dropdown code','下拉代码','text',{w:80, help:'What records store, e.g. jj — keep it short and stable. Empty: the name is used.'}),
     F('org','Organisation','单位','select',{opts:[O('ceec','CEEC','中国能建','blue'),O('owner','Owner','业主','violet'),O('sub','Subcontractor','分包商','amber'),O('consultant','Consultant','顾问','teal'),O('supplier','Supplier','供应商','grey'),O('other','Other','其他','grey')]}),
     F('dept','Department','部门','select',{list:'dept'}),
     F('teamRole','Team role','团队角色','select',{multi:true, opts:[O('lead','Team lead','团队负责人','red'),O('deptLead','Department lead','部门负责人','violet'),O('coord','Handover coordinator','移交协调人','teal'),O('member','Member','成员','blue'),O('contact','Contact','对接人','grey')]}),
