@@ -60,7 +60,7 @@ function treePath(f, id){ var out = [], n = treeNode(f, id), g = 0; while(n && g
 function treeDesc(f, id){ var set = {}; (function w(x){ set[x] = 1; treeKids(f, x).forEach(function(k){ w(k.id); }); })(id); return set; }
 function treeDfs(f, cb){ (function w(pid, d){ treeKids(f, pid).forEach(function(n){ cb(n, d); w(n.id, d + 1); }); })('', 0); }
 function treeLabel(n){ return n ? (n.code ? n.code + ' ' : '') + nm(n) : ''; }
-function newKey(reg, base){ var k = slug(base) || 'field', i = 1, out = k; while(fieldOf(reg, out) || ['id','star','ext','base'].indexOf(out) >= 0){ out = k + '_' + (++i); } return out; }
+function newKey(reg, base){ var k = slug(base) || 'field', i = 1, out = k; while(fieldOf(reg, out) || ['id','star','ext','base','parent','ms'].indexOf(out) >= 0){ out = k + '_' + (++i); } return out; }
 
 /* values */
 function num(v){ if(v === '' || v == null) return null; var n = typeof v === 'number' ? v : parseFloat(String(v).replace(/,/g, '')); return isNaN(n) ? null : n; }
@@ -203,8 +203,9 @@ async function undoAudit(a){
     if(a.action === 'update'){
       var rec = getRec(a.record_id); if(!rec){ toast(T('That record no longer exists.', '该记录已不存在。')); return; }
       /* an issued presentation keeps the audience its figures were frozen for */
-      var rg = getReg(rec.reg), ks = a.keys || [];
-      if(rg && rg.d.kind === 'decks' && rec.d.status === 'issued' && ks.indexOf('aud') >= 0 && ks.indexOf('status') < 0){ toast(T('Reopen the presentation (back to draft) before undoing this change.', '请先把演示文稿退回草稿，再撤销这项修改。')); return; }
+      var rg = getReg(rec.reg), ks = a.keys || [], nx = Object.assign({}, rec.d, a.old || {});
+      if(rg && rg.d.kind === 'decks' && ((rec.d.status === 'issued' && ks.indexOf('aud') >= 0 && ks.indexOf('status') < 0) ||
+         (nx.status === 'issued' && nx.snap && nx.snapAud && ((nx.aud || 'owner') === 'internal' ? 'internal' : 'owner') !== nx.snapAud))){ toast(T('Reopen the presentation (back to draft) before undoing this change: its frozen figures belong to the other audience.', '请先把演示文稿退回草稿，再撤销这项修改：冻结的数据属于另一种对象。')); return; }
       var cur = pick(rec.d, a.keys || []), conflict = (a.keys || []).filter(function(k){ return !same(cur[k], (a.new || {})[k]); });
       if(conflict.length && !confirm(T('These fields were changed again since: ', '以下字段之后又被修改过：') + conflict.join(', ') + '\n' + T('Undo anyway?', '仍要撤销吗？'))) return;
       await STORE.patchRec(rec.id, clone(a.old || {}));

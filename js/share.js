@@ -48,32 +48,53 @@ function shareKeys(reg, strict, cols){
 }
 function shareGated(reg){ return !!reg && shareIsObj(reg.d) && (reg.d.kind === 'library' || shareTruthy(reg.d.ownerPublish)); }
 function shareRegOk(reg){ return !!reg && reg.vis === 'team' && typeof reg.id === 'string' && SHARE_ID.test(reg.id) && shareIsObj(reg.d) && ['decks', 'snaps'].indexOf(shareStr(reg.d.kind) || '') < 0; }
-/* the publisher's filter of a register view: values of fields (fx) and the package (node) */
-function shareMatch(fs, ro, d, f){
-  if(!shareIsObj(f)) return true; d = shareIsObj(d) ? d : {};
+/* the publisher's filter of a register view, prepared once per register: field values (fx) and the package (node) */
+function shareFilterPrep(fs, ro, f){
+  var p = {fx:[], mode:'all', tk:null, set:shareSet()};
+  if(!shareIsObj(f)) return p;
   function first(k){ return fs.filter(function(x){ return x.key === k; })[0] || null; }
-  if(shareIsObj(f.fx)) for(var k in f.fx){
-    var want = f.fx[k]; if(!Array.isArray(want) || !want.length) continue;
-    var fd = first(k); if(!fd) continue;
-    var have = fd.type === 'check' ? [shareTruthy(d[k]) ? '1' : '0'] : shareArr(d[k]);
-    if(!have.length && want.indexOf('__none') >= 0) continue;
-    if(!have.some(function(h){ return want.some(function(w){ return same(h, w); }); })) return false;
-  }
+  if(shareIsObj(f.fx)) Object.keys(f.fx).sort().forEach(function(k){ var w = f.fx[k]; if(!Array.isArray(w) || !w.length) return; var fd = first(k); if(fd) p.fx.push({k:k, w:w, c:fd.type === 'check'}); });
   var nd = shareStr(f.node), tk = shareStr(ro.tree);
-  if(!nd || nd === 'all' || !tk) return true;
-  var tf = first(tk); if(!tf) return true;
-  var v = d[tk], nodes = (Array.isArray(tf.tree) ? tf.tree : []).filter(shareIsObj);
-  if(nd === 'none') return !(shareTruthy(v) && nodes.some(function(n){ return same(n.id, v); }));
-  if(typeof v !== 'string') return false;
-  var set = shareSet(), q = [nd]; set[nd] = 1;
-  while(q.length){ var pid = q.shift(); nodes.forEach(function(n){ if(typeof n.id === 'string' && (shareStr(n.parent) || '') === pid && !set[n.id]){ set[n.id] = 1; q.push(n.id); } }); }
-  return !!set[v];
+  if(!nd || nd === 'all' || !tk) return p;
+  var tf = first(tk); if(!tf) return p;
+  var tn = (Array.isArray(tf.tree) ? tf.tree : []).filter(function(n){ return shareIsObj(n) && typeof n.id === 'string'; });
+  p.tk = tk;
+  if(nd === 'none'){ p.mode = 'none'; tn.forEach(function(n){ p.set[n.id] = 1; }); return p; }
+  p.mode = 'set'; p.set[nd] = 1; var q = [nd];
+  while(q.length){ var pid = q.shift(); tn.forEach(function(n){ if((shareStr(n.parent) || '') === pid && !p.set[n.id]){ p.set[n.id] = 1; q.push(n.id); } }); }
+  return p;
+}
+function shareFilterRec(p, d){
+  d = shareIsObj(d) ? d : {};
+  for(var i = 0; i < p.fx.length; i++){
+    var c = p.fx[i], have = c.c ? [shareTruthy(d[c.k]) ? '1' : '0'] : shareArr(d[c.k]);
+    if(!have.length && c.w.indexOf('__none') >= 0) continue;
+    if(!have.some(function(h){ return c.w.some(function(w){ return same(h, w); }); })) return false;
+  }
+  if(p.mode === 'all') return true;
+  var v = d[p.tk], hit = typeof v === 'string' && !!p.set[v];
+  return p.mode === 'none' ? !(shareTruthy(v) && hit) : hit;
+}
+/* lists behind status / type / block / matrix keep every entry; other lists (names) keep only the entries the records use */
+function shareListUse(acc, flds, recs, ro, mx){
+  var st = shareSet(); mx = shareIsObj(mx) ? mx : {}; ro = shareIsObj(ro) ? ro : {};
+  [shareStr(ro.status), shareStr(ro.kind), shareStr(ro.block), shareStr(mx.row), shareStr(mx.col)].forEach(function(k){ if(k != null) st[k] = 1; });
+  flds.forEach(function(f){ var L = shareStr(f.list); if(!L) return; acc.lst[L] = 1; if(st[f.key]){ acc.full[L] = 1; return; }
+    recs.forEach(function(r){ shareArr(r.d[f.key]).forEach(function(v){ if(typeof v === 'string') acc.used[L + '\x1f' + v] = 1; }); }); });
+}
+function shareLists(l0, acc){
+  var cl = {}; l0 = shareIsObj(l0) ? l0 : {};
+  Object.keys(l0).forEach(function(k){ if(!acc.lst[k]) return; var v = l0[k];
+    if(acc.full[k] || !shareIsObj(v) || !Array.isArray(v.opts)) cl[k] = shareCl(v);
+    else { var x = clone(v); x.opts = v.opts.filter(function(o){ return shareIsObj(o) && typeof o.v === 'string' && acc.used[k + '\x1f' + o.v]; }).map(clone); cl[k] = x; } });
+  return cl;
 }
 /* opt: {strict, cols, filter, ids} — see share_project */
 function shareProject(src, ids, opt){
   opt = shareIsObj(opt) ? opt : {};
-  var strict = opt.strict === true, flt = opt.filter, only = Array.isArray(opt.ids) ? opt.ids.filter(function(x){ return typeof x === 'string'; }) : null;
-  var regs = [], recs = [], lst = shareSet(), full = shareSet(), used = shareSet(), seen = shareSet();
+  var strict = opt.strict === true, only = null;
+  if(Array.isArray(opt.ids)){ only = shareSet(); opt.ids.forEach(function(x){ if(typeof x === 'string') only[x] = 1; }); }
+  var regs = [], recs = [], acc = {lst:shareSet(), full:shareSet(), used:shareSet()}, seen = shareSet();
   (ids || []).forEach(function(id){
     if(seen[id]) return; seen[id] = 1;
     var g = (src.regs || []).filter(function(r){ return r && r.id === id; })[0]; if(!shareRegOk(g)) return;
@@ -83,26 +104,21 @@ function shareProject(src, ids, opt){
     ['kind', 'en', 'zh', 'icon', 'color', 'sec', 'prefix', 'tpl', 'ownerPublish', 'allMs', 'view', 'matrix'].forEach(function(k){ d[k] = shareCl(d0[k]); });
     d.roles = roles; d.fields = flds;
     regs.push({id:g.id, vis:'team', d:shareObj(d)});
-    var rs = [];
+    /* parent / ms / ext travel with records unless a field of that name exists (then the field rules apply) */
+    var allk = shareSet(), fp = shareFilterPrep(fs, ro, opt.filter), rs = [];
+    fs.forEach(function(f){ if(typeof f.key === 'string') allk[f.key] = 1; });
     (src.recs || []).forEach(function(r){
       if(!r || r.reg !== g.id) return; var rd = shareIsObj(r.d) ? r.d : {};
-      if((gated && rd.ext !== true) || (only && only.indexOf(r.id) < 0) || !shareMatch(fs, ro, rd, flt)) return;
-      var o = {}; Object.keys(rd).forEach(function(k){ if(rd[k] !== undefined && (keys[k] || k === 'parent' || k === 'ms' || k === 'ext')) o[k] = clone(rd[k]); });
+      if((gated && rd.ext !== true) || (only && !(typeof r.id === 'string' && only[r.id])) || !shareFilterRec(fp, rd)) return;
+      var o = {}; Object.keys(rd).forEach(function(k){ if(rd[k] !== undefined && (keys[k] || ((k === 'parent' || k === 'ms' || k === 'ext') && !allk[k]))) o[k] = clone(rd[k]); });
       rs.push({id:r.id, reg:r.reg, d:o});
     });
     recs = recs.concat(rs);
-    /* lists: those behind status / type / block / matrix keep every entry; others (names) only the entries in use */
-    var struct = shareSet(), mx = shareIsObj(d0.matrix) ? d0.matrix : {};
-    [shareStr(ro.status), shareStr(ro.kind), shareStr(ro.block), shareStr(mx.row), shareStr(mx.col)].forEach(function(k){ if(k != null) struct[k] = 1; });
-    flds.forEach(function(f){ var L = shareStr(f.list); if(!L) return; lst[L] = 1; if(struct[f.key]){ full[L] = 1; return; }
-      rs.forEach(function(r){ shareArr(r.d[f.key]).forEach(function(v){ if(typeof v === 'string') used[L + '\x1f' + v] = 1; }); }); });
+    shareListUse(acc, flds, rs, ro, d0.matrix);
   });
-  var c = shareIsObj(src.cfg) ? src.cfg : {}, l0 = shareIsObj(c.lists) ? c.lists : {}, cl = {}, out = {v2:true};
-  Object.keys(l0).forEach(function(k){ if(!lst[k]) return; var v = l0[k];
-    if(full[k] || !shareIsObj(v) || !Array.isArray(v.opts)) cl[k] = shareCl(v);
-    else { var x = clone(v); x.opts = v.opts.filter(function(o){ return shareIsObj(o) && typeof o.v === 'string' && used[k + '\x1f' + o.v]; }).map(clone); cl[k] = x; } });
+  var c = shareIsObj(src.cfg) ? src.cfg : {}, out = {v2:true};
   ['projectEn', 'projectZh', 'asOf', 'ganttStart', 'ganttEnd'].forEach(function(k){ if(c[k] != null) out[k] = clone(c[k]); });
-  out.lists = cl;
+  out.lists = shareLists(c.lists, acc);
   return {regs:regs, recs:recs, cfg:out};
 }
 /* which registers a link reads, and the options for shareProject (stage: live / freeze / check) */
@@ -114,37 +130,43 @@ function shareOpt(d, stage){
 /* a snapshot keeps its values but follows today's permissions (share_recheck) */
 function shareRecheck(snap, live){
   if(!shareIsObj(snap)) return null;
-  var regs = [], recs = [], lst = shareSet(), lregs = live && Array.isArray(live.regs) ? live.regs : [], lrecs = live && Array.isArray(live.recs) ? live.recs : [];
+  var regs = [], recs = [], acc = {lst:shareSet(), full:shareSet(), used:shareSet()}, lregs = live && Array.isArray(live.regs) ? live.regs : [], lrecs = live && Array.isArray(live.recs) ? live.recs : [];
   (Array.isArray(snap.regs) ? snap.regs : []).forEach(function(g){
     if(!shareIsObj(g) || !shareIsObj(g.d) || typeof g.id !== 'string') return;
     var lg = lregs.filter(function(x){ return x && x.id === g.id; })[0]; if(!lg) return;
-    var ks = shareSet(), lids = shareSet(), gated = lg.d.kind === 'library' || shareTruthy(lg.d.ownerPublish);
-    (lg.d.fields || []).forEach(function(f){ if(f && typeof f.key === 'string') ks[f.key] = 1; });
-    lrecs.forEach(function(x){ if(x && x.reg === g.id) lids[x.id] = 1; });
-    var fl = (Array.isArray(g.d.fields) ? g.d.fields : []).filter(function(f){ return f && typeof f.key === 'string' && ks[f.key]; });
-    fl.forEach(function(f){ if(typeof f.list === 'string') lst[f.list] = 1; });
-    var ro = shareRoles(g.d), roles = {}; Object.keys(ro).forEach(function(k){ if(typeof ro[k] === 'string' && ks[ro[k]]) roles[k] = ro[k]; });
-    regs.push(Object.assign(clone(g), {d:Object.assign(clone(g.d), {fields:clone(fl), roles:roles})}));
+    /* what may go out for this register today: its fields, and the record keys its live copy carries */
+    var kf = shareSet(), kr = shareSet(), lids = shareSet(), gated = lg.d.kind === 'library' || shareTruthy(lg.d.ownerPublish);
+    (lg.d.fields || []).forEach(function(f){ if(f && typeof f.key === 'string'){ kf[f.key] = 1; kr[f.key] = 1; } });
+    lrecs.forEach(function(x){ if(x && x.reg === g.id){ lids[x.id] = 1; Object.keys(x.d || {}).forEach(function(k){ kr[k] = 1; }); } });
+    var fl = (Array.isArray(g.d.fields) ? g.d.fields : []).filter(function(f){ return f && typeof f.key === 'string' && kf[f.key]; }).map(shareField);
+    var ro = shareRoles(g.d), rl = {}; Object.keys(ro).forEach(function(k){ if(typeof ro[k] === 'string' && kf[ro[k]]) rl[k] = ro[k]; });
+    regs.push(Object.assign(clone(g), {d:Object.assign(clone(g.d), {fields:fl, roles:rl})}));
+    var rs = [];
     (Array.isArray(snap.recs) ? snap.recs : []).forEach(function(r){
       if(!shareIsObj(r) || r.reg !== g.id || (gated && !(typeof r.id === 'string' && lids[r.id]))) return;
-      var rd = shareIsObj(r.d) ? r.d : {}, o = {}; Object.keys(rd).forEach(function(k){ if(rd[k] !== undefined && (ks[k] || k === 'parent' || k === 'ms' || k === 'ext')) o[k] = clone(rd[k]); });
-      recs.push(Object.assign(clone(r), {d:o}));
+      var rd = shareIsObj(r.d) ? r.d : {}, o = {}; Object.keys(rd).forEach(function(k){ if(rd[k] !== undefined && kr[k]) o[k] = clone(rd[k]); });
+      rs.push(Object.assign(clone(r), {d:o}));
     });
+    recs = recs.concat(rs);
+    shareListUse(acc, fl, rs, rl, g.d.matrix);
   });
   var c = shareIsObj(snap.cfg) ? clone(snap.cfg) : {};
-  if(shareIsObj(c.lists)){ var l2 = {}; Object.keys(c.lists).forEach(function(k){ if(lst[k]) l2[k] = c.lists[k]; }); c.lists = l2; }
+  if('lists' in c) c.lists = shareLists(c.lists, acc);
   return {regs:regs, recs:recs, cfg:c};
 }
 /* a presentation as visitors of a live link get it: visible slides only, display settings only
-   (no speaker notes, comments, frozen internal figures, hidden slides or photo file paths) */
+   (no speaker notes, comments, frozen internal figures, hidden slides, photo picks or file paths, hidden-item labels) */
+function shareHide(h){ return h.filter(function(x){ return !(typeof x === 'string' && x.slice(0, 2) === 'p:'); }).map(clone); }
 function sharePcfg(t, c){
   if(!shareIsObj(c)) return null; var x = clone(c);
-  if(t === 'photos'){ delete x.picks; if(Array.isArray(c.hide)) x.hide = c.hide.filter(function(h){ return !(typeof h === 'string' && h.slice(0, 2) === 'p:'); }).map(clone); }
+  delete x.picks; delete x.hideLab; delete x.hide;
+  if(Array.isArray(c.hide)) x.hide = shareHide(c.hide);
+  if(t !== 'photos' && Array.isArray(c.picks)) x.picks = c.picks.map(function(p){ if(!shareIsObj(p)) return shareCl(p); var q = clone(p); delete q.path; return q; });
   return x;
 }
 function shareCfg(t, c){
   if(t !== 'combo' || !shareIsObj(c)) return sharePcfg(t, c);
-  var x = clone(c); ['L', 'R'].forEach(function(k){ var p = c[k]; if(shareIsObj(p)){ var q = clone(p), pc = sharePcfg(p.type, p.cfg); if(pc != null) q.cfg = pc; x[k] = q; } });
+  var x = sharePcfg(t, c); ['L', 'R'].forEach(function(k){ var p = c[k]; if(shareIsObj(p)){ var q = clone(p), pc = sharePcfg(p.type, p.cfg); if(pc != null) q.cfg = pc; x[k] = q; } });
   return x;
 }
 function shareEl(e){ if(!shareIsObj(e) || e.k !== 'data') return shareCl(e); var x = clone(e), c = shareCfg(e.type, e.cfg); if(c != null) x.cfg = c; return x; }
@@ -157,17 +179,28 @@ function shareDeckPublic(rec){
     theme:shareIsObj(th) ? shareObj({color:shareCl(th.color), foot:shareCl(th.foot), footText:shareCl(th.footText), conf:shareCl(th.conf), style:shareCl(th.style), agenda:shareCl(th.agenda), logoL:shareLogo(th.logoL), logoR:shareLogo(th.logoR)}) : null,
     slides:slides})};
 }
+/* images embedded in a live presentation link: only those the visible slides and the logos use */
+function shareMedia(m, dk){
+  var use = shareSet(), out = {}; if(!shareIsObj(m) || !dk) return out;
+  (dk.d.slides || []).forEach(function(s){ (Array.isArray(s.els) ? s.els : []).forEach(function(e){ if(shareIsObj(e) && typeof e.path === 'string') use[e.path] = 1; }); });
+  var th = dk.d.theme || {}; ['logoL', 'logoR'].forEach(function(k){ if(th[k] && typeof th[k].path === 'string') use[th[k].path] = 1; });
+  Object.keys(m).forEach(function(k){ if(use[k]) out[k] = clone(m[k]); });
+  return out;
+}
+var SHARE_VER = 2;   /* links made before v2.6.1 followed older rules and stay closed */
 /* one link as a visitor gets it (share_get without the view counter); src = {regs, recs, cfg} */
 function shareServe(src, x){
   if(!x || x.revoked || (x.expires_at && Date.parse(x.expires_at) <= Date.now())) return null;
   var d = shareIsObj(x.data) ? clone(x.data) : {}, regs = shareRegList(d), dk = null;
+  if(d.v !== SHARE_VER) return null;
   if(d.kind === 'deck'){
     var did = shareIsObj(d.cfg) ? d.cfg.deck : null;
-    dk = (src.recs || []).filter(function(r){ return r && r.id === did; })[0] || null;
-    var g = dk && (src.regs || []).filter(function(r){ return r && r.id === dk.reg; })[0], aud = dk && shareIsObj(dk.d) && dk.d.aud != null ? String(dk.d.aud) : 'owner';
-    if(!dk || !g || g.vis !== 'team' || !shareIsObj(g.d) || g.d.kind !== 'decks' || aud === 'internal') return null;
+    dk = typeof did === 'string' ? (src.recs || []).filter(function(r){ return r && r.id === did; })[0] || null : null;
+    var g = dk && (src.regs || []).filter(function(r){ return r && r.id === dk.reg; })[0];
+    if(!dk || !shareIsObj(dk.d) || !g || g.vis !== 'team' || !shareIsObj(g.d) || g.d.kind !== 'decks' || dk.d.aud === 'internal') return null;
   }
-  if(d.mode === 'live'){ delete d.snap; d.live = shareProject(src, regs, shareOpt(d, 'live')); if(d.kind === 'deck') d.deck = shareDeckPublic(dk); }
+  var media = d.media; delete d.media;
+  if(d.mode === 'live'){ delete d.snap; d.live = shareProject(src, regs, shareOpt(d, 'live')); if(d.kind === 'deck'){ d.deck = shareDeckPublic(dk); d.media = shareMedia(media, d.deck); } }
   else if(d.kind !== 'deck') d.snap = shareRecheck(d.snap, shareProject(src, regs, shareOpt(d, 'check')));
   if(shareIsObj(d.cfg)){ delete d.cfg.filter; delete d.cfg.ids; }
   return {id:x.id, at:new Date().toISOString(), created_at:x.created_at, expires_at:x.expires_at || null, data:d};
@@ -254,7 +287,7 @@ DECK_MODALS.shareNew = shareNewModal;
 async function shareCreate(){
   var m = S.modal; if(!m || m.kind !== 'shareNew' || m.busy) return;
   var id = shareToken(), exp = +m.exp ? new Date(Date.now() + (+m.exp) * 864e5).toISOString() : null;
-  var data = {kind:m.sk, mode:m.mode, title:{en:m.title || '', zh:''}, lang:S.lang, at:new Date().toISOString(), cfgProject:{projectEn:cfg().projectEn || '', projectZh:cfg().projectZh || ''}};
+  var data = {v:SHARE_VER, kind:m.sk, mode:m.mode, title:{en:m.title || '', zh:''}, lang:S.lang, at:new Date().toISOString(), cfgProject:{projectEn:cfg().projectEn || '', projectZh:cfg().projectZh || ''}};
   m.busy = true; m.err = ''; renderModal();
   try{
     if(m.sk === 'reg') data.cfg = m._cfg;
@@ -293,6 +326,7 @@ function setLinks(){
   return h + '<div class="card tbl-wrap"><table class="tbl"><thead><tr><th>' + L('Title', '标题') + '</th><th>' + L('Content', '内容') + '</th><th>' + L('Data', '数据') + '</th><th>' + L('Made', '生成') + '</th><th>' + L('Status', '状态') + '</th><th>' + L('Views', '浏览') + '</th><th></th></tr></thead><tbody>' +
     S.shares.map(function(x){ var exp = x.expires_at && Date.parse(x.expires_at) <= now, st = x.revoked ? chip('red', L('Withdrawn', '已撤销')) : exp ? chip('grey', L('Expired', '已过期')) : chip('green', L('Active', '有效')) + (x.expires_at ? ' <span class="note">' + L('until ', '至 ') + esc(String(x.expires_at).slice(0, 10)) + '</span>' : '');
       var k = SHARE_KINDS[x.kind] || ['', ''], t = x.title && (x.title.en || x.title.zh) || '';
+      if(+x.v !== SHARE_VER && !x.revoked) st = chip('grey', L('Old link — make a new one', '旧链接：请重新生成'));
       return '<tr><td><b>' + esc(t) + '</b></td><td>' + L(k[0], k[1]) + '</td><td>' + (x.mode === 'snap' ? L('Snapshot', '快照') + (x.snapAt ? ' <span class="note">' + esc(fmtTime(x.snapAt)) + '</span>' : '') : L('Live', '实时')) + '</td><td class="mono" style="white-space:nowrap">' + esc(String(x.created_at || '').slice(0, 10)) + '</td><td>' + st + '</td><td class="mono">' + (x.views || 0) + (x.last_view ? ' <span class="note">' + esc(fmtTime(x.last_view)) + '</span>' : '') + '</td><td style="white-space:nowrap">' +
         '<button type="button" class="btn sm" data-act="shareCopy" data-v="' + esc(x.id) + '">' + L('Copy link', '复制链接') + '</button> <a class="btn sm" href="' + esc(shareUrl(x.id)) + '" target="_blank" rel="noopener">' + L('Open', '打开') + '</a> ' +
         (x.mode === 'snap' && !x.revoked ? '<button type="button" class="btn sm" data-act="shareRefresh" data-v="' + esc(x.id) + '" title="' + esc(T('Replace the snapshot with the data as it is now', '用当前数据替换快照')) + '">' + L('Update snapshot', '更新快照') + '</button> ' : '') +
