@@ -44,19 +44,17 @@ function DemoStore(){
     deletePub: function(id){ st.pubs = st.pubs.filter(function(x){ return x.id !== id; }); api.save(); return Promise.resolve(); },
     /* public links (the demo keeps them in this browser and builds the public copy the way the database does) */
     shareList: function(){ return Promise.resolve((st.shares || []).map(function(x){ var d = x.data || {}; return {id:x.id, revoked:!!x.revoked, expires_at:x.expires_at || null, views:x.views || 0, last_view:x.last_view || null, created_at:x.created_at, kind:d.kind, mode:d.mode, title:d.title, cfg:d.cfg, snapAt:d.snapAt || null}; })); },
-    shareCreate: function(id, data, exp){ st.shares = st.shares || []; var x = {id:id, data:clone(data), revoked:false, expires_at:exp || null, views:0, created_at:new Date().toISOString()}; if(data.mode === 'snap' && data.kind !== 'deck'){ x.data.snap = shareProject(st, (data.cfg && data.cfg.regs) || [], data.kind === 'reg'); x.data.snapAt = new Date().toISOString(); } st.shares.unshift(x); api.save(); return Promise.resolve(); },
-    shareFreeze: function(id){ var x = (st.shares || []).filter(function(s){ return s.id === id; })[0]; if(x){ x.data.snap = shareProject(st, (x.data.cfg && x.data.cfg.regs) || [], x.data.kind === 'reg'); x.data.snapAt = new Date().toISOString(); api.save(); } return Promise.resolve(); },
+    shareCreate: function(id, data, exp){ st.shares = st.shares || []; var x = {id:id, data:clone(data), revoked:false, expires_at:exp || null, views:0, created_at:new Date().toISOString()}; if(data.mode === 'snap' && data.kind !== 'deck'){ x.data.snap = shareFreezeData(st, x.data); x.data.snapAt = new Date().toISOString(); } st.shares.unshift(x); api.save(); return Promise.resolve(); },
+    shareFreeze: function(id){ var x = (st.shares || []).filter(function(s){ return s.id === id; })[0]; if(x && x.data.kind !== 'deck'){ x.data.snap = shareFreezeData(st, x.data); x.data.snapAt = new Date().toISOString(); api.save(); } return Promise.resolve(); },
     shareSetSnap: function(id, snap){ var x = (st.shares || []).filter(function(s){ return s.id === id; })[0]; if(x){ x.data.snap = clone(snap); x.data.snapAt = new Date().toISOString(); api.save(); } return Promise.resolve(); },
+    shareSetCfg: function(id, c){ var x = (st.shares || []).filter(function(s){ return s.id === id; })[0]; if(x){ x.data.cfg = clone(c); api.save(); } return Promise.resolve(); },
     shareUpdate: function(id, p){ (st.shares || []).forEach(function(x){ if(x.id === id) Object.assign(x, clone(p)); }); api.save(); return Promise.resolve(); },
     shareDelete: function(id){ st.shares = (st.shares || []).filter(function(x){ return x.id !== id; }); api.save(); return Promise.resolve(); },
+    /* what share_get returns; counted only when the link opens, once per 20 seconds */
     shareGet: function(token){
-      var x = (st.shares || []).filter(function(s){ return s.id === token; })[0];
-      if(!x || x.revoked || (x.expires_at && Date.parse(x.expires_at) <= Date.now())) return Promise.resolve(null);
-      x.views = (x.views || 0) + 1; x.last_view = new Date().toISOString(); LS.set(KEY, st);
-      var d = clone(x.data);
-      if(d.mode === 'live'){ delete d.snap; d.live = shareProject(st, (d.cfg && d.cfg.regs) || [], d.kind === 'reg');
-        if(d.kind === 'deck'){ var dk = shareDeckPublic(rec(d.cfg && d.cfg.deck)); if(!dk) return Promise.resolve(null); d.deck = dk; } }
-      return Promise.resolve({id:x.id, at:new Date().toISOString(), created_at:x.created_at, expires_at:x.expires_at, data:d});
+      var x = (st.shares || []).filter(function(s){ return s.id === token; })[0], res = shareServe(st, x);
+      if(res && (!x.last_view || Date.now() - Date.parse(x.last_view) >= 20000)){ x.views = (x.views || 0) + 1; x.last_view = new Date().toISOString(); LS.set(KEY, st); }
+      return Promise.resolve(res);
     },
     addFeedback: function(o){ st.fb.push(Object.assign({id:uid('f'), status:'open', created_at:new Date().toISOString(), author:'demo', author_name:'Demo'}, o)); api.save(); return Promise.resolve(); },
     updateFeedback: function(id, p){ st.fb.forEach(function(f){ if(f.id === id) Object.assign(f, p); }); api.save(); return Promise.resolve(); },
@@ -221,6 +219,7 @@ function CloudStore(url, key){
   api.shareList = function(){ return sb.from('shares').select('id,revoked,expires_at,views,last_view,created_at,kind:data->>kind,mode:data->>mode,title:data->title,cfg:data->cfg,snapAt:data->>snapAt').order('created_at', {ascending:false}).then(function(r){ if(r.error) throw r.error; return r.data || []; }); };
   api.shareCreate = function(id, data, exp){ return sb.from('shares').insert({id:id, data:data, expires_at:exp || null}).then(function(r){ if(r.error) throw r.error; if(data.mode === 'snap' && data.kind !== 'deck') return api.shareFreeze(id); }); };
   api.shareFreeze = function(id){ return sb.rpc('share_freeze', {p_id:id}).then(function(r){ if(r.error) throw r.error; }); };
+  api.shareSetCfg = function(id, c){ return sb.from('shares').select('data').eq('id', id).single().then(function(r){ if(r.error) throw r.error; var d = Object.assign({}, r.data.data, {cfg:c}); return sb.from('shares').update({data:d, updated_at:new Date().toISOString()}).eq('id', id); }).then(function(r){ if(r && r.error) throw r.error; }); };
   api.shareSetSnap = function(id, snap){ return sb.from('shares').select('data').eq('id', id).single().then(function(r){ if(r.error) throw r.error; var d = Object.assign({}, r.data.data, {snap:snap, snapAt:new Date().toISOString()}); return sb.from('shares').update({data:d, updated_at:new Date().toISOString()}).eq('id', id); }).then(function(r){ if(r && r.error) throw r.error; }); };
   api.shareUpdate = function(id, p){ return sb.from('shares').update(Object.assign({updated_at:new Date().toISOString()}, p)).eq('id', id).then(function(r){ if(r.error) throw r.error; }); };
   api.shareDelete = function(id){ return sb.from('shares').delete().eq('id', id).then(function(r){ if(r.error) throw r.error; }); };

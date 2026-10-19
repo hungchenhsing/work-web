@@ -327,7 +327,7 @@ function pdfTitle(d){ return [d.no, (d.title || d.titleZh || 'Presentation'), d.
 function deckPdf(deck){ exportPdf(function(){ return deckPages(deck); }, pdfTitle(deck.d), deckPrepare(deck)); }
 
 /* ================= issue / share ================= */
-function issueDeck(deck){ return loadHistory(deckNeedsHist(deck)).then(function(){ deck = getRec(deck.id) || deck; return setRec(deck, {status:'issued', snap:deckData(deck), issuedAt:new Date().toISOString()}); }); }
+function issueDeck(deck){ return loadHistory(deckNeedsHist(deck)).then(function(){ deck = getRec(deck.id) || deck; return setRec(deck, {status:'issued', snap:deckData(deck), snapAud:(deck.d.aud || 'owner') === 'internal' ? 'internal' : 'owner', issuedAt:new Date().toISOString()}); }); }
 function imgToData(url, max){
   return new Promise(function(res){ var im = new Image(); im.crossOrigin = 'anonymous';
     im.onload = function(){ try{ var s = Math.min(1, (max || 1280) / Math.max(im.naturalWidth, im.naturalHeight)), c = document.createElement('canvas'); c.width = Math.round(im.naturalWidth * s); c.height = Math.round(im.naturalHeight * s); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); res(c.toDataURL('image/jpeg', 0.72)); }catch(e){ res(null); } };
@@ -338,7 +338,9 @@ function imgToDataPng(url){ return new Promise(function(res){ var im = new Image
 async function deckPubPayload(deck){
   function pubEl(e){ if(!e || !okId(e.id)) return null; if(e.k === 'data') return {id:e.id, k:'data', type:e.type, ttl:e.ttl || null, x:e.x, y:e.y, w:e.w, h:e.h, cfg:{hide:clone((e.cfg && e.cfg.hide) || []), size:(e.cfg && e.cfg.size) || ''}}; return clone(e); }
   function pubPart(x){ return x ? {type:x.type, title:x.title || null, cfg:{hide:clone(x.cfg && x.cfg.hide || [])}} : undefined; }
-  var data = clone(deck.d.snap || deckData(deck)), slides = (deck.d.slides || []).filter(function(s){ return !s.hidden; }).map(function(s){ var c = s.cfg || {}; return {id:s.id, type:s.type, title:s.title, box:cleanBox(s.box), cfg:{msg:c.msg || '', side:c.side || '', sub:s.type === 'section' ? (c.sub || '') : undefined, noHead:!!c.noHead, size:c.size || '', hide:clone(c.hide || []), L:pubPart(c.L), R:pubPart(c.R)}, els:(s.els || []).map(pubEl).filter(Boolean)}; });
+  /* frozen figures are used only if they were frozen in Owner mode; otherwise they are worked out now with Owner rules */
+  var sa = deck.d.snapAud, frozenOk = !!deck.d.snap && (sa ? sa === 'owner' : (deck.d.aud || 'owner') !== 'internal');
+  var data = clone(frozenOk ? deck.d.snap : deckData(Object.assign({}, deck, {d:Object.assign({}, deck.d, {aud:'owner', snap:null, status:'draft'})}))), slides = (deck.d.slides || []).filter(function(s){ return !s.hidden; }).map(function(s){ var c = s.cfg || {}; return {id:s.id, type:s.type, title:s.title, box:cleanBox(s.box), cfg:{msg:c.msg || '', side:c.side || '', sub:s.type === 'section' ? (c.sub || '') : undefined, noHead:!!c.noHead, size:c.size || '', hide:clone(c.hide || []), L:pubPart(c.L), R:pubPart(c.R)}, els:(s.els || []).map(pubEl).filter(Boolean)}; });
   var keep = {}; slides.forEach(function(s){ keep[s.id] = data[s.id]; s.els.forEach(function(e){ if(e.k === 'data') keep[elKey(s, e)] = data[elKey(s, e)]; }); });
   var paths = [], bad = 0, kk = Object.keys(keep); kk.forEach(function(k){ photoLists(keep[k]).forEach(function(list){ list.forEach(function(p){ if(p.path) paths.push(p.path); }); }); });
   if(paths.length && STORE.signUrls) await STORE.signUrls(paths);
@@ -433,7 +435,7 @@ document.addEventListener('click', function(e){
     case 'dkPresentHere': if(deck) presentDeck(deck, S.dslide); break;
     case 'dkPdf': (function(){ var d0 = getRec(v); if(d0) deckPdf(d0); })(); break;
     case 'dkIssue': if(deck && confirm(T('Issue this presentation? The figures are frozen as they are now so the deck always shows what was presented. You can go back to draft later.', '定稿此演示文稿？数据会按当前冻结，以后打开仍是汇报时的内容。之后可以退回草稿。'))) issueDeck(deck).then(function(){ toast(T('Issued — figures frozen', '已定稿，数据已冻结'), {act:'quickUndo', label:T('Undo', '撤销')}); }).catch(function(er){ console.error(er); toast(T('Could not issue: ', '无法定稿：') + (er && er.message || er)); }); break;
-    case 'dkReopen': if(deck && confirm(T('Back to draft? The slides show live data again (the frozen figures are kept in the Change log).', '退回草稿？页面将重新显示实时数据（冻结的数据保留在修改记录中）。'))) setRec(deck, {status:'draft', snap:null, issuedAt:null}); break;
+    case 'dkReopen': if(deck && confirm(T('Back to draft? The slides show live data again (the frozen figures are kept in the Change log).', '退回草稿？页面将重新显示实时数据（冻结的数据保留在修改记录中）。'))) setRec(deck, {status:'draft', snap:null, snapAud:null, issuedAt:null}); break;
     case 'dkShare': if(deck) shareDeck(deck); break;
     case 'dkCopy': (function(){ var src = getRec(v); if(!src) return; var d = clone(src.d), reg = getReg(src.reg); delete d.snap; delete d.issuedAt; d.status = 'draft'; d.no = nextNo(reg); var n0 = d2n(d.date); d.date = n0 != null ? n2d(n0 + 7) : n2d(asOfN());
       var om = d.meeting && getRec(d.meeting), nd = d2n(d.date); d.meeting = ''; if(om){ var mr = getReg(om.reg), cand = recsOf(mr.id).filter(function(r){ var x = d2n(r.d[rolesOf(mr).start]); return r.id !== om.id && x != null && Math.abs(x - nd) <= 3 && r.d.mtype === om.d.mtype; })[0]; if(cand) d.meeting = cand.id; }

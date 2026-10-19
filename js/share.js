@@ -1,58 +1,179 @@
 /* work-web · public links: read-only pages anyone with the link can open, no sign-in.
    The database decides what leaves it (share_get / share_project in supabase/schema.sql): Owner rules —
-   registers published to the Owner and the library give only records marked "Show in Owner plan"; fields are the
-   External ones plus those charts need (No., title, dates, progress, status, block, package, type, baseline).
+   registers published to the Owner and the library give only records marked "Show in Owner plan"; register views
+   carry only External fields plus No. and title, the chosen columns and the records matching the publisher's filter;
+   overviews and presentations add the fields charts need (dates, progress, status, block, package, type, baseline).
    This file builds links (register view, presentation, progress overview), manages them, and shows the public page. */
 'use strict';
 
 var SHARE_ROLE_KEYS = ['no', 'title', 'title2', 'start', 'finish', 'progress', 'status', 'block', 'tree', 'kind', 'astart', 'afinish', 'base'];
 var SHARE_BAD = ['files', 'link', 'sub', 'section'];
 var SHARE_LIB_KEYS = ['no', 'title', 'titleZh', 'docNo', 'rev', 'disc', 'status', 'date'];
+var SHARE_FIELD_KEYS = ['key', 'en', 'zh', 'type', 'list', 'multi', 'opts', 'tree', 'unit', 'w', 'hide', 'ext'];
+var SHARE_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
-/* ---------------- the public copy (same rules as share_project in the database; used by the demo and the preview) ---------------- */
-/* strict (register views): External fields plus No. and title only */
-function shareKeys(reg, strict){
-  var d = reg.d || {}, lib = d.kind === 'library', fs = d.fields || [], ro = d.roles || {}, keys = {};
-  fs.forEach(function(f){ if(SHARE_BAD.indexOf(f.type) < 0 && (f.ext || (lib && SHARE_LIB_KEYS.indexOf(f.key) >= 0))) keys[f.key] = 1; });
-  (strict ? ['no', 'title', 'title2'] : SHARE_ROLE_KEYS).forEach(function(k){ if(ro[k]) keys[ro[k]] = 1; });
+/* ---------------- the public copy ----------------
+   The database builds it (share_project / share_get in supabase/schema.sql). These functions do exactly the same in the
+   browser — for the demo, and for the preview when a link is made — and are tested against the database for identical output. */
+function shareCl(x){ return x === undefined ? null : clone(x); }
+function shareObj(o){ var x = {}; Object.keys(o).forEach(function(k){ if(o[k] != null) x[k] = o[k]; }); return x; }
+function shareIsObj(v){ return !!v && typeof v === 'object' && !Array.isArray(v); }
+function shareTruthy(v){ return !(v == null || v === false || v === 0 || v === ''); }
+function shareStr(v){ return typeof v === 'string' ? v : null; }
+function shareArr(v){ return v == null || v === '' ? [] : Array.isArray(v) ? v : [v]; }
+function shareSet(){ return Object.create(null); }
+function shareFields(d){ return (Array.isArray(d.fields) ? d.fields : []).filter(shareIsObj); }
+function shareRoles(d){ return shareIsObj(d.roles) ? d.roles : {}; }
+/* a field definition as visitors get it: what displaying needs (no explanations or other settings) */
+function shareField(f){
+  var o = {}; SHARE_FIELD_KEYS.forEach(function(k){ o[k] = shareCl(f[k]); });
+  ['auto', 'calc'].forEach(function(k){ var a = f[k]; o[k] = shareIsObj(a) ? shareObj({op:shareCl(a.op), a:shareCl(a.a), b:shareCl(a.b)}) : null; });
+  return shareObj(o);
+}
+/* which fields of a register go out. strict (register views): External fields plus No. and title only;
+   cols: only these columns (plus No., title and package) */
+function shareKeys(reg, strict, cols){
+  var d = (reg && shareIsObj(reg.d)) ? reg.d : {}, lib = d.kind === 'library', fs = shareFields(d), ro = shareRoles(d), keys = shareSet();
+  fs.forEach(function(f){ var k = shareStr(f.key); if(k && SHARE_BAD.indexOf(shareStr(f.type) || '') < 0 && (f.ext === true || (lib && SHARE_LIB_KEYS.indexOf(k) >= 0))) keys[k] = 1; });
+  (strict ? ['no', 'title', 'title2'] : SHARE_ROLE_KEYS).forEach(function(r){ var k = shareStr(ro[r]); if(k) keys[k] = 1; });
   if(!strict){
-  fs.forEach(function(f){ if(f.key === ro.progress && f.auto){ if(f.auto.a) keys[f.auto.a] = 1; if(f.auto.b) keys[f.auto.b] = 1; } });
-  if(d.matrix){ if(d.matrix.row) keys[d.matrix.row] = 1; if(d.matrix.col) keys[d.matrix.col] = 1; }
-  keys.baseStart = 1; keys.baseFinish = 1; }
-  fs.forEach(function(f){ if(SHARE_BAD.indexOf(f.type) >= 0) delete keys[f.key]; });
+    fs.forEach(function(f){ if(typeof f.key === 'string' && f.key === ro.progress && shareIsObj(f.auto)){ [shareStr(f.auto.a), shareStr(f.auto.b)].forEach(function(k){ if(k) keys[k] = 1; }); } });
+    var mx = shareIsObj(d.matrix) ? d.matrix : {}; [shareStr(mx.row), shareStr(mx.col)].forEach(function(k){ if(k) keys[k] = 1; });
+    keys.baseStart = 1; keys.baseFinish = 1;
+  }
+  fs.forEach(function(f){ if(typeof f.key === 'string' && SHARE_BAD.indexOf(shareStr(f.type) || '') >= 0) delete keys[f.key]; });
+  if(Array.isArray(cols)){ var allow = shareSet(); cols.forEach(function(c){ if(typeof c === 'string') allow[c] = 1; }); ['no', 'title', 'title2', 'tree'].forEach(function(r){ var k = shareStr(ro[r]); if(k) allow[k] = 1; });
+    Object.keys(keys).forEach(function(k){ if(!allow[k]) delete keys[k]; }); }
   return keys;
 }
-function shareGated(reg){ return !!reg && (reg.d.kind === 'library' || !!reg.d.ownerPublish); }
-function shareRegOk(reg){ return !!reg && reg.vis !== 'private' && ['decks', 'snaps'].indexOf(reg.d.kind || '') < 0; }
-function shareProject(src, ids, strict){
-  var regs = [], recs = [], lst = {}, seen = {};
+function shareGated(reg){ return !!reg && shareIsObj(reg.d) && (reg.d.kind === 'library' || shareTruthy(reg.d.ownerPublish)); }
+function shareRegOk(reg){ return !!reg && reg.vis === 'team' && typeof reg.id === 'string' && SHARE_ID.test(reg.id) && shareIsObj(reg.d) && ['decks', 'snaps'].indexOf(shareStr(reg.d.kind) || '') < 0; }
+/* the publisher's filter of a register view: values of fields (fx) and the package (node) */
+function shareMatch(fs, ro, d, f){
+  if(!shareIsObj(f)) return true; d = shareIsObj(d) ? d : {};
+  function first(k){ return fs.filter(function(x){ return x.key === k; })[0] || null; }
+  if(shareIsObj(f.fx)) for(var k in f.fx){
+    var want = f.fx[k]; if(!Array.isArray(want) || !want.length) continue;
+    var fd = first(k); if(!fd) continue;
+    var have = fd.type === 'check' ? [shareTruthy(d[k]) ? '1' : '0'] : shareArr(d[k]);
+    if(!have.length && want.indexOf('__none') >= 0) continue;
+    if(!have.some(function(h){ return want.some(function(w){ return same(h, w); }); })) return false;
+  }
+  var nd = shareStr(f.node), tk = shareStr(ro.tree);
+  if(!nd || nd === 'all' || !tk) return true;
+  var tf = first(tk); if(!tf) return true;
+  var v = d[tk], nodes = (Array.isArray(tf.tree) ? tf.tree : []).filter(shareIsObj);
+  if(nd === 'none') return !(shareTruthy(v) && nodes.some(function(n){ return same(n.id, v); }));
+  if(typeof v !== 'string') return false;
+  var set = shareSet(), q = [nd]; set[nd] = 1;
+  while(q.length){ var pid = q.shift(); nodes.forEach(function(n){ if(typeof n.id === 'string' && (shareStr(n.parent) || '') === pid && !set[n.id]){ set[n.id] = 1; q.push(n.id); } }); }
+  return !!set[v];
+}
+/* opt: {strict, cols, filter, ids} — see share_project */
+function shareProject(src, ids, opt){
+  opt = shareIsObj(opt) ? opt : {};
+  var strict = opt.strict === true, flt = opt.filter, only = Array.isArray(opt.ids) ? opt.ids.filter(function(x){ return typeof x === 'string'; }) : null;
+  var regs = [], recs = [], lst = shareSet(), full = shareSet(), used = shareSet(), seen = shareSet();
   (ids || []).forEach(function(id){
     if(seen[id]) return; seen[id] = 1;
-    var g = (src.regs || []).filter(function(r){ return r.id === id; })[0]; if(!shareRegOk(g)) return;
-    var keys = shareKeys(g, strict), ro = g.d.roles || {}, roles = {}, gated = shareGated(g);
-    SHARE_ROLE_KEYS.forEach(function(k){ if(ro[k] && keys[ro[k]]) roles[k] = ro[k]; });
-    var flds = (g.d.fields || []).filter(function(f){ return keys[f.key]; }).map(clone);
-    flds.forEach(function(f){ if(f.list) lst[f.list] = 1; });
-    var d = {}; ['kind', 'en', 'zh', 'icon', 'color', 'sec', 'prefix', 'tpl', 'ownerPublish', 'allMs', 'view', 'matrix'].forEach(function(k){ if(g.d[k] != null) d[k] = clone(g.d[k]); });
+    var g = (src.regs || []).filter(function(r){ return r && r.id === id; })[0]; if(!shareRegOk(g)) return;
+    var d0 = g.d, fs = shareFields(d0), ro = shareRoles(d0), gated = shareGated(g), keys = shareKeys(g, strict, opt.cols), roles = {};
+    Object.keys(ro).forEach(function(k){ if(SHARE_ROLE_KEYS.indexOf(k) >= 0 && typeof ro[k] === 'string' && keys[ro[k]]) roles[k] = ro[k]; });
+    var flds = fs.filter(function(f){ return typeof f.key === 'string' && keys[f.key]; }).map(shareField), d = {};
+    ['kind', 'en', 'zh', 'icon', 'color', 'sec', 'prefix', 'tpl', 'ownerPublish', 'allMs', 'view', 'matrix'].forEach(function(k){ d[k] = shareCl(d0[k]); });
     d.roles = roles; d.fields = flds;
-    regs.push({id:g.id, vis:'team', d:d});
-    (src.recs || []).forEach(function(r){ if(r.reg !== g.id || (gated && !r.d.ext)) return; var o = {};
-      Object.keys(r.d || {}).forEach(function(k){ if(keys[k] || k === 'parent' || k === 'ms' || k === 'ext') o[k] = clone(r.d[k]); });
-      recs.push({id:r.id, reg:r.reg, d:o}); });
+    regs.push({id:g.id, vis:'team', d:shareObj(d)});
+    var rs = [];
+    (src.recs || []).forEach(function(r){
+      if(!r || r.reg !== g.id) return; var rd = shareIsObj(r.d) ? r.d : {};
+      if((gated && rd.ext !== true) || (only && only.indexOf(r.id) < 0) || !shareMatch(fs, ro, rd, flt)) return;
+      var o = {}; Object.keys(rd).forEach(function(k){ if(rd[k] !== undefined && (keys[k] || k === 'parent' || k === 'ms' || k === 'ext')) o[k] = clone(rd[k]); });
+      rs.push({id:r.id, reg:r.reg, d:o});
+    });
+    recs = recs.concat(rs);
+    /* lists: those behind status / type / block / matrix keep every entry; others (names) only the entries in use */
+    var struct = shareSet(), mx = shareIsObj(d0.matrix) ? d0.matrix : {};
+    [shareStr(ro.status), shareStr(ro.kind), shareStr(ro.block), shareStr(mx.row), shareStr(mx.col)].forEach(function(k){ if(k != null) struct[k] = 1; });
+    flds.forEach(function(f){ var L = shareStr(f.list); if(!L) return; lst[L] = 1; if(struct[f.key]){ full[L] = 1; return; }
+      rs.forEach(function(r){ shareArr(r.d[f.key]).forEach(function(v){ if(typeof v === 'string') used[L + '\x1f' + v] = 1; }); }); });
   });
-  var c = src.cfg || {}, cl = {}, out = {v2:true};
-  Object.keys(c.lists || {}).forEach(function(k){ if(lst[k]) cl[k] = clone(c.lists[k]); });
-  ['projectEn', 'projectZh', 'asOf', 'ganttStart', 'ganttEnd'].forEach(function(k){ if(c[k] != null) out[k] = c[k]; });
+  var c = shareIsObj(src.cfg) ? src.cfg : {}, l0 = shareIsObj(c.lists) ? c.lists : {}, cl = {}, out = {v2:true};
+  Object.keys(l0).forEach(function(k){ if(!lst[k]) return; var v = l0[k];
+    if(full[k] || !shareIsObj(v) || !Array.isArray(v.opts)) cl[k] = shareCl(v);
+    else { var x = clone(v); x.opts = v.opts.filter(function(o){ return shareIsObj(o) && typeof o.v === 'string' && used[k + '\x1f' + o.v]; }).map(clone); cl[k] = x; } });
+  ['projectEn', 'projectZh', 'asOf', 'ganttStart', 'ganttEnd'].forEach(function(k){ if(c[k] != null) out[k] = clone(c[k]); });
   out.lists = cl;
   return {regs:regs, recs:recs, cfg:out};
 }
-/* a presentation as visitors of a live link get it: slides and theme, no notes, comments or frozen internal figures */
-function shareDeckPublic(rec){
-  if(!rec || (rec.d.aud || 'owner') === 'internal') return null; var d = rec.d, o = {aud:'owner'};
-  ['no', 'title', 'titleZh', 'date', 'lang', 'presenter', 'theme'].forEach(function(k){ if(d[k] != null) o[k] = clone(d[k]); });
-  o.slides = (d.slides || []).map(function(s){ var x = clone(s); delete x.note; return x; });
-  return {id:rec.id, d:o};
+/* which registers a link reads, and the options for shareProject (stage: live / freeze / check) */
+function shareRegList(d){ return d && shareIsObj(d.cfg) && Array.isArray(d.cfg.regs) ? d.cfg.regs.filter(function(x){ return typeof x === 'string'; }) : []; }
+function shareOpt(d, stage){
+  if(!d || d.kind !== 'reg') return {}; var c = shareIsObj(d.cfg) ? d.cfg : {};
+  return shareObj({strict:true, cols:shareCl(c.cols), filter:stage !== 'check' ? shareCl(c.filter) : null, ids:stage === 'freeze' ? shareCl(c.ids) : null});
 }
+/* a snapshot keeps its values but follows today's permissions (share_recheck) */
+function shareRecheck(snap, live){
+  if(!shareIsObj(snap)) return null;
+  var regs = [], recs = [], lst = shareSet(), lregs = live && Array.isArray(live.regs) ? live.regs : [], lrecs = live && Array.isArray(live.recs) ? live.recs : [];
+  (Array.isArray(snap.regs) ? snap.regs : []).forEach(function(g){
+    if(!shareIsObj(g) || !shareIsObj(g.d) || typeof g.id !== 'string') return;
+    var lg = lregs.filter(function(x){ return x && x.id === g.id; })[0]; if(!lg) return;
+    var ks = shareSet(), lids = shareSet(), gated = lg.d.kind === 'library' || shareTruthy(lg.d.ownerPublish);
+    (lg.d.fields || []).forEach(function(f){ if(f && typeof f.key === 'string') ks[f.key] = 1; });
+    lrecs.forEach(function(x){ if(x && x.reg === g.id) lids[x.id] = 1; });
+    var fl = (Array.isArray(g.d.fields) ? g.d.fields : []).filter(function(f){ return f && typeof f.key === 'string' && ks[f.key]; });
+    fl.forEach(function(f){ if(typeof f.list === 'string') lst[f.list] = 1; });
+    var ro = shareRoles(g.d), roles = {}; Object.keys(ro).forEach(function(k){ if(typeof ro[k] === 'string' && ks[ro[k]]) roles[k] = ro[k]; });
+    regs.push(Object.assign(clone(g), {d:Object.assign(clone(g.d), {fields:clone(fl), roles:roles})}));
+    (Array.isArray(snap.recs) ? snap.recs : []).forEach(function(r){
+      if(!shareIsObj(r) || r.reg !== g.id || (gated && !(typeof r.id === 'string' && lids[r.id]))) return;
+      var rd = shareIsObj(r.d) ? r.d : {}, o = {}; Object.keys(rd).forEach(function(k){ if(rd[k] !== undefined && (ks[k] || k === 'parent' || k === 'ms' || k === 'ext')) o[k] = clone(rd[k]); });
+      recs.push(Object.assign(clone(r), {d:o}));
+    });
+  });
+  var c = shareIsObj(snap.cfg) ? clone(snap.cfg) : {};
+  if(shareIsObj(c.lists)){ var l2 = {}; Object.keys(c.lists).forEach(function(k){ if(lst[k]) l2[k] = c.lists[k]; }); c.lists = l2; }
+  return {regs:regs, recs:recs, cfg:c};
+}
+/* a presentation as visitors of a live link get it: visible slides only, display settings only
+   (no speaker notes, comments, frozen internal figures, hidden slides or photo file paths) */
+function sharePcfg(t, c){
+  if(!shareIsObj(c)) return null; var x = clone(c);
+  if(t === 'photos'){ delete x.picks; if(Array.isArray(c.hide)) x.hide = c.hide.filter(function(h){ return !(typeof h === 'string' && h.slice(0, 2) === 'p:'); }).map(clone); }
+  return x;
+}
+function shareCfg(t, c){
+  if(t !== 'combo' || !shareIsObj(c)) return sharePcfg(t, c);
+  var x = clone(c); ['L', 'R'].forEach(function(k){ var p = c[k]; if(shareIsObj(p)){ var q = clone(p), pc = sharePcfg(p.type, p.cfg); if(pc != null) q.cfg = pc; x[k] = q; } });
+  return x;
+}
+function shareEl(e){ if(!shareIsObj(e) || e.k !== 'data') return shareCl(e); var x = clone(e), c = shareCfg(e.type, e.cfg); if(c != null) x.cfg = c; return x; }
+function shareLogo(l){ return shareIsObj(l) && typeof l.path === 'string' ? {path:l.path} : null; }
+function shareDeckPublic(rec){
+  if(!rec || !shareIsObj(rec.d)) return null; var p = rec.d, th = p.theme;
+  var slides = (Array.isArray(p.slides) ? p.slides : []).filter(function(s){ return shareIsObj(s) && !shareTruthy(s.hidden); }).map(function(s){
+    return shareObj({id:shareCl(s.id), type:shareCl(s.type), title:shareCl(s.title), box:shareCl(s.box), cfg:shareCfg(s.type, s.cfg), els:Array.isArray(s.els) ? s.els.map(shareEl) : null}); });
+  return {id:rec.id, d:shareObj({no:shareCl(p.no), title:shareCl(p.title), titleZh:shareCl(p.titleZh), date:shareCl(p.date), lang:shareCl(p.lang), presenter:shareCl(p.presenter), aud:'owner',
+    theme:shareIsObj(th) ? shareObj({color:shareCl(th.color), foot:shareCl(th.foot), footText:shareCl(th.footText), conf:shareCl(th.conf), style:shareCl(th.style), agenda:shareCl(th.agenda), logoL:shareLogo(th.logoL), logoR:shareLogo(th.logoR)}) : null,
+    slides:slides})};
+}
+/* one link as a visitor gets it (share_get without the view counter); src = {regs, recs, cfg} */
+function shareServe(src, x){
+  if(!x || x.revoked || (x.expires_at && Date.parse(x.expires_at) <= Date.now())) return null;
+  var d = shareIsObj(x.data) ? clone(x.data) : {}, regs = shareRegList(d), dk = null;
+  if(d.kind === 'deck'){
+    var did = shareIsObj(d.cfg) ? d.cfg.deck : null;
+    dk = (src.recs || []).filter(function(r){ return r && r.id === did; })[0] || null;
+    var g = dk && (src.regs || []).filter(function(r){ return r && r.id === dk.reg; })[0], aud = dk && shareIsObj(dk.d) && dk.d.aud != null ? String(dk.d.aud) : 'owner';
+    if(!dk || !g || g.vis !== 'team' || !shareIsObj(g.d) || g.d.kind !== 'decks' || aud === 'internal') return null;
+  }
+  if(d.mode === 'live'){ delete d.snap; d.live = shareProject(src, regs, shareOpt(d, 'live')); if(d.kind === 'deck') d.deck = shareDeckPublic(dk); }
+  else if(d.kind !== 'deck') d.snap = shareRecheck(d.snap, shareProject(src, regs, shareOpt(d, 'check')));
+  if(shareIsObj(d.cfg)){ delete d.cfg.filter; delete d.cfg.ids; }
+  return {id:x.id, at:new Date().toISOString(), created_at:x.created_at, expires_at:x.expires_at || null, data:d};
+}
+function shareFreezeData(src, d){ return shareProject(src, shareRegList(d), shareOpt(d, 'freeze')); }
+function shareSrc(){ return {regs:(STORE && STORE.regs) || [], recs:(STORE && STORE.recs) || [], cfg:(STORE && STORE.cfg) || {}}; }
 
 /* ---------------- links ---------------- */
 function shareToken(){ var a = new Uint8Array(18); crypto.getRandomValues(a); return btoa(String.fromCharCode.apply(null, a)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
@@ -61,18 +182,24 @@ var SHARE_KINDS = {reg:['Register view', '台账视图'], deck:['Presentation', 
 /* registers a presentation reads from (for a live link) */
 function deckShareRegs(deck){
   var ids = {};
-  (deck.d.slides || []).forEach(function(s){ slideRegIds(s).forEach(function(id){ ids[id] = 1; });
+  (deck.d.slides || []).filter(function(s){ return !s.hidden; }).forEach(function(s){ slideRegIds(s).forEach(function(id){ ids[id] = 1; });
     if(s.type === 'summary' && !(s.cfg && s.cfg.ms)) allRegs().forEach(function(r){ if(rolesOf(r).start || rolesOf(r).finish) ids[r.id] = 1; }); });
   return Object.keys(ids).filter(function(id){ return shareRegOk(getReg(id)); });
 }
-/* the publisher's filter, kept only where it uses fields the link carries */
-function shareFilter(reg){
-  var f = clone(rfil(reg.id)), keys = shareKeys(reg, true), dropped = [], ro = rolesOf(reg);
+/* the publisher's filter, kept only where it uses fields the link carries. The database applies field values and the
+   package itself; search text, dates and "overdue" are kept by snapshots only (they freeze the matching records). */
+function shareFilter(reg, mode){
+  var f = clone(rfil(reg.id)), keys = shareKeys(reg, true), dropped = [], snapOnly = [], ro = rolesOf(reg);
   Object.keys(f.fx || {}).forEach(function(k){ if(!(f.fx[k] || []).length) { delete f.fx[k]; return; } if(!keys[k]){ var fd = fieldOf(reg, k); dropped.push(fd ? T1(fd.en, fd.zh) : k); delete f.fx[k]; } });
   if(f.star){ dropped.push(T('Key items', '重点')); f.star = false; }
   f.ext = false;
   if(f.node && f.node !== 'all' && !(ro.tree && keys[ro.tree])){ dropped.push(T('Package', '文件包')); f.node = 'all'; }
-  return {f:f, dropped:dropped};
+  if(mode !== 'snap'){
+    if(f.q){ snapOnly.push(T('Search text', '搜索文字')); f.q = ''; }
+    if(f.from || f.to){ snapOnly.push(T('Date range', '日期范围')); f.from = ''; f.to = ''; }
+    if(f.od){ snapOnly.push(T('Overdue only', '仅逾期')); f.od = false; }
+  }
+  return {f:f, dropped:dropped, snapOnly:snapOnly};
 }
 function shareCandidates(){ return allRegs().filter(function(r){ return shareRegOk(r) && (rolesOf(r).status || rolesOf(r).start || rolesOf(r).finish); }); }
 
@@ -88,27 +215,30 @@ function shareNewModal(m){
   }
   if(m.sk === 'reg'){
     var reg = getReg(m.reg); if(!reg){ return {title:'', html:''}; }
-    var keys = shareKeys(reg, true), sf = shareFilter(reg), all = recsOf(reg.id), view = all.filter(function(r){ return matchRec(reg, r, sf.f); }), pub = view.filter(function(r){ return !shareGated(reg) || r.d.ext; });
-    var cols = tableCols(reg).filter(function(f){ return keys[f.key]; });
-    h += '<div class="shs"><b>' + esc(regName(reg)) + '</b><span>' + L(pub.length + ' records will be shown', '将显示 ' + pub.length + ' 条记录') + (pub.length < view.length ? ' · ' + L((view.length - pub.length) + ' not marked “Show in Owner plan” stay hidden', (view.length - pub.length) + ' 条未标记「显示于业主计划」，不公开') : '') + '</span>' +
-      '<span>' + L('Columns: ', '列：') + esc(cols.map(function(f){ return T1(f.en, f.zh); }).join(' · ') || '—') + '</span></div>';
+    var keys = shareKeys(reg, true), sf = shareFilter(reg, m.mode), view = recsOf(reg.id).filter(function(r){ return matchRec(reg, r, sf.f); });
+    m._cfg = {regs:[reg.id], reg:reg.id, filter:sf.f, cols:tableCols(reg).filter(function(f){ return keys[f.key]; }).map(function(f){ return f.key; }), group:S.rg[reg.id] && S.rg[reg.id] === rolesOf(reg).tree ? 'tree' : ''};
+    if(m.mode === 'snap') m._cfg.ids = view.map(function(r){ return r.id; });
+    /* exactly what the database will send: the same rules run here on the same data */
+    var pv = shareProject(shareSrc(), [reg.id], shareOpt({kind:'reg', cfg:m._cfg}, m.mode === 'snap' ? 'freeze' : 'live')), pr = pv.regs[0], n = pv.recs.length, hid = shareGated(reg) ? Math.max(0, view.length - n) : 0;
+    h += '<div class="shs"><b>' + esc(regName(reg)) + '</b><span>' + L(n + ' records will be shown', '将显示 ' + n + ' 条记录') + (hid ? ' · ' + L(hid + ' not marked “Show in Owner plan” stay hidden', hid + ' 条未标记「显示于业主计划」，不公开') : '') + '</span>' +
+      '<span>' + L('Columns: ', '列：') + esc((pr ? pr.d.fields : []).map(function(f){ return T1(f.en, f.zh); }).join(' · ') || '—') + '</span></div>';
     if(sf.dropped.length) notes.push(L('These filters use fields the link does not carry and are left out: ', '以下筛选条件用到不公开的字段，链接中不保留：') + esc(sf.dropped.join(', ')));
-    if(!pub.length){ notes.push(L('No record would be visible. In the register, tick records and use “Show in Owner plan”.', '目前没有可显示的记录。请在台账中勾选记录，点「显示于业主计划」。')); }
-    notes.push(L('Only fields marked External are shared, plus No. and title — nothing else leaves the database. To show another column (e.g. Package or Block), mark it External in Fields & columns.', '只公开标记「对外」的字段，以及编号和名称，其他内容不会离开数据库。要显示其他列（如文件包、区域），请在「字段与列」中把它设为「对外」。'));
-    m._cfg = {regs:[reg.id], reg:reg.id, filter:sf.f, cols:cols.map(function(f){ return f.key; }), group:S.rg[reg.id] && S.rg[reg.id] === rolesOf(reg).tree ? 'tree' : ''};
+    if(sf.snapOnly.length) notes.push(L('A live link keeps filters by field values and package only. Left out: ', '实时链接只保留按字段值和文件包的筛选。未保留：') + esc(sf.snapOnly.join(', ')) + L(' — choose Snapshot to keep them.', '。如需保留，请选择「快照」。'));
+    if(!n){ notes.push(L('No record would be visible. In the register, tick records and use “Show in Owner plan”.', '目前没有可显示的记录。请在台账中勾选记录，点「显示于业主计划」。')); }
+    notes.push(L('Only the columns listed above go out: fields marked External among the visible columns, plus No. and title. To show another column (e.g. Package or Block), mark it External in Fields & columns and show it in the table.', '只公开上面列出的列：表格中可见、且标记为「对外」的字段，以及编号和名称。要显示其他列（如文件包、区域），请在「字段与列」中把它设为「对外」并在表格中显示。'));
     if(!m.title) m.title = regName(reg);
   } else if(m.sk === 'deck'){
     var deck = getRec(m.deck); if(!deck) return {title:'', html:''};
     if((deck.d.aud || 'owner') === 'internal'){ ok = false; notes.push(L('Internal presentations cannot be shared. Switch the audience to Owner mode in Presentation settings.', '内部文稿不能公开。请在文稿设置中切换为业主模式。')); }
     var n = (deck.d.slides || []).filter(function(s){ return !s.hidden; }).length;
     h += '<div class="shs"><b>' + esc((deck.d.no ? deck.d.no + ' · ' : '') + deckTitle(deck.d)) + '</b><span>' + L(n + ' slides (hidden ones are left out), Owner mode', n + ' 页（隐藏页不包括），业主模式') + '</span><span>' + L('Speaker notes are never shared.', '讲者备注不会公开。') + '</span></div>';
-    if(m.mode === 'live') notes.push(L('Live: site photos and the S-curve “actual” line are only included in snapshots.', '实时模式：现场照片和 S 曲线「实际」线只在快照中提供。'));
+    if(m.mode === 'live') notes.push(L('Live: site photos and the S-curve “actual” line are only included in snapshots. Images and logos are taken as they are now; pictures added to slides later need a new link.', '实时模式：现场照片和 S 曲线「实际」线只在快照中提供。图片和 Logo 按现在的版本附上，之后在页面中新增的图片需要重新生成链接。'));
     if(!m.title) m.title = deckTitle(deck.d);
   } else {
-    var cands = shareCandidates(); if(!m.regs) m.regs = cands.filter(function(r){ return !shareGated(r) || recsOf(r.id).some(function(x){ return x.d.ext; }); }).map(function(r){ return r.id; });
-    h += '<div class="fl"><span class="flab">' + L('Registers in the overview', '总览包含的台账') + '</span><div class="dk-cl">' + cands.map(function(r){ var on = m.regs.indexOf(r.id) >= 0, g = shareGated(r), nn = g ? recsOf(r.id).filter(function(x){ return x.d.ext; }).length : recsOf(r.id).length;
+    var cands = shareCandidates(); if(!m.regs) m.regs = cands.filter(function(r){ return !shareGated(r) || recsOf(r.id).some(function(x){ return x.d.ext === true; }); }).map(function(r){ return r.id; });
+    h += '<div class="fl"><span class="flab">' + L('Registers in the overview', '总览包含的台账') + '</span><div class="dk-cl">' + cands.map(function(r){ var on = m.regs.indexOf(r.id) >= 0, g = shareGated(r), nn = g ? recsOf(r.id).filter(function(x){ return x.d.ext === true; }).length : recsOf(r.id).length;
       return '<label class="chk"><input type="checkbox" data-shreg="' + esc(r.id) + '"' + (on ? ' checked' : '') + '>' + esc(regName(r)) + ' <span class="note">' + (g ? L(nn + ' marked for the Owner', nn + ' 条对业主公开') : L(nn + ' records', nn + ' 条')) + '</span></label>'; }).join('') + '</div></div>';
-    notes.push(L('The overview shows headline figures, milestones, the programme, block progress and status per package, built the same way as Owner-mode slides: besides External fields, the charts use dates, progress, status, block and package of the shared records. Remarks, explanations, contacts and files are never shared.', '总览包括关键数字、里程碑、进度计划、区域进度和各文件包状态，规则与业主模式简报相同：除「对外」字段外，图表会用到所公开记录的日期、进度、状态、区域和文件包。备注、说明、联系人和附件永不公开。'));
+    notes.push(L('The overview shows headline figures, milestones, the programme, block progress and status per package, built the same way as Owner-mode slides: besides External fields, the charts use dates, progress, status, block and package of the shared records. Other fields (remarks, contacts…) go out only if marked External; files, links and field explanations never do.', '总览包括关键数字、里程碑、进度计划、区域进度和各文件包状态，规则与业主模式简报相同：除「对外」字段外，图表会用到所公开记录的日期、进度、状态、区域和文件包。其他字段（备注、联系人等）只有标记为「对外」才会公开；附件、关联和字段说明永不公开。'));
     if(!m.regs.length){ ok = false; }
     if(!m.title) m.title = T('Progress overview', '进度总览');
   }
@@ -143,7 +273,7 @@ function shareErr(e){ var s = String((e && (e.message || e.code)) || e || ''); i
 async function deckMedia(deck){
   var th = themeOf(deck), paths = [], out = {};
   [th.logoL, th.logoR].forEach(function(l){ if(l && l.path) paths.push(l.path); });
-  (deck.d.slides || []).forEach(function(s){ (s.els || []).forEach(function(e){ if(e.path) paths.push(e.path); }); });
+  (deck.d.slides || []).filter(function(s){ return !s.hidden; }).forEach(function(s){ (s.els || []).forEach(function(e){ if(e && e.path) paths.push(e.path); }); });
   if(!paths.length) return out;
   if(STORE.signUrls) await STORE.signUrls(paths);
   for(var i = 0; i < paths.length; i++){ var u = STORE.fileUrl(paths[i]); if(u){ var src = await imgToData(u, 1600); if(src) out[paths[i]] = src; } }
@@ -174,7 +304,13 @@ async function shareRefresh(id){
   try{
     if(x.kind === 'deck'){ var deck = getRec(x.cfg && x.cfg.deck); if(!deck){ toast(T('The presentation no longer exists.', '该演示文稿已不存在。')); return; } if((deck.d.aud || 'owner') === 'internal'){ toast(T('Switch the presentation to Owner mode first.', '请先把文稿切换为业主模式。')); return; }
       toast(T('Preparing…', '正在准备…')); await loadHistory(deckNeedsHist(deck)); deck = getRec(deck.id) || deck; await STORE.shareSetSnap(id, await deckPubPayload(deck)); }
-    else await STORE.shareFreeze(id);
+    else {
+      /* a register view: the records matching its filter now */
+      if(x.kind === 'reg'){ var c = x.cfg || {}, reg = getReg(c.reg); if(!reg){ toast(T('The register no longer exists.', '该台账已不存在。')); return; }
+        var fl = Object.assign({q:'', fx:{}, from:'', to:'', od:false, star:false, ext:false, node:'all'}, c.filter || {});
+        await STORE.shareSetCfg(id, Object.assign({}, c, {ids:recsOf(reg.id).filter(function(r){ return matchRec(reg, r, fl); }).map(function(r){ return r.id; })})); }
+      await STORE.shareFreeze(id);
+    }
     toast(T('Snapshot updated', '快照已更新')); S.shares = null; renderMain();
   }catch(e){ toast(shareErr(e)); }
 }
@@ -249,9 +385,9 @@ function pubHead(d, sub, tools){ return '<div class="ph"><div><h1 class="vtitle"
 
 /* a register view: search, package filter, grouped by package */
 function pubRegView(d){
-  var c = d.cfg || {}, reg = getReg(c.reg) || getReg((c.regs || [])[0]); if(!reg) return pubHead(d) + '<div class="card empty">' + L('Nothing to show.', '没有可显示的内容。') + '</div>';
+  var c = d.cfg || {}, reg = getReg(c.reg) || getReg((c.regs || [])[0]); if(!reg || !SHARE_ID.test(reg.id)) return pubHead(d) + '<div class="card empty">' + L('Nothing to show.', '没有可显示的内容。') + '</div>';
   var ro = rolesOf(reg), tf = ro.tree && fieldOf(reg, ro.tree), P = S.pub;
-  var base = recsOf(reg.id).filter(function(r){ return matchRec(reg, r, Object.assign({q:'', fx:{}, from:'', to:'', od:false, star:false, ext:false, node:'all'}, c.filter || {}, {q:(c.filter && c.filter.q) || ''})); });
+  var base = recsOf(reg.id);   /* the database already applied the publisher's filter */
   var list = base.filter(function(r){ return (!P.q || matchRec(reg, r, {q:P.q, fx:{}, node:'all'})) && (P.node === 'all' || !tf || (treeDesc(tf, P.node))[r.d[tf.key]]); });
   list = sortRecs(reg, list);
   var cols = (c.cols && c.cols.length ? c.cols : dataFields(reg).map(function(f){ return f.key; })).map(function(k){ return fieldOf(reg, k); }).filter(Boolean); if(!cols.some(function(f){ return f.key === ro.title; }) && fieldOf(reg, ro.title)) cols.unshift(fieldOf(reg, ro.title)); if(ro.no && fieldOf(reg, ro.no) && !cols.some(function(f){ return f.key === ro.no; })) cols.unshift(fieldOf(reg, ro.no));
@@ -259,7 +395,7 @@ function pubRegView(d){
   if(tf){ var top = treeKids(tf, ''), cnt = function(n){ var s = treeDesc(tf, n.id); return base.filter(function(r){ return s[r.d[tf.key]]; }).length; };
     chips = '<div class="pub-chips"><button type="button" class="fbtn' + (P.node === 'all' ? ' on' : '') + '" data-act="pubNode" data-v="all">' + L('All', '全部') + ' <b>' + base.length + '</b></button>' + top.map(function(n){ var k = cnt(n); return k ? '<button type="button" class="fbtn' + (P.node === n.id ? ' on' : '') + '" data-act="pubNode" data-v="' + esc(n.id) + '">' + esc(treeLabel(n)) + ' <b>' + k + '</b></button>' : ''; }).join('') + '</div>'; }
   var rows = [], span = cols.length;
-  function row(r){ return '<tr>' + cols.map(function(f){ var v = f.key === ro.title ? '<span class="tt1">' + esc(recTitle(reg, r) || '—') + '</span>' + (recTitle2(reg, r) ? '<span class="tt2">' + esc(recTitle2(reg, r)) + '</span>' : '') : cellHtml(reg, f, r); return '<td class="t-' + f.type + (f.key === ro.title ? ' tt' : '') + '">' + v + '</td>'; }).join('') + '</tr>'; }
+  function row(r){ return '<tr>' + cols.map(function(f){ var v = f.key === ro.title ? '<span class="tt1">' + esc(recTitle(reg, r) || '—') + '</span>' + (recTitle2(reg, r) ? '<span class="tt2">' + esc(recTitle2(reg, r)) + '</span>' : '') : cellHtml(reg, f, r); return '<td class="t-' + esc(f.type) + (f.key === ro.title ? ' tt' : '') + '">' + v + '</td>'; }).join('') + '</tr>'; }
   if(tf && P.grp){ var gs = groupRecs(reg, list, tf.key); gs.forEach(function(g){ rows.push('<tr class="grp"><td colspan="' + span + '"><b>' + esc(g.label) + '</b> <span class="muted mono">' + g.items.length + '</span></td></tr>'); g.items.forEach(function(r){ rows.push(row(r)); }); }); }
   else list.forEach(function(r){ rows.push(row(r)); });
   if(!list.length) rows.push('<tr><td colspan="' + span + '" class="empty">' + L('No records match.', '没有符合条件的记录。') + '</td></tr>');
@@ -267,7 +403,7 @@ function pubRegView(d){
   var cg = long ? '<colgroup>' + cols.map(function(f){ return '<col style="width:' + colWidth(reg, f) + 'px">'; }).join('') + '</colgroup>' : '';
   return pubHead(d, esc(regName(reg)) + ' · ' + L(list.length + ' of ' + base.length + ' records', '显示 ' + list.length + ' / ' + base.length + ' 条')) +
     '<div class="card pub-bar"><label class="gsearch">' + uic('search', 15) + '<input id="pubq" data-fk="pubq" type="search" placeholder="' + esc(T('Search', '搜索')) + '" value="' + esc(P.q) + '"></label>' + (tf ? '<label class="chk"><input type="checkbox" id="pubgrp"' + (P.grp ? ' checked' : '') + '>' + L('Group by ' + tf.en, '按' + (tf.zh || tf.en) + '分组') + '</label>' : '') + '</div>' + chips +
-    '<div class="card tbl-wrap"' + (long ? ' data-vw="' + key + '"' : '') + '><table class="tbl' + (long ? ' vwt' : '') + '">' + cg + '<thead><tr>' + cols.map(function(f){ return '<th>' + L(f.en, f.zh) + '</th>'; }).join('') + '</tr></thead><tbody data-vwb="' + key + '">' + vwHtml(key, rows, 'tr', span) + '</tbody></table></div>';
+    '<div class="card tbl-wrap"' + (long ? ' data-vw="' + esc(key) + '"' : '') + '><table class="tbl' + (long ? ' vwt' : '') + '">' + cg + '<thead><tr>' + cols.map(function(f){ return '<th>' + L(f.en, f.zh) + '</th>'; }).join('') + '</tr></thead><tbody data-vwb="' + esc(key) + '">' + vwHtml(key, rows, 'tr', span) + '</tbody></table></div>';
 }
 
 /* a presentation: snapshot (frozen figures) or live (built now from the public copy) */

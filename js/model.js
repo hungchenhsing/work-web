@@ -202,6 +202,9 @@ async function undoAudit(a){
     if(a && a._light){ var full = await STORE.auditRow(a.id); if(!full){ toast(T('That change could not be found.', '找不到这条修改记录。')); return; } a = full; }
     if(a.action === 'update'){
       var rec = getRec(a.record_id); if(!rec){ toast(T('That record no longer exists.', '该记录已不存在。')); return; }
+      /* an issued presentation keeps the audience its figures were frozen for */
+      var rg = getReg(rec.reg), ks = a.keys || [];
+      if(rg && rg.d.kind === 'decks' && rec.d.status === 'issued' && ks.indexOf('aud') >= 0 && ks.indexOf('status') < 0){ toast(T('Reopen the presentation (back to draft) before undoing this change.', '请先把演示文稿退回草稿，再撤销这项修改。')); return; }
       var cur = pick(rec.d, a.keys || []), conflict = (a.keys || []).filter(function(k){ return !same(cur[k], (a.new || {})[k]); });
       if(conflict.length && !confirm(T('These fields were changed again since: ', '以下字段之后又被修改过：') + conflict.join(', ') + '\n' + T('Undo anyway?', '仍要撤销吗？'))) return;
       await STORE.patchRec(rec.id, clone(a.old || {}));
