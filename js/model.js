@@ -183,14 +183,15 @@ function recChanges(reg, rec, patch){
 }
 /* the same kind of change to many records (bulk edit, renaming a person, import): one request per 200 records (v2.9) */
 function setRecs(list, progress, opts){
-  var items = [], issues = [], chk = !!(opts && opts.check);
+  var items = [], issues = [], chk = !!(opts && opts.check), skipped = 0, note = '';
   list.forEach(function(x){ if(!x || !x.rec) return; var reg = getReg(x.rec.reg); if(!canWrite(reg)) return; var c = recChanges(reg, x.rec, x.patch); if(!Object.keys(c.changed).length) return;
-    if(chk && typeof trnStatusIssue === 'function' && trnStatusIssue(reg, x.rec, c.changed)) return;   // a transmittal's status follows Send… (v3.1)
+    var ti = chk && typeof trnStatusIssue === 'function' ? trnStatusIssue(reg, x.rec, c.changed) : '';
+    if(ti){ skipped++; note = ti; return; }   // a transmittal's status follows Send… (v3.1)
     if(chk && typeof closeIssues === 'function'){ var ci = closeIssues(reg, x.rec, c.changed); if(ci.length) issues.push({rec:x.rec, issues:ci}); }
     items.push({id:x.rec.id, patch:c.changed}); });
   if(issues.length && !closeAsk(issues)) return Promise.resolve({ok:0, failed:0, cancelled:true});
-  if(!items.length) return Promise.resolve({ok:0, failed:0});
-  return STORE.patchRecs(items, progress).catch(function(e){ toast(errText(e)); return {ok:0, failed:items.length}; });
+  if(!items.length) return Promise.resolve({ok:0, failed:0, skipped:skipped, note:note});
+  return STORE.patchRecs(items, progress).then(function(r){ return Object.assign({}, r, {skipped:skipped, note:note}); }, function(e){ toast(errText(e)); return {ok:0, failed:items.length, skipped:skipped, note:note}; });
 }
 function setRec(rec, patch, opts){
   var reg = getReg(rec.reg); if(!canWrite(reg)) return Promise.resolve();

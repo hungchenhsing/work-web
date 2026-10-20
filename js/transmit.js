@@ -28,8 +28,8 @@ function ensureTrnReg(){
   var r = regFromTemplate('transmittals', {id:'reg_trn'});
   return STORE.createReg(r).then(function(){ return getReg(r.id); });
 }
-/* registers whose records are documents that can be transmitted */
-function isDocReg(reg){ return !!reg && !isTrnReg(reg) && (reg.d.kind === 'library' || !!fieldOf(reg, 'ownerResult') || reg.d.tpl === 'turnover'); }
+/* registers whose records are documents that can be transmitted (never an "Only me" register: its files stay private) */
+function isDocReg(reg){ return !!reg && !isTrnReg(reg) && !isPrivate(reg) && (reg.d.kind === 'library' || !!fieldOf(reg, 'ownerResult') || reg.d.tpl === 'turnover'); }
 /* the four answers the database accepts (labels and colours from a document register's "Owner result" field when it has them) */
 function trnCodes(){ return memo('trnCodes', function(){ var d = allRegs().filter(function(r){ return fieldOf(r, 'ownerResult'); })[0], f = d && fieldOf(d, 'ownerResult');
   return TRN_CODES0.map(function(o){ var x = f ? optOf(f, o.v) : null; return x || o; }); }); }
@@ -66,7 +66,7 @@ function trnCreate(ids){
   return ensureTrnReg().then(function(g){
     var d = {en:recs.length === 1 ? T('Submission of ', '提交 ') + (recs[0].d.docNo || recNo(getReg(recs[0].reg), recs[0])) : T('Documents for review', '送审文件'), purpose:'review', status:'draft', items:recs.map(newItem)};
     return createRec(g, d, true);
-  }).then(function(id){ if(id){ S.dtab = 'trn'; renderDrawer(); } return id; }).catch(function(e){ toast(errText(e)); });
+  }).then(function(id){ if(id){ S.newBlank = null; S.dtab = 'trn'; renderDrawer(); } return id; }).catch(function(e){ toast(errText(e)); });   // (not removed as an untouched new item)
 }
 function trnSetItems(t, items){ return setRec(t, {items:items}, {silent:true}); }
 function trnSend(t, toOwner){
@@ -114,17 +114,20 @@ function trnApplyToDoc(it){ var r = it && getRec(it.rid), reg = r && getReg(r.re
 
 /* demo only: what the database trigger apply_owner_response does with an Owner's response (schema.sql v3.1) */
 function trnApplyResponse(f){
-  var p = (STORE.pubs || []).filter(function(x){ return x.id === f.pub_id; })[0], t = p && p.kind === 'transmittal' && getRec(p.trnId); if(!t) return Promise.resolve();
+  var p = (STORE.pubs || []).filter(function(x){ return x.id === f.pub_id; })[0], t = p && p.kind === 'transmittal' && getRec(p.trnId); if(!t || ['sent', 'responded'].indexOf(t.d.status) < 0) return Promise.resolve();
   var items = clone(trnItems(t)), it = items.filter(function(x){ return x._id === f.item_id; })[0]; if(!it) return Promise.resolve();
   Object.assign(it, {code:f.code, comment:f.body === f.code ? '' : f.body, at:f.created_at, by:f.author_name || '', src:'portal', fb:f.id});
   var patch = {items:items}; if(t.d.status === 'sent' && items.every(function(x){ return x.code; })) patch.status = 'responded';
   return STORE.patchRec(t.id, patch).then(function(){ return trnApplyToDoc(it); });
 }
 
+function trnPubStatus(t, st){ if(STORE.mode !== 'demo' || !t) return; (STORE.pubs || []).forEach(function(p){ if(p.id === t.d.pub){ p.status = st; STORE.save(); } }); }
+
 /* ---------------- the transmittal's documents (drawer tab) ---------------- */
+function trnPubLive(t){ return !!(t && t.d.pub && (STORE.pubs || []).some(function(p){ return p.id === t.d.pub; })); }
 function trnItemsHtml(reg, t, ed){
-  var items = trnItems(t), sent = trnSent(t), A = asOfN(), od = !!(t.d.due && d2n(t.d.due) < A && t.d.status === 'sent');
-  var h = '<div class="trn-h">' + (sent ? '<span class="note">' + L('Sent ' + (t.d.date || '') + ' · the documents and files below are locked', '已于 ' + (t.d.date || '') + ' 送出 · 下列文件与版本已锁定') + (t.d.pub ? ' · ' + L('Owner copy ' + (t.d.pub), '业主副本 ' + (t.d.pub)) : '') + '</span>' : '<span class="note">' + L('Draft: add documents, check each revision and its files, then send.', '草稿：加入文件，核对版本和文件后送出。') + '</span>') +
+  var items = trnItems(t), sent = trnSent(t), A = asOfN(), od = !!(t.d.due && d2n(t.d.due) < A && t.d.status === 'sent'), live = trnPubLive(t);
+  var h = '<div class="trn-h">' + (sent ? '<span class="note">' + L('Sent ' + (t.d.date || '') + ' · the documents and files below are locked', '已于 ' + (t.d.date || '') + ' 送出 · 下列文件与版本已锁定') + (live ? ' · ' + L('Owner copy ' + (t.d.pub), '业主副本 ' + (t.d.pub)) : t.d.pub ? ' · ' + L('the Owner copy was withdrawn', '业主副本已撤回') : '') + '</span>' : '<span class="note">' + L('Draft: add documents, check each revision and its files, then send.', '草稿：加入文件，核对版本和文件后送出。') + '</span>') +
     (od ? ' ' + chip('red', L('Response overdue', '回复逾期')) : '') + '</div>';
   if(!items.length) h += '<div class="card empty">' + L('No documents yet.', '还没有文件。') + '</div>';
   else h += '<table class="subt trn-t"><thead><tr><th>' + L('Document', '文件') + '</th><th>' + L('Rev.', '版本') + '</th><th>' + L('Files', '文件') + '</th><th>' + (sent ? L('Owner response', '业主回复') : '') + '</th></tr></thead><tbody>' + items.map(function(it){
@@ -139,7 +142,7 @@ function trnItemsHtml(reg, t, ed){
       '<td>' + files + '</td><td>' + resp + (!sent && ed ? '<button type="button" class="ib" data-act="trnDel" data-v="' + esc(it._id) + '" aria-label="' + esc(T('Remove', '移除')) + '">' + uic('x', 13) + '</button>' : '') + '</td></tr>';
   }).join('') + '</tbody></table>';
   if(ed && !sent) h += '<div class="row" style="margin-top:10px"><button type="button" class="btn" data-act="trnAdd">' + uic('plus', 13) + ' ' + L('Add documents…', '加入文件…') + '</button><span style="flex:1"></span><button type="button" class="btn pri" data-act="trnSendAsk"' + (items.length ? '' : ' disabled') + '>' + uic('send', 13) + ' ' + L('Send…', '送出…') + '</button></div>';
-  if(sent && ed && t.d.status !== 'closed') h += '<div class="row" style="margin-top:10px">' + (!t.d.pub ? '<button type="button" class="btn" data-act="trnPub">' + L('Show to the Owner', '发给业主') + '</button>' : '') + '<span style="flex:1"></span><button type="button" class="btn" data-act="trnClose">' + L('Close transmittal', '关闭送审单') + '</button></div>';
+  if(sent && ed && t.d.status !== 'closed') h += '<div class="row" style="margin-top:10px">' + (!live ? '<button type="button" class="btn" data-act="trnPub">' + L('Show to the Owner', '发给业主') + '</button>' : '') + '<span style="flex:1"></span><button type="button" class="btn" data-act="trnClose">' + L('Close transmittal', '关闭送审单') + '</button></div>';
   h += '<div class="row" style="margin-top:10px"><button type="button" class="btn sm" data-act="trnPrint">' + uic('print', 13) + ' ' + L('Print / PDF', '打印 / PDF') + '</button></div>';
   return h;
 }
@@ -235,17 +238,17 @@ function trnPrint(t){
 /* ---------------- Owner portal: a transmittal to answer ---------------- */
 function ownerTrnView(p, pubs){
   var mine = function(id){ return (STORE.fb || []).filter(function(f){ return f.pub_id === p.id && f.item_id === id && f.kind === 'response'; }).sort(function(a, b){ return String(b.created_at).localeCompare(String(a.created_at)); })[0]; };
-  var pu = optOf({opts:TRN_PURPOSE}, p.purpose);
+  var pu = optOf({opts:TRN_PURPOSE}, p.purpose), closed = p.status === 'closed';
   return '<div class="ph"><div><h1 class="vtitle">' + esc(p.trnNo || p.no) + ' · ' + esc(T1(p.title && p.title.en, p.title && p.title.zh)) + '</h1><span class="muted">' + esc((p.date || '') + (pu ? ' · ' + T(pu.en, pu.zh) : '') + (p.due ? ' · ' + T('response due ', '回复期限 ') + p.due : '')) + '</span></div>' +
     '<select class="in" id="pubSel" aria-label="' + esc(T('Publication', '发布内容')) + '">' + pubs.map(function(x){ return '<option value="' + esc(x.id) + '"' + (x.id === p.id ? ' selected' : '') + '>' + esc(x.no + ' · ' + (x.note || '')) + '</option>'; }).join('') + '</select></div>' +
-    '<div class="card sec"><p class="note">' + L('Download each document, then give your response. Your answer goes straight to the team.', '请下载各份文件后给出回复，回复会直接送达团队。') + '</p>' +
-    asArr(p.items).map(function(it){ var r = mine(it._id), c = r ? trnCode(r.code) : null;
+    '<div class="card sec"><p class="note">' + (closed ? L('This transmittal is closed. You can still download its files.', '此送审单已关闭，仍可下载其中的文件。') : L('Download each document, then give your response. Your answer goes straight to the team.', '请下载各份文件后给出回复，回复会直接送达团队。')) + '</p>' +
+    asArr(p.items).map(function(it){ var r = mine(it._id), c = r ? trnCode(r.code) : null, dr = (S.orDraft || {})[p.id + ':' + it._id] || {};
       return '<div class="otrn"><div><b class="mono">' + esc(it.no) + '</b> ' + esc(it.docNo || '') + ' · Rev ' + esc(it.rev || '') + '<div>' + esc(it.title || '') + (it.title2 ? ' · ' + esc(it.title2) : '') + '</div>' +
         asArr(it.files).map(function(f){ var u = STORE.fileUrl(f.path); return '<div class="trn-f">' + (u ? '<a href="' + esc(u) + '" target="_blank" rel="noopener" download="' + esc(f.name || '') + '">' + uic('dl', 13) + ' ' + esc(f.name || 'file') + '</a>' : esc(f.name || 'file')) + ' <span class="mono muted" title="SHA-256">' + esc(fmtSize(f.size)) + (f.sha ? ' · ' + esc(f.sha.slice(0, 12)) + '…' : '') + '</span></div>'; }).join('') + '</div>' +
-        '<div class="otrn-r">' + (c ? optChip(c) + (r.body && r.body !== r.code ? '<div class="note">' + esc(r.body) + '</div>' : '') + '<div class="note">' + esc(fmtTime(r.created_at)) + '</div>' : '') +
-        '<select class="in" data-orcode="' + esc(it._id) + '" aria-label="' + esc(T('Response', '回复')) + '">' + trnCodes().map(function(o){ return '<option value="' + esc(o.v) + '">' + esc(nm(o)) + '</option>'; }).join('') + '</select>' +
-        '<textarea class="in" rows="2" data-orcmt="' + esc(it._id) + '" aria-label="' + esc(T('Comments', '意见')) + '" placeholder="' + esc(T('Comments (optional)', '意见（可选）')) + '"></textarea>' +
-        '<button type="button" class="btn pri sm" data-act="orSend" data-v="' + esc(it._id) + '" data-pub="' + esc(p.id) + '" data-no="' + esc(it.no) + '">' + (c ? L('Send a new response', '重新回复') : L('Send response', '提交回复')) + '</button></div></div>'; }).join('') + '</div>';
+        '<div class="otrn-r">' + (c ? optChip(c) + (r.body && r.body !== r.code ? '<div class="note">' + esc(r.body) + '</div>' : '') + '<div class="note">' + esc(fmtTime(r.created_at)) + '</div>' : '') + (closed ? (c ? '' : '<span class="muted">' + L('No response', '未回复') + '</span>') + '</div></div>' :
+        '<select class="in" data-orcode="' + esc(it._id) + '" data-pub="' + esc(p.id) + '" data-fk="orcode:' + esc(it._id) + '" aria-label="' + esc(T('Response', '回复')) + '">' + trnCodes().map(function(o){ return '<option value="' + esc(o.v) + '"' + (dr.code === o.v ? ' selected' : '') + '>' + esc(nm(o)) + '</option>'; }).join('') + '</select>' +
+        '<textarea class="in" rows="2" data-orcmt="' + esc(it._id) + '" data-pub="' + esc(p.id) + '" data-fk="orcmt:' + esc(it._id) + '" aria-label="' + esc(T('Comments', '意见')) + '" placeholder="' + esc(T('Comments (optional)', '意见（可选）')) + '">' + esc(dr.cmt || '') + '</textarea>' +
+        '<button type="button" class="btn pri sm" data-act="orSend" data-v="' + esc(it._id) + '" data-pub="' + esc(p.id) + '" data-no="' + esc(it.no) + '">' + (c ? L('Send a new response', '重新回复') : L('Send response', '提交回复')) + '</button></div></div>'); }).join('') + '</div>';
 }
 
 /* ---------------- the handover package: ZIP of final files + Excel index + SHA256SUMS.txt ---------------- */
@@ -265,17 +268,18 @@ function hoModal(m){
   return {title:L('Handover package', '移交文件包'), html:(tf ? '<label class="lab" for="hoNode">' + L('Package', '文件包') + '</label><select class="in" id="hoNode">' + opts + '</select>' : '') +
     '<p>' + L(docs.length + ' documents · ' + nf + ' files · about ' + fmtSize(size), docs.length + ' 份文件 · ' + nf + ' 个附件 · 约 ' + fmtSize(size)) + '</p>' +
     ((nofile || notacc) ? '<p class="note warn">' + L(nofile + ' without a file, ' + notacc + ' not accepted by the Owner yet — they are listed on a separate sheet of the index.', nofile + ' 份没有文件，' + notacc + ' 份尚未获业主接受——会在索引的另一张表中列出。') + '</p>' : '') +
-    '<p class="note">' + L('The ZIP has a folder per package with the current files, an Excel index (number, title, revision, file, size, SHA-256, transmittal, Owner result) and SHA256SUMS.txt to check every file. Above about 500 MB it is saved in several parts (the browser may ask to allow several downloads); the index is in the last part.', 'ZIP 按文件包分文件夹放当前文件，附 Excel 索引（编号、名称、版本、文件、大小、SHA-256、送审单、业主结果）和用于逐个核对的 SHA256SUMS.txt。超过约 500 MB 会分成几个文件保存（浏览器可能询问是否允许多个下载），索引在最后一个文件里。') + '</p>' +
+    '<p class="note">' + L('The ZIP has a folder per package with the current files, an Excel index (number, title, revision, file, size, SHA-256, transmittal, Owner result) and SHA256SUMS.txt to check every file. Above about 250 MB it is saved in several parts (the browser may ask to allow several downloads); the index is in the last part.', 'ZIP 按文件包分文件夹放当前文件，附 Excel 索引（编号、名称、版本、文件、大小、SHA-256、送审单、业主结果）和用于逐个核对的 SHA256SUMS.txt。超过约 250 MB 会分成几个文件保存（浏览器可能询问是否允许多个下载），索引在最后一个文件里。') + '</p>' +
     (m.busy ? '<p class="note"><b>' + esc(m.busy) + '</b></p>' : ''),
     foot:'<button type="button" class="btn" data-act="mclose"' + (m.busy ? ' disabled' : '') + '>' + L('Close', '关闭') + '</button><button type="button" class="btn pri" data-act="hoGo"' + (m.busy || !nf ? ' disabled' : '') + '>' + uic('dl', 13) + ' ' + L('Build ZIP', '生成 ZIP') + '</button>'};
 }
 DECK_MODALS.handover = hoModal;
-/* parts of about 500 MB: each part is finished and saved as soon as it is full (so memory stays bounded) and has its
+var HO_PART = 250 * 1024 * 1024;
+/* parts of about 250 MB (memory: a part is held once as data and once as the file being saved): each part is finished and saved as soon as it is full (so memory stays bounded) and has its
    own SHA256SUMS.txt; the Excel index of every file (with its part) is in the last part */
 async function hoBuild(m){
   var reg = getReg(m.reg), docs = hoDocs(reg, m.node || ''), tf = rf(reg, 'tree'), node = m.node && tf ? treeNode(tf, m.node) : null;
   await zipLib(); await xlsxLib();
-  var miss = [], all = [], LIMIT = m.limit || 500 * 1024 * 1024, used = {}, c = cfg();
+  var miss = [], all = [], LIMIT = m.limit || HO_PART, used = {}, c = cfg();
   var base = slug(c.projectEn || 'project') + '_handover_' + slug(node ? (node.code || node.en || 'pkg') : 'all') + '_' + TODAY_S;
   var readme = 'Handover package · 移交文件包\r\n' + (c.projectEn || '') + ' ' + (c.projectZh || '') + '\r\nMade ' + new Date().toISOString() + (node ? '\r\nPackage: ' + (node.code || '') + ' ' + (node.en || '') : '') +
     '\r\n\r\nindex.xlsx (in the last part) — every file with its SHA-256 fingerprint, revision, transmittal and Owner result.\r\nSHA256SUMS.txt — check the files of this part: on macOS / Linux run  shasum -a 256 -c SHA256SUMS.txt  in this folder;\r\n  on Windows run  certutil -hashfile <file> SHA256  for one file.\r\n';
@@ -293,8 +297,8 @@ async function hoBuild(m){
     add('README.txt', fflate.strToU8(readme + (parts > 1 || !last ? '\r\nPart ' + parts + (last ? ' (last)' : '') + '\r\n' : '')));
     cur.z.end();
     var blob = new Blob(cur.chunks, {type:'application/zip'}), a = document.createElement('a'), name = base + (parts > 1 || !last ? '_part' + parts : '') + '.zip';
-    cur = null; if(m.onPart) m.onPart(name, blob);
-    a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 60000);
+    cur.chunks.length = 0; cur = null; if(m.onPart) m.onPart(name, blob);
+    a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); blob = null; setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 20000);
   }
   if(STORE.signUrls) for(var j = 0; j < all.length; j += 200){ m.busy = T('Preparing…', '准备中…'); renderModal(); await STORE.signUrls(all.slice(j, j + 200).map(function(x){ return x.f.path; })); }
   open();
@@ -326,6 +330,10 @@ function trnMenu(reg){
 function trnBulk(reg){ return isDocReg(reg) && canTeamEdit() ? '<button type="button" class="btn sm" data-act="trnNewSel" data-v="' + esc(reg.id) + '">' + uic('send', 13) + ' ' + L('Transmit…', '送审…') + '</button>' : ''; }
 
 /* ---------------- events ---------------- */
+/* while files are being fingerprinted or packed, the dialog stays open (closing it would leave the work running unseen) */
+var HO_RUN = false;
+document.addEventListener('click', function(ev){ var el = ev.target.closest && ev.target.closest('[data-act="mclose"]'); if(el && S.modal && S.modal.busy && /^(trnSend|handover)$/.test(S.modal.kind)){ ev.stopImmediatePropagation(); ev.preventDefault(); toast(T('Please wait until it is finished.', '请等待完成。')); } }, true);
+document.addEventListener('keydown', function(ev){ if(ev.key === 'Escape' && S.modal && S.modal.busy && /^(trnSend|handover)$/.test(S.modal.kind)){ ev.stopImmediatePropagation(); ev.preventDefault(); } }, true);
 document.addEventListener('click', function(ev){
   var el = ev.target.closest && ev.target.closest('[data-act]'); if(!el) return;
   var act = el.dataset.act, v = el.dataset.v, t = S.open && getRec(S.open);
@@ -341,19 +349,23 @@ document.addEventListener('click', function(ev){
       trnSend(tt, own).then(function(){ closeModal(); toast(T((tt.d.no || '') + ' sent', (tt.d.no || '') + ' 已送出') + (own ? T(' · the Owner can answer it in the Owner portal', ' · 业主可在业主门户回复') : '')); renderAll(); })
         .catch(function(e){ if(S.modal) S.modal.busy = null; renderModal(); toast(errText(e)); }); })(); break;
     case 'trnPub': if(t) trnPublish(t).then(function(){ toast(T('Shown to the Owner', '已发给业主')); }).catch(function(e){ toast(errText(e)); }); break;
-    case 'trnClose': if(t && confirm(T('Close this transmittal?', '关闭此送审单？'))) setRec(t, {status:'closed'}, {noCheck:true}); break;
+    case 'trnClose': if(t && confirm(T('Close this transmittal? The Owner can then no longer answer it.', '关闭此送审单？关闭后业主不能再回复。'))) setRec(t, {status:'closed'}, {noCheck:true}).then(function(){ trnPubStatus(getRec(t.id), 'closed'); }); break;
     case 'trnResp': if(t) openModal({kind:'trnResp', trn:t.id, item:v}); break;
     case 'trnRespGo': (function(){ var m = S.modal, tt = m && getRec(m.trn); if(!tt) return; var code = ($('#trnCode') || {}).value, cmt = ($('#trnCmt') || {}).value || '', src = ($('#trnSrc') || {}).value || 'letter'; closeModal(); trnRespond(tt, m.item, code, cmt, src).catch(function(e){ toast(errText(e)); }); })(); break;
     case 'trnPrint': if(t) trnPrint(t); break;
     case 'hoOpen': openModal({kind:'handover', reg:v, node:''}); break;
-    case 'hoGo': (function(){ var m = S.modal; if(!m || m.busy) return; m.busy = T('Starting…', '开始…'); renderModal(); hoBuild(m).catch(function(e){ m.busy = null; renderModal(); toast(errText(e)); }); })(); break;
+    case 'hoGo': (function(){ var m = S.modal; if(!m || m.busy || HO_RUN) return; HO_RUN = true; m.busy = T('Starting…', '开始…'); renderModal();
+      hoBuild(m).catch(function(e){ m.busy = null; renderModal(); toast(errText(e)); }).then(function(){ HO_RUN = false; }); })(); break;
     case 'orSend': (function(){ var code = ($('[data-orcode="' + v + '"]') || {}).value, cmt = (($('[data-orcmt="' + v + '"]') || {}).value || '').trim(), c = trnCode(code); if(!c) return;
-      STORE.addFeedback({pub_id:el.dataset.pub, item_id:v, reg_no:el.dataset.no || '', body:cmt || code, code:code, kind:'response'}).then(function(){ toast(T('Response sent', '回复已提交')); renderAll(); }).catch(function(e){ toast(errText(e)); }); })(); break;
+      STORE.addFeedback({pub_id:el.dataset.pub, item_id:v, reg_no:el.dataset.no || '', body:cmt || code, code:code, kind:'response'}).then(function(){ if(S.orDraft) delete S.orDraft[el.dataset.pub + ':' + v]; toast(T('Response sent', '回复已提交')); renderAll(); }).catch(function(e){ toast(errText(e)); }); })(); break;
   }
 });
-document.addEventListener('input', function(e){ var el = e.target; if(el.id === 'trnq' && S.modal){ S.modal.q = el.value; renderModal(); } });
+function orDraft(el){ S.orDraft = S.orDraft || {}; var k = el.dataset.pub + ':' + (el.dataset.orcmt || el.dataset.orcode); return (S.orDraft[k] = S.orDraft[k] || {}); }
+document.addEventListener('input', function(e){ var el = e.target; if(el.id === 'trnq' && S.modal){ S.modal.q = el.value; renderModal(); return; }
+  if(el.dataset && el.dataset.orcmt) orDraft(el).cmt = el.value; });
 document.addEventListener('change', function(e){
   var el = e.target, t = S.open && getRec(S.open);
+  if(el.dataset.orcode){ orDraft(el).code = el.value; return; }
   if(el.dataset.trnsel && S.modal){ S.modal.sel = S.modal.sel || {}; S.modal.sel[el.dataset.trnsel] = el.checked; renderModal(); return; }
   if(el.id === 'trnreg' && S.modal){ S.modal.reg = el.value; renderModal(); return; }
   if(el.id === 'hoNode' && S.modal){ S.modal.node = el.value; renderModal(); return; }
