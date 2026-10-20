@@ -17,8 +17,9 @@ var HW = {
 };
 var HOME_DEF = [{id:'w1', t:'blocks', w:'full'}, {id:'w2', t:'regs', w:'full'}, {id:'w3', t:'late', w:'third'}, {id:'w4', t:'soon', w:'third'}, {id:'w5', t:'acts', w:'third'}, {id:'w6', t:'recent', w:'full'}];
 function homeLayout(){ var p = myPrefs().home; if(Array.isArray(p)) return p; var d = prefDef('home'); if(Array.isArray(d)) return d; return HOME_DEF; }
-function homeSave(list){ return savePref('home', list); }
-function hwTitle(w){ var t = HW[w.t] || {en:w.t, zh:''}; if(w.t === 'view'){ var r = getReg(w.c && w.c.reg), x = r && findView(r, w.c.vid); if(x) return {en:x.name, zh:''}; } if(w.t === 'soon') return {en:'Due in the next ' + ((w.c && w.c.days) || 14) + ' days', zh:'未来 ' + ((w.c && w.c.days) || 14) + ' 天到期'}; return t; }
+function homeSave(list){ return savePref('home', list); }   // savePref already reports a failure
+function hwTitle(w){ var t = HW[w.t] || {en:w.t, zh:''}; if(w.t === 'view'){ var r = getReg(w.c && w.c.reg), x = r && findView(r, w.c.vid); if(x) return {en:x.name, zh:''}; }
+  if(w.t === 'note' && w.c && w.c.src === 'me') return {en:'My note', zh:'我的便笺'}; if(w.t === 'soon') return {en:'Due in the next ' + ((w.c && w.c.days) || 14) + ' days', zh:'未来 ' + ((w.c && w.c.days) || 14) + ' 天到期'}; return t; }
 
 /* ================= the page ================= */
 function viewHome(){
@@ -44,7 +45,7 @@ function viewHome(){
 function hwHtml(w, i, n, ed){
   var def = HW[w.t]; if(!def) return '';
   var body = '', head = '', cnt = null, wd = w.w || def.w, tt = hwTitle(w);
-  try{ var r = HW_R[w.t](w.c || {}); body = r.body; cnt = r.cnt; head = r.head || ''; }catch(e){ console.error(e); body = '<div class="note">' + esc(e.message) + '</div>'; }
+  try{ var r = HW_R[w.t](w.c || {}, w); body = r.body; cnt = r.cnt; head = r.head || ''; }catch(e){ console.error(e); body = '<div class="note">' + esc(e.message) + '</div>'; }
   var frame = w.t !== 'regs';
   var bar = ed ? '<div class="hwbar"><span class="hwn">' + esc(T1(tt.en, tt.zh)) + '</span>' +
     '<button type="button" class="ib" data-act="hwMove" data-v="' + esc(w.id) + '" data-d="-1"' + (i ? '' : ' disabled') + ' aria-label="' + esc(T('Move earlier', '前移')) + '">' + uic('up', 14) + '</button>' +
@@ -52,7 +53,7 @@ function hwHtml(w, i, n, ed){
     '<select class="in sm" data-hww="' + esc(w.id) + '" aria-label="' + esc(T('Width', '宽度')) + '">' + [['full', T('Full width', '整行')], ['half', '½'], ['third', '⅓']].map(function(o){ return '<option value="' + o[0] + '"' + (wd === o[0] ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select>' +
     (def.cfg ? '<button type="button" class="btn sm" data-act="hwCfg" data-v="' + esc(w.id) + '">' + L('Settings', '设置') + '</button>' : '') +
     '<button type="button" class="ib" data-act="hwDel" data-v="' + esc(w.id) + '" aria-label="' + esc(T('Remove ', '移除 ') + T1(tt.en, tt.zh)) + '">' + uic('x', 15) + '</button></div>' : '';
-  var title = '<div class="sech"><h2>' + L(tt.en, tt.zh || tt.en) + (cnt != null ? ' <span class="cnt">' + cnt + '</span>' : '') + '</h2>' + head + '</div>';
+  var title = '<div class="sech"><h2>' + (tt.zh ? L(tt.en, tt.zh) : esc(tt.en)) + (cnt != null ? ' <span class="cnt">' + cnt + '</span>' : '') + '</h2>' + head + '</div>';
   return '<section class="hw w-' + esc(wd) + (frame ? ' card sec' : ' sec') + (ed ? ' hw-ed' : '') + '" data-hw="' + esc(w.id) + '">' + bar + '<div class="hwb">' + title + body + '</div></section>';
 }
 function hwList(arr, A, max){ max = max || 12;
@@ -122,9 +123,9 @@ var HW_R = {
       body:list.length ? list.slice(0, n).map(function(r){ var p = planOf(reg, r), st = statusOpt(reg, r); return '<button type="button" class="lrow2 nori" data-act="openRec" data-id="' + esc(r.id) + '"><span class="mono muted">' + esc(recNo(reg, r)) + '</span><span class="lt">' + esc(recTitle(reg, r) || '—') + '</span>' + (st ? chip(st.color, esc(nm(st))) : '<span></span>') + '<span class="mono' + (isOverdue(reg, r) ? ' od' : '') + '">' + esc(p ? md(n2d(p.f)) : '') + '</span></button>'; }).join('') + (list.length > n ? '<div class="note">+' + (list.length - n) + '</div>' : '')
         : '<div class="note">' + L('Nothing in this view.', '此视图中没有记录。') + '</div>'};
   },
-  note:function(c){
-    var team = c.src !== 'me', tn = team ? ((cfg() || {}).teamNote || {}) : {text:c.text || ''}, can = team ? canTeamEdit() : true;
-    return {head:can ? '<button type="button" class="lnk" data-act="noteEdit" data-v="' + (team ? 'team' : 'me') + '">' + uic('edit', 13) + ' ' + L('Edit', '编辑') + '</button>' : '',
+  note:function(c, w){
+    var team = c.src !== 'me', tn = team ? (teamCfg().teamNote || {}) : {text:c.text || ''}, can = team ? canTeamEdit() : true;
+    return {head:can ? '<button type="button" class="lnk" data-act="noteEdit" data-v="' + (team ? 'team' : esc(w.id)) + '">' + uic('edit', 13) + ' ' + L('Edit', '编辑') + '</button>' : '',
       body:tn.text ? '<div class="hnote">' + noteHtml(tn.text) + '</div>' + (team && tn.by ? '<div class="note">' + esc(tn.by) + ' · ' + esc(fmtTime(tn.at)) + '</div>' : '') : '<div class="note">' + (can ? L('Nothing written yet — click Edit.', '还没有内容，点「编辑」。') : L('Nothing written yet.', '还没有内容。')) + '</div>'};
   },
   recent:function(){
@@ -171,10 +172,10 @@ function hwCfgModal(m){
   return {title:L('Widget settings', '小工具设置') + ' · ' + L(HW[w.t].en, HW[w.t].zh), html:h || '<p class="note">' + L('Nothing to set.', '没有可设置的内容。') + '</p>', foot:'<button type="button" class="btn pri" data-act="mclose">' + L('Done', '完成') + '</button>'};
 }
 function noteEditModal(m){
-  var team = m.v === 'team', text = team ? (((cfg() || {}).teamNote || {}).text || '') : ((homeLayout().filter(function(w){ return w.t === 'note' && w.c && w.c.src === 'me'; })[0] || {c:{}}).c.text || '');
+  var team = m.v === 'team', text = team ? ((teamCfg().teamNote || {}).text || '') : ((homeLayout().filter(function(w){ return w.id === m.v; })[0] || {c:{}}).c.text || '');
   if(m.text == null) m.text = text;
   return {title:team ? L('Team note', '团队公告') : L('My note', '我的便笺'), html:'<textarea class="in" id="noteText" data-fk="noteText" rows="9" maxlength="4000">' + esc(m.text) + '</textarea><p class="note">' + L('A line starting with “- ” becomes a bullet; links are clickable.', '以「- 」开头的行显示为项目符号；链接可点击。') + (team ? ' ' + L('Everyone with the team note on their overview sees this text.', '所有在总览放了团队公告的人都会看到这段文字。') : '') + '</p>',
-    foot:'<button type="button" class="btn pri" data-act="noteSave" data-v="' + (team ? 'team' : 'me') + '">' + L('Save', '保存') + '</button><button type="button" class="btn" data-act="mclose">' + L('Cancel', '取消') + '</button>'};
+    foot:'<button type="button" class="btn pri" data-act="noteSave" data-v="' + (team ? 'team' : esc(m.v)) + '">' + L('Save', '保存') + '</button><button type="button" class="btn" data-act="mclose">' + L('Cancel', '取消') + '</button>'};
 }
 DECK_MODALS.hwAdd = hwAddModal; DECK_MODALS.hwCfg = hwCfgModal; DECK_MODALS.noteEdit = noteEditModal;
 function hwUpdate(id, fn){ var list = homeEditList(), i = hwFind(list, id); if(i < 0) return; fn(list[i], list, i); homeSave(list); }
@@ -185,19 +186,21 @@ document.addEventListener('click', function(e){
   switch(act){
     case 'homeEdit': S.homeEdit = true; renderMain(); break;
     case 'homeDone': S.homeEdit = false; renderMain(); break;
-    case 'homeReset': if(confirm(T('Replace your overview with the team default?', '用团队默认替换你的总览？'))) homeSave(null).then(function(){ toast(T('Overview back to the team default', '总览已恢复团队默认')); }); break;
-    case 'homeTeam': if(isAdmin()) saveTeamDef('home', homeLayout()).then(function(){ toast(T('This layout is now the team default', '此版面已设为团队默认')); }, function(er){ toast(errText(er)); }); break;
+    case 'homeReset': if(confirm(T('Replace your overview with the team default?', '用团队默认替换你的总览？'))) homeSave(null).then(function(){ toast(T('Overview back to the team default', '总览已恢复团队默认')); }, function(){}); break;
+    case 'homeTeam': (function(){ if(!isAdmin()) return; var all = homeLayout(), keep = all.filter(function(w){ if(w.t === 'note' && w.c && w.c.src === 'me') return false; if(w.t === 'view'){ var r = getReg(w.c && w.c.reg); return !!(r && isTeamView(r, w.c.vid)); } return true; }), left = all.length - keep.length;
+      saveTeamDef('home', keep).then(function(){ toast(T('This layout is now the team default', '此版面已设为团队默认') + (left ? T(' (' + left + ' personal widgets left out: own notes and own views)', '（未包含 ' + left + ' 个个人小工具：个人便笺和个人视图）') : '')); }, function(){}); })(); break;
     case 'hwAdd': openModal({kind:'hwAdd'}); break;
     case 'hwAddDo': (function(){ var t = v, d = HW[t]; if(!d) return; var list = homeEditList(), w = {id:uid('w'), t:t, w:d.w}; if(t === 'note') w.c = {src:homeLayout().some(function(x){ return x.t === 'note' && (!x.c || x.c.src !== 'me'); }) ? 'me' : 'team'};
-      list.push(w); homeSave(list).then(function(){ if(t === 'view'){ S.modal = {kind:'hwCfg', id:w.id}; renderModal(); } else { closeModal(); setTimeout(function(){ var s = document.querySelector('[data-hw="' + w.id + '"]'); if(s && s.scrollIntoView) s.scrollIntoView({block:'nearest'}); }, 50); } }); })(); break;
-    case 'hwMove': hwUpdate(v, function(w, list, i){ var j = i + (+el.dataset.d); if(j < 0 || j >= list.length) return; list[i] = list[j]; list[j] = w; }); break;
-    case 'hwDel': hwUpdate(v, function(w, list, i){ list.splice(i, 1); }); break;
+      list.push(w); var go = function(){ if(t === 'view'){ S.modal = {kind:'hwCfg', id:w.id}; renderModal(); } else { closeModal(); setTimeout(function(){ var s = document.querySelector('[data-hw="' + w.id + '"]'); if(s && s.scrollIntoView) s.scrollIntoView({block:'nearest'}); }, 50); } };
+      homeSave(list).then(go, go); })(); break;   // added here either way; a save that failed waits on this device
+    case 'hwMove': hwUpdate(v, function(w, list, i){ var j = i + (+el.dataset.d); if(j < 0 || j >= list.length) return; list[i] = list[j]; list[j] = w; }); refocus('[data-act="hwMove"][data-v="' + v + '"][data-d="' + el.dataset.d + '"]', '[data-act="hwMove"][data-v="' + v + '"]'); break;
+    case 'hwDel': (function(){ var w0 = homeLayout().filter(function(x){ return x.id === v; })[0]; if(w0 && w0.t === 'note' && w0.c && w0.c.src === 'me' && w0.c.text && !confirm(T('Remove this note and its text?', '移除这则便笺及其内容？'))) return; hwUpdate(v, function(w, list, i){ list.splice(i, 1); }); })(); break;
     case 'hwCfg': openModal({kind:'hwCfg', id:v}); break;
     case 'hwOpenView': (function(){ var reg = getReg(el.dataset.reg); if(!reg) return; goReg(reg.id); useView(reg, v); })(); break;
     case 'noteEdit': openModal({kind:'noteEdit', v:v}); setTimeout(function(){ var t = $('#noteText'); if(t) t.focus(); }, 30); break;
     case 'noteSave': (function(){ var t = (($('#noteText') || {}).value || '').replace(/\s+$/, '');
-      if(v === 'team'){ if(!canTeamEdit()) return; STORE.saveCfg({teamNote:{text:t, by:(STORE.me && (STORE.me.name || STORE.me.email)) || '', at:new Date().toISOString()}}).then(function(){ closeModal(); toast(T('Team note saved', '团队公告已保存')); }, function(er){ toast(errText(er)); }); return; }
-      var list = homeEditList(), w = list.filter(function(x){ return x.t === 'note' && x.c && x.c.src === 'me'; })[0]; if(!w){ w = {id:uid('w'), t:'note', w:'full', c:{src:'me'}}; list.push(w); } w.c.text = t; homeSave(list).then(function(){ closeModal(); }); })(); break;
+      if(v === 'team'){ if(!canTeamEdit()) return; saveTeam({teamNote:{text:t, by:(STORE.me && (STORE.me.name || STORE.me.email)) || '', at:new Date().toISOString()}}).then(function(){ closeModal(); toast(T('Team note saved', '团队公告已保存')); }, function(){}); return; }
+      var list = homeEditList(), w = list.filter(function(x){ return x.id === v; })[0]; if(!w) return; w.c = Object.assign({}, w.c || {}, {src:'me', text:t}); homeSave(list).then(function(){ closeModal(); }, function(){}); })(); break;
   }
 });
 document.addEventListener('change', function(e){

@@ -171,7 +171,7 @@ document.addEventListener('change', function(e){
 /* ---------------- one-time upgrade (v3.0): the owner of a meeting action becomes a person from the directory ----------------
    Registers made from the meetings template had a free-text "Owner" column in their action items. It becomes a people
    dropdown; owners written exactly as a person's name (English, Chinese or both) are switched to that person. */
-var PSUB_RUN = false;
+var PSUB_RUN = false, PSUB_HIT = {};   // registers the v3.0 upgrade changed in this session (the v3.3 one waits for the next start)
 function peopleSubUpgrade(){
   if(PSUB_RUN || !appReady() || !canTeamEdit()) return; var dir = peopleDir(); if(!dir) return; PSUB_RUN = true;
   allRegs().filter(canWrite).forEach(function(reg){
@@ -179,6 +179,7 @@ function peopleSubUpgrade(){
     var fs = clone(fieldsOf(reg)), hit = [];
     fs.forEach(function(f){ if(f.type !== 'sub') return; (f.cols || []).forEach(function(c){ if(c.key === 'who' && c.type === 'text'){ c.type = 'select'; c.list = 'people'; hit.push({f:f.key, c:c.key}); } }); });
     if(!hit.length) return;
+    PSUB_HIT[reg.id] = 1;
     var byName = {}; recsOf(dir.id).forEach(function(r){ var v = personValue(r); if(!v) return; personNames(r).concat([personNames(r).join(' ')]).forEach(function(n){ n = String(n || '').trim().toLowerCase(); if(n && !byName[n]) byName[n] = v; }); });
     STORE.patchReg(reg.id, {fields:fs, whoPeople:1}).then(function(){
       var list = [];
@@ -200,6 +201,7 @@ function multiUpgrade(){
   if(MULTI_RUN || !appReady() || !canTeamEdit()) return; MULTI_RUN = true;
   allRegs().filter(canWrite).forEach(function(reg){
     if(reg.d.mig33 || isPeopleReg(reg)) return;
+    if(PSUB_HIT[reg.id] || (!reg.d.whoPeople && peopleDir() && fieldsOf(reg).some(function(f){ return f.type === 'sub' && (f.cols || []).some(function(c){ return c.key === 'who' && c.type === 'text'; }); }))) return;   // the v3.0 upgrade of this register goes first (next start)
     var fs = clone(fieldsOf(reg)), hit = [], punch = reg.d.tpl === 'punch' || (fieldOf(reg, 'raisedBy') && fieldOf(reg, 'subcon') && fieldOf(reg, 'prio'));
     fs.forEach(function(f){
       if(punch && f.type === 'select' && !f.multi && ((f.key === 'raisedBy' && f.list === 'people') || (f.key === 'subcon' && f.list === 'subcon'))){ f.multi = true; hit.push({key:f.key, to:true}); }

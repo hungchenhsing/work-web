@@ -210,7 +210,16 @@ function multiPatches(reg, conv){
 function regTpls(reg){ return asArr(reg && reg.d.tpls).filter(function(t){ return t && t.id && t.d; }); }
 function tplData(t){ var d = clone(t.d || {}); Object.keys(d).forEach(function(k){ if(Array.isArray(d[k]) && d[k].length && isPlainObj(d[k][0]) && hasOwn(d[k][0], '_id')) d[k] = d[k].map(function(r){ return Object.assign({}, r, {_id:uid('s')}); }); }); return d; }
 function tplKeyOk(reg, f){ var ro = rolesOf(reg); return f && ['files','link','calc','section'].indexOf(f.type) < 0 && f.key !== ro.no; }
-function tplDefaultOn(reg, f){ var ro = rolesOf(reg); return tplKeyOk(reg, f) && ['date','percent'].indexOf(f.type) < 0 && f.key !== ro.status && f.key !== ro.progress; }
+function tplDefaultOn(reg, f){ var ro = rolesOf(reg); return tplKeyOk(reg, f) && ['date','percent'].indexOf(f.type) < 0 && f.key !== ro.status && f.key !== ro.progress && !(f.type === 'sub' && isActionField(f)); }   // a meeting's action items belong to that meeting
+var REG_FLAGS = ['mig33', 'whoPeople', 'pkgMig'];
+/* values in the shape the fields have now (a template saved before "several values" was switched) */
+function shapeData(reg, d){
+  dataFields(reg).forEach(function(f){
+    if(f.type === 'select' && d[f.key] != null && d[f.key] !== '') d[f.key] = f.multi ? asArr(d[f.key]).slice() : asArr(d[f.key])[0];
+    if(f.type === 'sub' && Array.isArray(d[f.key])) (f.cols || []).forEach(function(c){ if(c.type !== 'select') return; d[f.key].forEach(function(row){ if(isPlainObj(row) && row[c.key] != null && row[c.key] !== '') row[c.key] = c.multi ? asArr(row[c.key]).slice() : asArr(row[c.key])[0]; }); });
+  });
+  return d;
+}
 
 /* writes with change log + quick undo */
 /* a sub-table cell as text: a person's or option's name instead of its code */
@@ -310,9 +319,12 @@ async function undoAudit(a){
       if(!getReg(a.register_id)){ toast(T('Restore its register first.', '请先恢复所属台账。')); return; }
       await STORE.restoreRec({id:a.record_id, reg:a.register_id, d:clone(a.old || {})});
     } else if(a.action === 'reg_update'){
-      var o = clone(a.old || {}), vis = o._visibility; delete o._visibility;
+      var o = clone(a.old || {}), nw = clone(a.new || {}), vis = o._visibility; delete o._visibility; delete nw._visibility;
       var reg = getReg(a.register_id); if(!reg) return;
-      var p = {}; Object.keys(Object.assign({}, reg.d, o)).forEach(function(k){ p[k] = o[k] === undefined ? null : o[k]; });
+      /* v3.3: only what this change changed goes back (team views, templates and the default view added later stay);
+         the one-time upgrade flags stay so an upgrade that was undone does not run again */
+      var p = {}; Object.keys(Object.assign({}, o, nw)).forEach(function(k){ if(REG_FLAGS.indexOf(k) >= 0 || same(o[k], nw[k])) return; p[k] = o[k] === undefined ? null : o[k]; });
+      if(!Object.keys(p).length && !(vis && vis !== reg.vis)){ toast(T('Nothing to undo.', '没有可撤销的内容。')); return; }
       await STORE.patchReg(a.register_id, p);
       if(vis && vis !== reg.vis) await STORE.setRegVis(a.register_id, vis);
     } else if(a.action === 'reg_delete'){

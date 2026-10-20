@@ -5,10 +5,14 @@
 'use strict';
 
 function myPrefs(){ return (STORE && STORE.prefs) || {}; }
-function prefDef(k){ var c = cfg() || {}; return (c.prefDef || {})[k]; }
-function savePref(k, v){ var o = {}; o[k] = v == null ? null : clone(v); return STORE && STORE.savePrefs ? STORE.savePrefs(o) : Promise.resolve(); }
+/* the team's own settings (team note, team defaults) are kept apart from the project settings the Owner can read */
+function teamCfg(){ return (STORE && STORE.team) || {}; }
+function prefDef(k){ return (teamCfg().prefDef || {})[k]; }
+/* a failed save is reported by the store (and the setting waits on this device); callers chain on it only for success messages */
+function savePref(k, v){ var o = {}; o[k] = v == null ? null : clone(v); var p = STORE && STORE.savePrefs ? STORE.savePrefs(o) : Promise.resolve(); p.catch(function(){}); return p; }
 function isAdmin(){ return role() === 'admin'; }
-function saveTeamDef(k, v){ var d = Object.assign({}, (cfg() || {}).prefDef || {}); if(v == null) delete d[k]; else d[k] = clone(v); return STORE.saveCfg({prefDef:d}); }
+function saveTeam(p){ return STORE && STORE.saveTeam ? STORE.saveTeam(p) : Promise.reject(new Error('no store')); }
+function saveTeamDef(k, v){ var d = Object.assign({}, teamCfg().prefDef || {}); if(v == null) delete d[k]; else d[k] = clone(v); return saveTeam({prefDef:d}); }
 
 /* small view settings (row density, package list folded): the person's own, else the team's, else this browser's */
 function uiPref(k, def){ var u = myPrefs().ui; if(u && hasOwn(u, k)) return u[k]; var d = prefDef('ui'); if(d && hasOwn(d, k)) return d[k]; return LS.get('ww.' + k, def); }
@@ -26,7 +30,7 @@ function normFil(f){ f = f || {}; var fx = {}; Object.keys(f.fx || {}).forEach(f
 function viewNorm(st){ st = st || {}; return {v:st.v || null, f:normFil(st.f), s:st.s || null, g:st.g && st.g !== 'none' ? st.g : null, gg:st.gg || null, c:st.c && st.c.length ? st.c : null, b:st.b || null, mx:st.mx || null}; }
 function viewSame(a, b){ return sameData(viewNorm(a), viewNorm(b)); }
 function teamViews(reg){ return asArr(reg && reg.d.views).filter(function(x){ return x && x.id && x.st; }); }
-function myViews(reg){ var m = myPrefs().views || {}; return asArr(reg && m[reg.id]).filter(function(x){ return x && x.id && x.st; }); }
+function myViews(reg){ return asArr(reg && myPrefs()['v:' + reg.id]).filter(function(x){ return x && x.id && x.st; }); }
 function findView(reg, id){ return id ? teamViews(reg).concat(myViews(reg)).filter(function(x){ return x.id === id; })[0] || null : null; }
 function isTeamView(reg, id){ return teamViews(reg).some(function(x){ return x.id === id; }); }
 function canEditView(reg, id){ return isTeamView(reg, id) ? canWrite(reg) : !!findView(reg, id); }
@@ -58,7 +62,7 @@ function viewMenu(reg){
   var x = curView(reg), ch = viewChanged(reg), tv = teamViews(reg), mv = myViews(reg), dv = defViewOf(reg);
   var name = x ? x.name : T('All items', '全部记录');
   function item(v){ var on = x && x.id === v.id; return '<button type="button" class="vmi' + (on ? ' on' : '') + '" data-act="vwUse" data-v="' + esc(v.id) + '" aria-pressed="' + !!on + '"><span>' + esc(v.name) + '</span>' + (dv && dv.id === v.id ? '<span class="vdef" title="' + esc(T('Default for everyone', '所有人的默认视图')) + '">' + L('default', '默认') + '</span>' : '') + '</button>'; }
-  var h = '<details class="menu vmenu"><summary class="btn vbtn" title="' + esc(T('Saved views', '保存的视图')) + '">' + uic('layers', 14) + '<span class="vnm">' + esc(name) + '</span>' + (ch ? '<i class="vmod" title="' + esc(T('Changed since it was saved', '保存后已修改')) + '"></i>' : '') + '</summary><div class="pop vpop">' +
+  var h = '<details class="menu vmenu"><summary class="btn vbtn" title="' + esc(T('Saved views', '保存的视图')) + '">' + uic('layers', 14) + '<span class="vnm">' + esc(name) + '</span>' + (ch ? '<i class="vmod" aria-hidden="true" title="' + esc(T('Changed since it was saved', '保存后已修改')) + '"></i><span class="sr-only">' + esc(T('(changed)', '（已修改）')) + '</span>' : '') + '</summary><div class="pop vpop">' +
     '<button type="button" class="vmi' + (!x ? ' on' : '') + '" data-act="vwUse" data-v="" aria-pressed="' + !x + '"><span>' + L('All items', '全部记录') + '</span></button>';
   if(tv.length) h += '<div class="vph">' + L('Team views', '团队视图') + '</div>' + tv.map(item).join('');
   if(mv.length) h += '<div class="vph">' + L('My views', '我的视图') + '</div>' + mv.map(item).join('');
@@ -73,7 +77,7 @@ function vwSaveModal(m){
   var reg = getReg(m.reg); if(!reg) return {title:'', html:''};
   var team = canWrite(reg) && !isPrivate(reg);
   var h = '<label class="fl">' + L('Name', '名称') + '<input class="in" id="vwName" data-fk="vwName" value="' + esc(m.name || '') + '" placeholder="' + esc(T('e.g. Open items in P2, by due date', '例如：P2 未完成，按到期日')) + '" maxlength="60"></label>';
-  if(team) h += '<div class="fl"><span class="flab">' + L('Who sees it', '谁能看到') + '</span><label class="chk"><input type="radio" name="vwScope" value="me"' + (m.scope !== 'team' ? ' checked' : '') + '>' + L('Only me', '只有我') + '</label><label class="chk"><input type="radio" name="vwScope" value="team"' + (m.scope === 'team' ? ' checked' : '') + '>' + L('Everyone (team view)', '所有人（团队视图）') + '</label></div>';
+  if(team) h += '<div class="fl"><span class="flab">' + L('Who sees it', '谁能看到') + '</span><label class="chk"><input type="radio" name="vwScope" data-vws="1" value="me"' + (m.scope !== 'team' ? ' checked' : '') + '>' + L('Only me', '只有我') + '</label><label class="chk"><input type="radio" name="vwScope" data-vws="1" value="team"' + (m.scope === 'team' ? ' checked' : '') + '>' + L('Everyone (team view)', '所有人（团队视图）') + '</label></div>';
   if(team && isAdmin()) h += '<label class="chk"><input type="checkbox" id="vwDef"' + (m.def ? ' checked' : '') + '>' + L('Use as the default view of this register for everyone', '设为此台账所有人的默认视图') + '</label>';
   h += '<p class="note">' + L('Saves the view type, filters, package, sort, grouping and columns as they are now.', '保存当前的视图类型、筛选、文件包、排序、分组和显示的列。') + '</p>';
   return {title:L('Save view', '保存视图') + ' · ' + esc(regName(reg)), html:h, foot:'<button type="button" class="btn pri" data-act="vwSaveDo">' + L('Save view', '保存视图') + '</button><button type="button" class="btn" data-act="mclose">' + L('Cancel', '取消') + '</button>'};
@@ -91,40 +95,40 @@ function vwManageModal(m){
   if(!h) h = '<p class="note">' + L('No saved views yet.', '还没有保存的视图。') + '</p>';
   return {title:L('Manage views', '管理视图') + ' · ' + esc(regName(reg)), html:'<div class="vml">' + h + '</div>', foot:'<button type="button" class="btn pri" data-act="mclose">' + L('Done', '完成') + '</button><span class="note">' + L('Names save when you leave the box.', '名称在离开输入框时保存。') + '</span>'};
 }
-function putTeamViews(reg, list, extra){ return STORE.patchReg(reg.id, Object.assign({views:list}, extra || {})).catch(function(e){ toast(errText(e)); }); }
-function putMyViews(reg, list){ var all = Object.assign({}, myPrefs().views || {}); if(list.length) all[reg.id] = list; else delete all[reg.id]; return savePref('views', all); }
+function putTeamViews(reg, list, extra){ return STORE.patchReg(reg.id, Object.assign({views:list}, extra || {})).catch(function(e){ toast(errText(e)); throw e; }); }
+function putMyViews(reg, list){ return savePref('v:' + reg.id, list.length ? list : null); }
 function vwSaveDo(){
   var m = S.modal, reg = getReg(m.reg); if(!reg) return;
   var name = (($('#vwName') || {}).value || '').trim(); if(!name){ toast(T('Give the view a name', '请给视图起个名字')); return; }
   var sc = $('input[name=vwScope]:checked'), team = !!(sc && sc.value === 'team') && canWrite(reg), def = team && isAdmin() && !!($('#vwDef') || {}).checked;
   var x = {id:uid('v'), name:name, st:viewNow(reg), by:(STORE.me && (STORE.me.name || STORE.me.email)) || '', at:new Date().toISOString()};
   var p = team ? putTeamViews(reg, teamViews(reg).concat([x]), def ? {defView:x.id} : null) : putMyViews(reg, myViews(reg).concat([x]));
-  S.cv[reg.id] = x.id; saveUI(); closeModal();
-  p.then(function(){ toast(T('View saved', '视图已保存')); renderMain(); });
+  var was = S.cv[reg.id]; S.cv[reg.id] = x.id; saveUI(); closeModal();
+  p.then(function(){ toast(T('View saved', '视图已保存')); renderMain(); }, function(){ if(team){ S.cv[reg.id] = was; saveUI(); } renderMain(); });
 }
 function vwUpdate(reg){
   var x = curView(reg); if(!x || !canEditView(reg, x.id)) return; var st = viewNow(reg);
   var p = isTeamView(reg, x.id) ? putTeamViews(reg, teamViews(reg).map(function(v){ return v.id === x.id ? Object.assign({}, v, {st:st, at:new Date().toISOString()}) : v; }))
     : putMyViews(reg, myViews(reg).map(function(v){ return v.id === x.id ? Object.assign({}, v, {st:st, at:new Date().toISOString()}) : v; }));
-  p.then(function(){ toast(T('View updated', '视图已更新')); renderMain(); });
+  p.then(function(){ toast(T('View updated', '视图已更新')); renderMain(); }, function(){ renderMain(); });
 }
 function vwRename(reg, id, name){
   name = String(name || '').trim(); var x = findView(reg, id); if(!x || !name || name === x.name || !canEditView(reg, id)) return;
-  if(isTeamView(reg, id)) putTeamViews(reg, teamViews(reg).map(function(v){ return v.id === id ? Object.assign({}, v, {name:name}) : v; }));
-  else putMyViews(reg, myViews(reg).map(function(v){ return v.id === id ? Object.assign({}, v, {name:name}) : v; }));
+  (isTeamView(reg, id) ? putTeamViews(reg, teamViews(reg).map(function(v){ return v.id === id ? Object.assign({}, v, {name:name}) : v; }))
+    : putMyViews(reg, myViews(reg).map(function(v){ return v.id === id ? Object.assign({}, v, {name:name}) : v; }))).catch(function(){ renderModal(); });
 }
 function vwDelete(reg, id){
   var x = findView(reg, id); if(!x || !canEditView(reg, id)) return;
   if(!confirm(T('Delete the view “' + x.name + '”?', '删除视图「' + x.name + '」？'))) return;
   var p = isTeamView(reg, id) ? putTeamViews(reg, teamViews(reg).filter(function(v){ return v.id !== id; }), reg.d.defView === id && isAdmin() ? {defView:null} : null) : putMyViews(reg, myViews(reg).filter(function(v){ return v.id !== id; }));
   if(S.cv[reg.id] === id) S.cv[reg.id] = '';
-  p.then(function(){ saveUI(); renderModal(); renderMain(); });
+  p.then(function(){ saveUI(); renderModal(); renderMain(); }, function(){ renderModal(); renderMain(); });
 }
 
 /* ================= the sidebar (and the phone's sheets): order, hide, pin ================= */
 function navCfg(){ return myPrefs().side || prefDef('side') || {}; }
 function navOrd(list, idf){ var ord = navCfg().order || []; return list.map(function(x, i){ return {x:x, i:i, o:ord.indexOf(idf(x))}; }).sort(function(a, b){ return (a.o < 0 ? 1e6 + a.i : a.o) - (b.o < 0 ? 1e6 + b.i : b.o); }).map(function(a){ return a.x; }); }
-function navHidden(id){ return (navCfg().hide || []).indexOf(id) >= 0; }
+function navHidden(id){ return NAV_KEEP.indexOf(id) < 0 && (navCfg().hide || []).indexOf(id) >= 0; }
 function navPinned(id){ return (navCfg().pins || []).indexOf(id) >= 0; }
 /* pages and register groups as the person arranged them; edit mode keeps hidden items (dimmed) so they can come back */
 function navModel(edit){
@@ -137,18 +141,19 @@ function navSave(c){ return savePref('side', c); }
 function navEditCfg(){ var c = clone(navCfg()); c.order = c.order || []; c.hide = c.hide || []; c.pins = c.pins || []; return c; }
 function navMove(id, d, sec){
   var c = navEditCfg(), m = navModel(true), list;
-  if(sec === 'pins'){ list = c.pins; var i = list.indexOf(id), j = i + d; if(i < 0 || j < 0 || j >= list.length) return; list[i] = list[j]; list[j] = id; navSave(c); return; }
+  if(sec === 'pins'){ var vis = c.pins.filter(function(x){ return !!getReg(x); }), i = vis.indexOf(id), j = i + d; if(i < 0 || j < 0 || j >= vis.length) return; vis[i] = vis[j]; vis[j] = id; c.pins = vis.concat(c.pins.filter(function(x){ return !getReg(x); })); navSave(c); return; }
   list = sec === 'pages' ? m.pages.map(function(p){ return p[0]; }) : ((m.groups.filter(function(g){ return g.s[0] === sec; })[0] || {regs:[]}).regs.map(function(r){ return r.id; }));
   var a = list.indexOf(id), b = a + d; if(a < 0 || b < 0 || b >= list.length) return; list[a] = list[b]; list[b] = id;
   c.order = c.order.filter(function(x){ return list.indexOf(x) < 0; }).concat(list); navSave(c);
 }
 function navToggle(kind, id){ var c = navEditCfg(), l = c[kind], i = l.indexOf(id); if(i >= 0) l.splice(i, 1); else l.push(id); navSave(c); }
+var NAV_KEEP = ['home', 'settings'];   // always reachable, so nothing can be locked away (on a phone there is no other way back)
 function navCtl(id, sec, i, n, isReg){
-  var hid = navHidden(id), pin = navPinned(id);
+  var hid = navHidden(id), pin = navPinned(id), keep = NAV_KEEP.indexOf(id) >= 0;
   return '<span class="navc">' + (isReg ? '<button type="button" class="ib' + (pin ? ' on' : '') + '" data-act="navPin" data-v="' + esc(id) + '" aria-pressed="' + pin + '" title="' + esc(pin ? T('Unpin', '取消置顶') : T('Pin to the top', '置顶')) + '">' + uic('pin', 13) + '</button>' : '') +
     '<button type="button" class="ib" data-act="navMove" data-v="' + esc(id) + '" data-s="' + esc(sec) + '" data-d="-1"' + (i ? '' : ' disabled') + ' aria-label="' + esc(T('Move up', '上移')) + '">' + uic('up', 13) + '</button>' +
     '<button type="button" class="ib" data-act="navMove" data-v="' + esc(id) + '" data-s="' + esc(sec) + '" data-d="1"' + (i < n - 1 ? '' : ' disabled') + ' aria-label="' + esc(T('Move down', '下移')) + '">' + uic('down', 13) + '</button>' +
-    '<button type="button" class="ib' + (hid ? '' : ' on') + '" data-act="navHide" data-v="' + esc(id) + '" aria-pressed="' + !hid + '" title="' + esc(hid ? T('Show in the menu', '在菜单中显示') : T('Hide from the menu', '从菜单中隐藏')) + '">' + uic(hid ? 'hide' : 'eye', 13) + '</button></span>';
+    (keep ? '<span class="ib" aria-hidden="true"></span>' : '<button type="button" class="ib' + (hid ? '' : ' on') + '" data-act="navHide" data-v="' + esc(id) + '" aria-pressed="' + !hid + '" aria-label="' + esc((hid ? T('Show in the menu: ', '在菜单中显示：') : T('Hide from the menu: ', '从菜单中隐藏：')) + id) + '" title="' + esc(hid ? T('Show in the menu', '在菜单中显示') : T('Hide from the menu', '从菜单中隐藏')) + '">' + uic(hid ? 'hide' : 'eye', 13) + '</button>') + '</span>';
 }
 function navEditRow(label, id, sec, i, n, isReg){ return '<div class="nrow' + (navHidden(id) ? ' hid' : '') + '"><span class="nlab">' + label + '</span>' + navCtl(id, sec, i, n, isReg) + '</div>'; }
 /* registers part of the menu (sidebar and the phone's Registers sheet) */
@@ -180,7 +185,7 @@ function tplSaveModal(m){
   var h = '<label class="fl">' + L('Template name', '模板名称') + '<input class="in" id="tplName" data-fk="tplName" maxlength="60" value="' + esc(m.name || '') + '" placeholder="' + esc(T('e.g. Weekly coordination meeting', '例如：周协调会')) + '"></label>' +
     '<div class="fl"><span class="flab">' + L('What new items get from it', '新记录会带入的内容') + '</span><div class="tplf">' + fs.map(function(f){ var v = f.type === 'sub' ? T(asArr(rec.d[f.key]).length + ' rows', asArr(rec.d[f.key]).length + ' 行') : String(textOf(reg, f, rec) || '');
       return '<label class="chk"><input type="checkbox" data-tplk="' + esc(f.key) + '"' + (m.pick[f.key] ? ' checked' : '') + '><span><b>' + esc(T1(f.en || f.key, f.zh)) + '</b> <span class="muted">' + esc(v.length > 60 ? v.slice(0, 58) + '…' : v) + '</span></span></label>'; }).join('') + '</div></div>' +
-    '<p class="note">' + L('The number, dates, files, links and status are left out unless you tick them; empty fields still get their default.', '编号、日期、附件、关联和状态默认不带入，可自行勾选；空字段仍使用预设值。') + '</p>';
+    '<p class="note">' + L('The number, files and links are never copied. Dates, status, progress and meeting action items are left unticked; empty fields still get their default.', '编号、附件和关联不会带入；日期、状态、进度和会议待办默认不勾；空字段仍使用预设值。') + '</p>';
   return {title:L('Save as a template', '存成模板') + ' · ' + esc(regName(reg)), html:h, foot:'<button type="button" class="btn pri" data-act="tplSaveDo">' + L('Save template', '保存模板') + '</button><button type="button" class="btn" data-act="mclose">' + L('Cancel', '取消') + '</button>'};
 }
 function tplSaveDo(){
@@ -224,15 +229,19 @@ document.addEventListener('click', function(e){
     case 'vwNoDef': (function(){ var r = getReg(S.modal && S.modal.reg); if(r && isAdmin()) STORE.patchReg(r.id, {defView:null}).then(function(){ renderModal(); renderMain(); }, function(er){ toast(errText(er)); }); })(); break;
     case 'navEdit': S.sideEdit = !S.sideEdit; renderSide(); renderSheet(); break;
     case 'navDone': S.sideEdit = false; renderSide(); renderSheet(); break;
-    case 'navMove': navMove(v, +el.dataset.d, el.dataset.s); break;
+    case 'navMove': navMove(v, +el.dataset.d, el.dataset.s); refocus('[data-act="navMove"][data-v="' + v + '"][data-d="' + el.dataset.d + '"]', '[data-act="navMove"][data-v="' + v + '"]'); break;
     case 'navHide': navToggle('hide', v); break;
     case 'navPin': navToggle('pins', v); break;
-    case 'navReset': savePref('side', null).then(function(){ toast(T('Menu back to the team default', '菜单已恢复团队默认')); }); break;
+    case 'navReset': savePref('side', null).then(function(){ toast(T('Menu back to the team default', '菜单已恢复团队默认')); }, function(){}); break;
     case 'navTeam': if(isAdmin()) saveTeamDef('side', navCfg()).then(function(){ toast(T('Team default menu saved', '已保存为团队默认菜单')); }, function(er){ toast(errText(er)); }); break;
   }
 });
+/* after a move the page is drawn again: put the focus back on the same control (or its neighbour at the end of a list) */
+function refocus(sel, alt){ setTimeout(function(){ requestAnimationFrame(function(){ var b = document.querySelector(sel); if(!b || b.disabled) b = alt && Array.prototype.filter.call(document.querySelectorAll(alt), function(x){ return !x.disabled; })[0]; if(b) b.focus(); }); }, 0); }
 document.addEventListener('change', function(e){
   var el = e.target, reg = getReg(S.modal && S.modal.reg), d;
+  if(el.dataset && el.dataset.vws && S.modal && S.modal.kind === 'vwSave'){ S.modal.scope = el.value; return; }
+  if(el.id === 'vwDef' && S.modal && S.modal.kind === 'vwSave'){ S.modal.def = el.checked; return; }
   if((d = el.dataset && el.dataset.vwn) && reg){ vwRename(reg, d, el.value); return; }
   if((d = el.dataset && el.dataset.vwdef) && reg && isAdmin()){ STORE.patchReg(reg.id, {defView:d}).then(function(){ toast(T('Default view set', '已设为默认视图')); renderMain(); }, function(er){ toast(errText(er)); }); }
 });

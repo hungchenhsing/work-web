@@ -69,6 +69,9 @@ function DemoStore(){
   };
   /* v3.3 · personal settings (in the demo: this browser) */
   api.prefs = LS.get('ww3.prefs.demo', {}) || {};
+  /* the team's own settings (team note, team defaults): the app_config row 'team', which the Owner never sees */
+  Object.defineProperty(api, 'team', {get:function(){ return st.team || null; }});
+  api.saveTeam = function(p){ st.team = Object.assign({}, st.team || {}, clone(p)); api.save(); return Promise.resolve(); };
   api.savePrefs = function(p){ prefsMergeInto(api.prefs, p); LS.set('ww3.prefs.demo', api.prefs); notify(); return Promise.resolve(); };
   return api;
 }
@@ -79,7 +82,7 @@ function prefsMergeInto(o, p){ Object.keys(p || {}).forEach(function(k){ if(p[k]
 function CloudStore(url, key){
   var sb = window.supabase.createClient(url, key, {auth:{persistSession:true, autoRefreshToken:true, detectSessionInUrl:true}});
   var urls = {}, pendingUrls = {}, urlTimer = null, channel = null;
-  var api = {mode:'cloud', sb:sb, ready:false, rt:'connecting', session:null, me:null, cfg:null, regs:[], recs:[], audit:[], pubs:[], fb:[], users:[], v1:null, prefs:{}, prefsLocal:false};
+  var api = {mode:'cloud', sb:sb, ready:false, rt:'connecting', session:null, me:null, cfg:null, regs:[], recs:[], audit:[], pubs:[], fb:[], users:[], v1:null, prefs:{}, prefsLocal:false, team:null};
   function rowReg(r){ return {id:r.id, owner:r.owner, vis:r.visibility, d:cleanFields(r.data || {}), ua:r.updated_at}; }
   function rowRec(r){ return {id:r.id, reg:r.register_id, d:r.data || {}, ca:r.created_at, ua:r.updated_at, ub:r.updated_by}; }
   function check(res){ if(res && res.error) throw res.error; return res; }
@@ -110,7 +113,7 @@ function CloudStore(url, key){
       return api.loadAll();
     }).catch(function(e){ api.me = {id:u.id, email:u.email, name:'', role:'pending'}; api.ready = true; notify(); fail(e); });
   };
-  function teardown(){ if(channel){ try{ sb.removeChannel(channel); }catch(e){} channel = null; } api.regs = []; api.recs = []; api.audit = []; api.pubs = []; api.fb = []; api.users = []; api.cfg = null; }
+  function teardown(){ if(channel){ try{ sb.removeChannel(channel); }catch(e){} channel = null; } api.regs = []; api.recs = []; api.audit = []; api.pubs = []; api.fb = []; api.users = []; api.cfg = null; api.team = null; }
   async function pageAll(table, cols, order){
     var out = [], from = 0, size = 1000;
     for(;;){ var r = check(await sb.from(table).select(cols).order(order || 'id').range(from, from + size - 1)); out = out.concat(r.data); if(r.data.length < size) break; from += size; }
@@ -126,7 +129,7 @@ function CloudStore(url, key){
         var three = await Promise.all([sb.from('app_config').select('id,data'), pageAll('registers', 'id,owner,visibility,data,updated_at'), pageAll('records', 'id,register_id,data,created_at,updated_at,updated_by')]);
         await prefsP;
         var c = check(three[0]);
-        c.data.forEach(function(r){ if(r.id === 'main') api.cfg = r.data; });
+        c.data.forEach(function(r){ if(r.id === 'main') api.cfg = r.data; if(r.id === 'team') api.team = r.data; });
         api.regs = three[1].map(rowReg);
         api.recs = three[2].map(rowRec);
         api._sync = null; three[1].concat(three[2]).forEach(function(x){ seenAt(x.updated_at); });
@@ -170,7 +173,7 @@ function CloudStore(url, key){
     api._catching = true; var since = api._sync;
     var jobs = [sb.from('registers').select('id,owner,visibility,data,updated_at').gt('updated_at', since),
       sb.from('records').select('id,register_id,data,created_at,updated_at,updated_by').gt('updated_at', since).order('updated_at').limit(5000),
-      sb.from('app_config').select('id,data').eq('id', 'main')];
+      sb.from('app_config').select('id,data').in('id', ['main', 'team'])];
     if(api._auditMax) jobs.push(sb.from('audit_log').select('id,at,action,record_id,register_id').gt('id', api._auditMax).in('action', ['delete', 'reg_delete']).order('id').limit(5000));
     return Promise.all(jobs).then(function(r){
       var ch = 0, fresh = {};
@@ -178,7 +181,7 @@ function CloudStore(url, key){
       if(!r[1].error) (r[1].data || []).forEach(function(x){ var o = rowRec(x), i = findI(api.recs, o.id); fresh[o.id] = 1; seenAt(x.updated_at);
         if(i >= 0 && api.recs[i].reg === o.reg && sameData(api.recs[i].d, o.d)){ api.recs[i].ua = o.ua; return; }
         if(i >= 0) api.recs[i] = o; else api.recs.push(o); ch++; });
-      if(!r[2].error && r[2].data && r[2].data[0] && !sameData(api.cfg, r[2].data[0].data)){ api.cfg = r[2].data[0].data; ch++; }
+      if(!r[2].error) (r[2].data || []).forEach(function(x){ if(x.id === 'main' && !sameData(api.cfg, x.data)){ api.cfg = x.data; ch++; } if(x.id === 'team' && !sameData(api.team, x.data)){ api.team = x.data; ch++; } });
       if(r[3] && !r[3].error) (r[3].data || []).forEach(function(a){
         if(a.action === 'delete' && !fresh[a.record_id]){ var i = findI(api.recs, a.record_id); if(i >= 0){ api.recs.splice(i, 1); ch++; } }
         if(a.action === 'reg_delete' && !api.regs.some(function(g){ return g.id === a.register_id && g.ua > a.at; })){ var j = findI(api.regs, a.register_id); if(j >= 0){ api.regs.splice(j, 1); api.recs = api.recs.filter(function(x){ return x.reg !== a.register_id; }); ch++; } }
@@ -213,6 +216,7 @@ function CloudStore(url, key){
       if(!api.audit.some(function(x){ return x.id === p.new.id; })){ api.audit.unshift(p.new); if(api.audit.length > 600) api.audit.length = 600; notifyRemote(true); }
     }).on('postgres_changes', {event:'*', schema:'public', table:'app_config'}, function(p){
       if(p.eventType !== 'DELETE' && p.new.id === 'main'){ api.cfg = p.new.data; notifyRemote(); }
+      if(p.eventType !== 'DELETE' && p.new.id === 'team'){ api.team = p.new.data; notifyRemote(); }
     }).on('postgres_changes', {event:'*', schema:'public', table:'publications'}, function(p){
       if(p.eventType === 'DELETE') api.pubs = api.pubs.filter(function(x){ return x.id !== p.old.id; });
       else { var o = Object.assign({}, p.new.data, {id:p.new.id}), i = findI(api.pubs, o.id); if(i >= 0) api.pubs[i] = o; else api.pubs.unshift(o); }
@@ -232,28 +236,66 @@ function CloudStore(url, key){
     if(!ops.length) return Promise.resolve();
     return opsCall('config_ops', 'config_patch', 'main', ops, p).then(function(r){ if(r.error) throw r.error; })
       .catch(function(e){ api.cfg = prev; notify(); failSave(e); throw e; }); };
-  /* v3.3 · personal settings follow the account (user_prefs). Until schema.sql is updated they stay in this browser. */
+  /* v3.3 · personal settings follow the account (user_prefs; prefs_merge changes only the keys sent).
+     A change waits in this browser until the server has it (pending): it is sent again when the connection is back and on
+     the next start, so nothing made offline is lost; one write at a time keeps them in order. Until schema.sql is updated
+     everything stays in this browser and moves to the account the first time the table is there. */
   function prefsKey(){ return 'ww3.prefs.' + (api.uid || 'x'); }
+  function pendKey(){ return 'ww3.prefsPend.' + (api.uid || 'x'); }
+  var pChain = Promise.resolve();
   function loadPrefs(){
     api.prefs = {}; api.prefsLocal = false;
+    var cache = LS.get(prefsKey(), {}) || {}, pend = LS.get(pendKey(), {}) || {};
     return sb.from('user_prefs').select('data').eq('user_id', api.uid).maybeSingle().then(function(r){
-      if(r.error) throw r.error; api.prefs = (r.data && r.data.data) || {}; LS.set(prefsKey(), api.prefs);
+      if(r.error) throw r.error;
+      var srv = r.data && r.data.data;
+      if(!srv && !Object.keys(pend).length && Object.keys(cache).length) pend = clone(cache);
+      api.prefs = prefsMergeInto(clone(srv || {}), pend); LS.set(prefsKey(), api.prefs); LS.set(pendKey(), pend);
+      if(Object.keys(pend).length) flushPrefs().catch(function(){});
     }).catch(function(e){
-      /* no table yet → this browser; any other failure (offline) → the last copy seen here, and saving keeps trying the server */
       if(e && (e.code === '42P01' || e.code === 'PGRST205' || /user_prefs/.test(e.message || ''))) api.prefsLocal = true;
-      api.prefs = LS.get(prefsKey(), {}) || {};
+      api.prefs = prefsMergeInto(clone(cache), pend);
     });
   }
+  function flushPrefs(){
+    var run = pChain.then(function(){
+      var pend = LS.get(pendKey(), {}) || {}, keys = Object.keys(pend); if(!keys.length || api.prefsLocal || !api.uid) return;
+      function done(ks){ var now = LS.get(pendKey(), {}) || {}; ks.forEach(function(k){ if(JSON.stringify(now[k]) === JSON.stringify(pend[k])) delete now[k]; }); LS.set(pendKey(), now); }
+      return sb.rpc('prefs_merge', {p:pend}).then(function(r){
+        if(r.error && noFn(r.error)){ api.prefsLocal = true; notifySoft(); return; }
+        if(r.error && netErr(r.error)) throw r.error;
+        if(!r.error){ done(keys); return; }
+        /* the server refused the batch: one setting at a time, so one it will never take (too large) does not block the rest */
+        var refused = [];
+        return keys.reduce(function(ch, k){ return ch.then(function(){ var one = {}; one[k] = pend[k];
+          return sb.rpc('prefs_merge', {p:one}).then(function(r2){ if(r2.error && netErr(r2.error)) throw r2.error; if(r2.error) refused.push(k); done([k]); }); }); }, Promise.resolve())
+          .then(function(){ if(refused.length){ var e = new Error('refused'); e.refused = refused; throw e; } });
+      });
+    });
+    pChain = run.catch(function(){});
+    return run;
+  }
   api.savePrefs = function(p){
-    prefsMergeInto(api.prefs, p); LS.set(prefsKey(), api.prefs); notify();
+    prefsMergeInto(api.prefs, p); LS.set(prefsKey(), api.prefs);
+    var pend = LS.get(pendKey(), {}) || {}; Object.keys(p || {}).forEach(function(k){ pend[k] = p[k] == null ? null : clone(p[k]); }); LS.set(pendKey(), pend);
+    notify();
     if(api.prefsLocal) return Promise.resolve();
-    return sb.rpc('prefs_merge', {p:p}).then(function(r){
-      if(r.error && noFn(r.error)){ api.prefsLocal = true; notifySoft(); return; }
-      if(r.error) throw r.error;
-    }).catch(function(e){ fail(e); });
+    return flushPrefs().catch(function(e){
+      if(e && e.refused) toast(T('This setting could not be saved to your account (too large) — it stays on this device only', '此设置无法保存到你的账号（内容过大），只保留在本设备'));
+      else if(navigator.onLine === false || netErr(e)) toast(T('Kept on this device — it reaches your account when the connection is back', '已保存在本设备，联网后会同步到你的账号'));
+      else fail(e);
+      throw e;
+    });
   };
+  window.addEventListener('online', function(){ if(api.uid && !api.prefsLocal) flushPrefs().catch(function(){}); });
+  /* the team's own settings: app_config row 'team' (team note, team defaults); the Owner's accounts cannot read it */
+  api.saveTeam = function(p){ var prev = api.team, ops = patchOps(prev || {}, p); api.team = Object.assign({}, api.team || {}, clone(p)); notify();
+    if(!ops.length) return Promise.resolve();
+    return opsCall('config_ops', 'config_patch', 'team', ops, p).then(function(r){ if(r.error) throw r.error; })
+      .catch(function(e){ api.team = prev; notify(); failSave(e); throw e; }); };
   /* element-level writes (v2.9): only what changed is sent, and the database applies it to what it holds now.
      Until schema.sql is updated the older whole-value patch is used. */
+  function netErr(e){ return !e || !e.code || /failed to fetch|network|timeout/i.test(e.message || ''); }   // a server answer always has a code
   function noFn(e){ return !!e && (e.code === 'PGRST202' || e.code === '42883' || /could not find the function/i.test(e.message || '')); }
   function opsCall(fn, oldFn, id, ops, p){
     if(ops && !api._noOps) return sb.rpc(fn, {p_id:id, p_ops:ops}).then(function(r){ if(r.error && noFn(r.error)){ api._noOps = true; return opsCall(fn, oldFn, id, null, p); } return r; });

@@ -201,7 +201,7 @@ var DEF_LISTS = {
   subcon: {en:'Subcontractors', zh:'分包商', opts:[]}
 };
 var DEF_CFG = {projectEn:'CEEC-TERRA I', projectZh:'TERRA I 光伏项目', asOf:'', ganttStart:'', ganttEnd:'2027-12-31', lists:DEF_LISTS, regOrder:[], v2:false,
-  deckTheme:null, prefDef:null, teamNote:null};   // v3.3: cfg() only passes on the keys listed here (deckTheme was missing: the team's default slide style never applied)
+  deckTheme:null};   // v3.3: cfg() only passes on the keys listed here (deckTheme was missing: the team's default slide style never applied)
 
 /* ================= register templates ================= */
 var ST_DOC = [O('not_started','Not started','未开始','amber'),O('in_progress','In progress','进行中','blue'),O('submitted','Submitted','已提交','violet'),O('pending','Pending','暂缓 / 待定','red'),O('completed','Completed','已完成','green',{done:true})];

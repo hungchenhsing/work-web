@@ -82,7 +82,7 @@ document.addEventListener('click', function(e){
     // register page
     case 'rview': S.rv[S.reg] = v; S.gKeep = false; saveUI(); renderMain(); break;
     case 'newRec': createRec(reg, nodeExtra(reg)); break;
-    case 'newTpl': (function(){ var t = regTpls(reg).filter(function(x){ return x.id === v; })[0]; if(!t) return; createRec(reg, Object.assign(tplData(t), nodeExtra(reg))).then(function(id){ if(id){ S.newBlank = null; toast(T('New item from “' + t.name + '”', '已按「' + t.name + '」新增')); } }); })(); break;
+    case 'newTpl': (function(){ var t = regTpls(reg).filter(function(x){ return x.id === v; })[0]; if(!t) return; var td = tplData(t); Object.keys(td).forEach(function(k){ if(!fieldOf(reg, k)) delete td[k]; }); createRec(reg, Object.assign(shapeData(reg, td), nodeExtra(reg))).then(function(id){ if(id){ S.newBlank = null; toast(T('New item from “' + t.name + '”', '已按「' + t.name + '」新增')); } }); })(); break;
     case 'tplSave': (function(){ var r0 = S.open && getRec(S.open); if(!r0) return; openModal({kind:'tplSave', reg:r0.reg, rec:r0.id}); setTimeout(function(){ var i = $('#tplName'); if(i) i.focus(); }, 30); })(); break;
     case 'tplSaveDo': tplSaveDo(); break;
     case 'tplManage': openModal({kind:'tplManage', reg:v || S.reg}); break;
@@ -166,6 +166,8 @@ document.addEventListener('click', function(e){
     case 'fmSave': (function(){ var m = S.modal, rg = getReg(m.reg), fs = m.d.fields;
       for(var i = 0; i < fs.length; i++){ if(!fs[i].en && !fs[i].zh){ toast(T('Every field needs a name', '每个字段都需要名称')); return; } if(fs[i].type === 'select' && !fs[i].list){ var bad = cleanOpts(fs[i].opts || []); if(bad){ toast(T1(fs[i].en, fs[i].zh) + ': ' + bad); return; } } }
       Object.keys(m.d.roles).forEach(function(r){ if(!m.d.roles[r]) delete m.d.roles[r]; });
+      var bad1 = fs.filter(function(f){ return f.multi && (m.d.roles.status === f.key || m.d.roles.kind === f.key); })[0];
+      if(bad1){ toast(T1(bad1.en || bad1.key, bad1.zh) + ': ' + T('a status (or kind) field takes one value — untick Several', '状态（或类别）字段只能有一个值，请取消「多选」')); return; }
       /* v3.3: "several values" switched on or off → convert what the records hold (asks first when values would be dropped) */
       var conv = multiChanges(rg, fs), mp = conv.length ? multiPatches(rg, conv) : {list:[], lost:0};
       if(mp.lost && !confirm(T(mp.lost + ' values hold several entries. Only the first entry of each will be kept. Continue?', '有 ' + mp.lost + ' 个值包含多项，将只保留每个的第一项。继续？'))) return;
@@ -337,8 +339,8 @@ function fmSet(d, el){
   else if(k === 'ext') f.ext = el.checked;
   else if(k === 'multi'){ f.multi = el.checked; if(f.def != null) f.def = f.multi ? asArr(f.def).slice(0, 1) : asArr(f.def)[0]; }
   else if(k === 'def'){ var dv = el.type === 'checkbox' ? (el.checked || undefined) : el.value; if(dv === '' || dv == null) delete f.def; else if(f.type === 'number' || f.type === 'percent') f.def = +dv; else if(f.type === 'select' && f.multi) f.def = [dv]; else f.def = dv; }
-  else if(k === 'type'){ f.type = el.value; if(f.type === 'select' && !f.list && !f.opts) f.opts = []; if(f.type === 'tree' && !f.tree) f.tree = []; if(f.type === 'sub' && !f.cols) f.cols = [F('item','Item','事项','text')]; if(f.type === 'calc' && !f.calc) f.calc = {op:'pct', a:'', b:''}; m.exp = +p[0]; renderModal(); }
-  else if(k === 'list'){ f.list = el.value || undefined; if(!f.list && !f.opts) f.opts = []; renderModal(); }
+  else if(k === 'type'){ delete f.def; f.type = el.value; if(f.type === 'select' && !f.list && !f.opts) f.opts = []; if(f.type === 'tree' && !f.tree) f.tree = []; if(f.type === 'sub' && !f.cols) f.cols = [F('item','Item','事项','text')]; if(f.type === 'calc' && !f.calc) f.calc = {op:'pct', a:'', b:''}; m.exp = +p[0]; renderModal(); }
+  else if(k === 'list'){ delete f.def; f.list = el.value || undefined; if(!f.list && !f.opts) f.opts = []; renderModal(); }
   else if(k === 'autoA' || k === 'autoB'){ f.auto = f.auto || {op:'pct'}; f.auto[k === 'autoA' ? 'a' : 'b'] = el.value; if(!f.auto.a || !f.auto.b){ if(!f.auto.a && !f.auto.b) delete f.auto; } }
   else if(k === 'calcOp' || k === 'calcA' || k === 'calcB'){ f.calc = f.calc || {}; f.calc[k === 'calcOp' ? 'op' : k === 'calcA' ? 'a' : 'b'] = el.value; }
   else if(k === 'link'){ var rid = p.slice(2).join(':'), l = f.link || [], i = l.indexOf(rid); if(el.checked && i < 0) l.push(rid); if(!el.checked && i >= 0) l.splice(i, 1); f.link = l; }

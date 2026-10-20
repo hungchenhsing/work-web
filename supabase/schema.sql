@@ -1423,13 +1423,16 @@ create table if not exists public.user_prefs (
   data jsonb not null default '{}'::jsonb,
   updated_at timestamptz not null default now()
 );
+alter table public.user_prefs drop constraint if exists user_prefs_size;
+alter table public.user_prefs add constraint user_prefs_size check (octet_length(data::text) <= 400000 and jsonb_typeof(data) = 'object');
 alter table public.user_prefs enable row level security;
+-- team members only (not the Owner's accounts, not accounts still waiting for a role), and only their own row
 drop policy if exists prefs_select on public.user_prefs;
-create policy prefs_select on public.user_prefs for select to authenticated using (user_id = auth.uid());
+create policy prefs_select on public.user_prefs for select to authenticated using (user_id = auth.uid() and public.my_role() in ('admin','editor','viewer'));
 drop policy if exists prefs_insert on public.user_prefs;
-create policy prefs_insert on public.user_prefs for insert to authenticated with check (user_id = auth.uid());
+create policy prefs_insert on public.user_prefs for insert to authenticated with check (user_id = auth.uid() and public.my_role() in ('admin','editor','viewer'));
 drop policy if exists prefs_update on public.user_prefs;
-create policy prefs_update on public.user_prefs for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+create policy prefs_update on public.user_prefs for update to authenticated using (user_id = auth.uid() and public.my_role() in ('admin','editor','viewer')) with check (user_id = auth.uid() and public.my_role() in ('admin','editor','viewer'));
 revoke all on public.user_prefs from anon;
 grant select, insert, update on public.user_prefs to authenticated;
 
@@ -1451,6 +1454,20 @@ begin
 end $$;
 revoke all on function public.prefs_merge(jsonb) from public, anon;
 grant execute on function public.prefs_merge(jsonb) to authenticated;
+
+-- team-only settings live in the app_config row 'team' (the Owner's accounts only read the row 'main'):
+-- the team note (editors and admins) and the team defaults for the overview, menu and view settings (admins only)
+create or replace function public.guard_config() returns trigger
+language plpgsql set search_path = '' as $$
+begin
+  if auth.uid() is null or public.ww_restoring() or new.id <> 'team' then return new; end if;
+  if (case when tg_op = 'UPDATE' then old.data -> 'prefDef' else null end) is distinct from new.data -> 'prefDef' and public.my_role() is distinct from 'admin' then
+    raise exception 'Only an admin can change the team defaults' using errcode = '42501';
+  end if;
+  return new;
+end $$;
+drop trigger if exists guard_config on public.app_config;
+create trigger guard_config before insert or update on public.app_config for each row execute function public.guard_config();
 
 -- a register's default view for everyone is chosen by an admin (editors keep creating and changing team views)
 create or replace function public.guard_register() returns trigger

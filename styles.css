@@ -1104,7 +1104,7 @@ body.dopen #toast{bottom:calc(20px + env(safe-area-inset-bottom,0px))}
 .sme{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:12px;padding:12px 4px 0;border-top:1px solid var(--line2);font-size:13px;color:var(--muted)}
 
 /* "EN + 中": the site's own words in one language (Chinese on hover); titles and field names keep both */
-body.lang-both :is(.nrow .nlab,.hwopt b,.hwbar .hwn,.vph,.btn,.seg button,.ib,.pop button,.popt,.fchip,.fbtn,.snav button,.sadd,.note,.chip,.chk,.lnk,#toast,.tb-l,.achip,.empty,.bnav,.dtabs button,.rchip,.pickbtn,.kc,.tnode,.sh,.blegend,.tb-sub,summary,.mbody p,.npanel,.dconf,.ccl,.trn-h,.railb,.rcn,.lrow2,.ks,.kl,.legend,.tbar .fl,.drange) .zh{display:none}
+body.lang-both :is(.nrow .nlab,.hwopt b,.hwbar .hwn,.vph,.hedbar,.vdef,.btn,.seg button,.ib,.pop button,.popt,.fchip,.fbtn,.snav button,.sadd,.note,.chip,.chk,.lnk,#toast,.tb-l,.achip,.empty,.bnav,.dtabs button,.rchip,.pickbtn,.kc,.tnode,.sh,.blegend,.tb-sub,summary,.mbody p,.npanel,.dconf,.ccl,.trn-h,.railb,.rcn,.lrow2,.ks,.kl,.legend,.tbar .fl,.drange) .zh{display:none}
 
 @media (max-width:900px){
   .tblk{flex-wrap:wrap}
@@ -1214,3 +1214,4 @@ body.lang-both :is(.nrow .nlab,.hwopt b,.hwbar .hwn,.vph,.btn,.seg button,.ib,.p
 .hw .lrow2{width:100%}
 .hw-ed .hwb>.sech{display:none}
 .cdsel .chk{flex:none}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
