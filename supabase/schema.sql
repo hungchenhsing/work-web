@@ -1414,3 +1414,78 @@ do $$ declare f text; begin
     execute 'grant execute on function ' || f || ' to authenticated';
   end loop; end $$;
 revoke execute on function public.trn_apply_response(public.feedback) from authenticated;
+
+-- =====================================================================
+-- v3.3: personal settings that follow each person's account (overview, sidebar, own views, row density)
+-- =====================================================================
+create table if not exists public.user_prefs (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  data jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+alter table public.user_prefs enable row level security;
+drop policy if exists prefs_select on public.user_prefs;
+create policy prefs_select on public.user_prefs for select to authenticated using (user_id = auth.uid());
+drop policy if exists prefs_insert on public.user_prefs;
+create policy prefs_insert on public.user_prefs for insert to authenticated with check (user_id = auth.uid());
+drop policy if exists prefs_update on public.user_prefs;
+create policy prefs_update on public.user_prefs for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+revoke all on public.user_prefs from anon;
+grant select, insert, update on public.user_prefs to authenticated;
+
+-- merge one or more top-level settings into the signed-in person's row (a key set to null is removed), so two devices
+-- changing different settings never overwrite each other
+create or replace function public.prefs_merge(p jsonb) returns jsonb
+language plpgsql security invoker set search_path = '' as $$
+declare me uuid := auth.uid(); res jsonb;
+begin
+  if me is null then raise exception 'Not signed in' using errcode = '42501'; end if;
+  if jsonb_typeof(p) is distinct from 'object' then raise exception 'Settings must be an object' using errcode = '22023'; end if;
+  if length(p::text) > 200000 then raise exception 'Settings are too large' using errcode = '22023'; end if;
+  insert into public.user_prefs as u (user_id, data, updated_at) values (me, jsonb_strip_nulls(p), now())
+  on conflict (user_id) do update
+    set data = (u.data || p) - coalesce((select array_agg(key) from jsonb_each(p) where value = 'null'::jsonb), array[]::text[]), updated_at = now()
+  returning data into res;
+  if length(res::text) > 400000 then raise exception 'Settings are too large' using errcode = '22023'; end if;
+  return res;
+end $$;
+revoke all on function public.prefs_merge(jsonb) from public, anon;
+grant execute on function public.prefs_merge(jsonb) to authenticated;
+
+-- a register's default view for everyone is chosen by an admin (editors keep creating and changing team views)
+create or replace function public.guard_register() returns trigger
+language plpgsql set search_path = '' as $$
+declare
+  types constant text[] := array['text','long','number','percent','date','select','tree','check','url','files','link','calc','sub','section'];
+  sub_types constant text[] := array['text','long','number','date','select','check'];
+begin
+  if tg_op = 'UPDATE' and auth.uid() is not null and not public.ww_restoring() then
+    if new.id is distinct from old.id or new.owner is distinct from old.owner then
+      raise exception 'A register''s id and creator cannot change' using errcode = '42501';
+    end if;
+    if new.data ->> 'kind' is distinct from old.data ->> 'kind' and public.my_role() is distinct from 'admin' then   -- v3.1 (the transmittal rules key on it)
+      raise exception 'Only an admin can change what kind of register this is' using errcode = '42501';
+    end if;
+    if new.visibility = 'team' and new.data ->> 'defView' is distinct from old.data ->> 'defView' and public.my_role() is distinct from 'admin' then   -- v3.3
+      raise exception 'Only an admin can choose the default view' using errcode = '42501';
+    end if;
+    if new.visibility is distinct from old.visibility then
+      if old.owner is distinct from auth.uid() then raise exception 'Only the person who created this register can change who sees it' using errcode = '42501'; end if;
+      if new.visibility = 'private' and public.my_role() is distinct from 'admin' then raise exception 'Only an admin can make a team register private' using errcode = '42501'; end if;
+    end if;
+  end if;
+  if jsonb_typeof(new.data->'fields') = 'array' and exists (
+       select 1 from jsonb_array_elements(new.data->'fields') f
+        where jsonb_typeof(f) = 'object' and (coalesce(f->>'type', '') <> all(types)
+           or (jsonb_typeof(f->'cols') = 'array' and exists (select 1 from jsonb_array_elements(f->'cols') c where jsonb_typeof(c) = 'object' and coalesce(c->>'type', '') <> all(sub_types))))) then
+    new.data := jsonb_set(new.data, '{fields}', (select coalesce(jsonb_agg(
+        case when jsonb_typeof(f) <> 'object' then f else
+          (case when coalesce(f->>'type', '') = any(types) then f else f || '{"type":"text"}'::jsonb end)
+          || case when jsonb_typeof(f->'cols') = 'array' then jsonb_build_object('cols', (select coalesce(jsonb_agg(
+               case when jsonb_typeof(c) = 'object' and coalesce(c->>'type', '') <> all(sub_types) then c || '{"type":"text"}'::jsonb else c end order by m), '[]'::jsonb)
+               from jsonb_array_elements(f->'cols') with ordinality y(c, m))) else '{}'::jsonb end
+        end order by n), '[]'::jsonb) from jsonb_array_elements(new.data->'fields') with ordinality x(f, n)));
+  end if;
+  if tg_op = 'UPDATE' then new.updated_at := now(); end if;
+  return new;
+end $$;

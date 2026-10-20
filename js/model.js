@@ -135,7 +135,8 @@ function childData(reg, parent, extra){
   var d = {parent:parent.id}, ro = rolesOf(reg);
   if(ro.no) d[ro.no] = nextChildNo(reg, parent);
   [ro.tree, ro.block, 'dept', 'disc', 'contacts', 'resp', 'subcon', 'type', 'wbs', 'cat'].forEach(function(k){ if(k && parent.d[k] !== undefined && fieldOf(reg, k)) d[k] = clone(parent.d[k]); });
-  var sf = rf(reg, 'status'); if(sf && optsOf(sf)[0]) d[sf.key] = optsOf(sf)[0].v;
+  applyDefaults(reg, d);
+  var sf = rf(reg, 'status'); if(sf && d[sf.key] === undefined && optsOf(sf)[0]) d[sf.key] = optsOf(sf)[0].v;
   return Object.assign(d, extra || {});
 }
 function splitLine(line, reg){
@@ -166,9 +167,50 @@ function nextNo(reg){
 function blankData(reg, extra){
   var d = {}, r = rolesOf(reg);
   if(r.no) d[r.no] = nextNo(reg);
-  var sf = rf(reg, 'status'); if(sf && optsOf(sf)[0]) d[sf.key] = optsOf(sf)[0].v;
+  applyDefaults(reg, d);
+  var sf = rf(reg, 'status'); if(sf && d[sf.key] === undefined && optsOf(sf)[0]) d[sf.key] = optsOf(sf)[0].v;
   return Object.assign(d, extra || {});
 }
+/* v3.3 · a field's value for new items (Fields & columns → More → Default). Dates: the status date, or so many days after it */
+function defValue(f){
+  var v = f.def; if(v == null || v === '') return undefined;
+  if(f.type === 'date'){ var m = /^asof(?:\+(\d+))?$/.exec(String(v)); if(m) return n2d(asOfN() + (m[1] ? +m[1] : 0)); return typeof normDate === 'function' ? normDate(v) || undefined : v; }
+  if(f.type === 'select') return f.multi ? asArr(v).slice() : (Array.isArray(v) ? v[0] : v);
+  if(f.type === 'check') return !!v;
+  if(f.type === 'number' || f.type === 'percent') return isFinite(+v) ? +v : undefined;
+  return v;
+}
+function applyDefaults(reg, d){ dataFields(reg).forEach(function(f){ if(d[f.key] !== undefined || ['files','link','calc','sub','tree','section'].indexOf(f.type) >= 0) return; var v = defValue(f); if(v !== undefined) d[f.key] = v; }); return d; }
+/* v3.3 · switching "several values" on or off for a field or a sub-table column converts what records hold:
+   a single value becomes a one-item list; a list becomes its first value (lost = how many lists had more than one) */
+function multiChanges(reg, fs){
+  var old = fieldsOf(reg), out = [];
+  fs.forEach(function(f){ var o = old.filter(function(x){ return x.key === f.key; })[0]; if(!o) return;
+    if(f.type === 'select' && o.type === 'select' && !!f.multi !== !!o.multi) out.push({key:f.key, to:!!f.multi});
+    if(f.type === 'sub' && o.type === 'sub') (f.cols || []).forEach(function(c){ var oc = (o.cols || []).filter(function(x){ return x.key === c.key; })[0];
+      if(oc && c.type === 'select' && oc.type === 'select' && !!c.multi !== !!oc.multi) out.push({key:f.key, col:c.key, to:!!c.multi}); });
+  });
+  return out;
+}
+function multiPatches(reg, conv){
+  var list = [], lost = 0;
+  function one(v, to){ if(v == null || v === '') return {v:v, ch:false}; if(to && !Array.isArray(v)) return {v:[v], ch:true}; if(!to && Array.isArray(v)){ if(v.length > 1) lost++; return {v:v.length ? v[0] : null, ch:true}; } return {v:v, ch:false}; }
+  recsOf(reg.id).forEach(function(r){ var patch = {};
+    conv.forEach(function(cv){
+      if(!cv.col){ var x = one(r.d[cv.key], cv.to); if(x.ch) patch[cv.key] = x.v; return; }
+      var rows = asArr(patch[cv.key] || r.d[cv.key]), ch = false;
+      var nr = rows.map(function(row){ if(!isPlainObj(row)) return row; var y = one(row[cv.col], cv.to); if(!y.ch) return row; ch = true; var o = Object.assign({}, row); o[cv.col] = y.v; return o; });
+      if(ch) patch[cv.key] = nr;
+    });
+    if(Object.keys(patch).length) list.push({rec:r, patch:patch});
+  });
+  return {list:list, lost:lost};
+}
+/* v3.3 · record templates (reg.d.tpls): what a new item starts with; sub-table rows get new ids each time */
+function regTpls(reg){ return asArr(reg && reg.d.tpls).filter(function(t){ return t && t.id && t.d; }); }
+function tplData(t){ var d = clone(t.d || {}); Object.keys(d).forEach(function(k){ if(Array.isArray(d[k]) && d[k].length && isPlainObj(d[k][0]) && hasOwn(d[k][0], '_id')) d[k] = d[k].map(function(r){ return Object.assign({}, r, {_id:uid('s')}); }); }); return d; }
+function tplKeyOk(reg, f){ var ro = rolesOf(reg); return f && ['files','link','calc','section'].indexOf(f.type) < 0 && f.key !== ro.no; }
+function tplDefaultOn(reg, f){ var ro = rolesOf(reg); return tplKeyOk(reg, f) && ['date','percent'].indexOf(f.type) < 0 && f.key !== ro.status && f.key !== ro.progress; }
 
 /* writes with change log + quick undo */
 /* a sub-table cell as text: a person's or option's name instead of its code */
@@ -437,11 +479,11 @@ function buildDemo(){
   [['E-ASB-001','Single line diagram','单线图','completed'],['E-ASB-002','Inverter station layout','逆变站布置图','completed'],['E-ASB-003','Earthing & lightning protection layout','接地防雷布置图','in_progress'],['E-ASB-004','DC cable routing – Block B','B区直流电缆路由','in_progress'],['E-ASB-005','MV cable routing','中压电缆路由','not_started'],['E-ASB-006','Lighting & small power','照明及小动力','not_started']].forEach(function(x, i){
     add('reg_turnover', {regNo:'DOC-013-' + String(i + 1).padStart(2, '0'), docNo:x[0], en:x[1], zh:x[2], parent:parentId, node:'pk2a', areas:['B','C','D','E'], status:x[3], type:'deliverable', dept:'DES', disc:['ele'], contacts:['Li Na 李娜']}); });
   var pl = [['Loose module clamps on tracker row 12','12 排支架组件压块松动','B','T12-R3','mech','A','ready'],['Missing cable tags in combiner box CB-C07','汇流箱 CB-C07 缺少电缆标牌','C','CB-C07','elec','B','open'],['Erosion at drainage culvert near gate 2','2 号门附近涵洞冲刷','D','Culvert DC-4','civil','A','wip'],['Fence gap at north boundary','北侧围栏缺口','E','Fence N-14','hse','A','open'],['Inverter INV-B03 door seal damaged','逆变器 INV-B03 柜门密封损坏','B','INV-B03','elec','C','closed'],['As-built markups not returned for Block C DC routing','C区直流路由竣工标注未返回','C','—','doc','B','open']];
-  pl.forEach(function(x, i){ add('reg_punch', {regNo:'PL-' + String(i + 1).padStart(3, '0'), en:x[0], zh:x[1], areas:[x[2]], loc:x[3], cat:x[4], prio:x[5], status:x[6], raised:dd(-20 + i * 2), due:dd(-3 + i * 4), raisedBy:'Maria Santos', resp:[['Zhang Wei 张伟','Chen Jie 陈杰'][i % 2]], subcon:['sc1','sc2','sc3'][i % 3], closed: x[6] === 'closed' ? dd(-2) : undefined}); });
+  pl.forEach(function(x, i){ add('reg_punch', {regNo:'PL-' + String(i + 1).padStart(3, '0'), en:x[0], zh:x[1], areas:[x[2]], loc:x[3], cat:x[4], prio:x[5], status:x[6], raised:dd(-20 + i * 2), due:dd(-3 + i * 4), raisedBy:['Maria Santos'], resp:[['Zhang Wei 张伟','Chen Jie 陈杰'][i % 2]], subcon:[['sc1','sc2','sc3'][i % 3]], closed: x[6] === 'closed' ? dd(-2) : undefined}); });
   add('reg_meetings', {regNo:'MOM-001', en:'Weekly coordination meeting #38', zh:'第38周协调会', date:dd(-7), time:'09:00', mtype:'weekly', loc:'Site office', chair:'Wang Lei 王磊', attendees:['Wang Lei 王磊','Li Na 李娜','Zhang Wei 张伟','Maria Santos'], status:'issued',
     agenda:[{_id:'a1', topic:'Site progress by block', by:'Zhang Wei 张伟', notes:''},{_id:'a2', topic:'Turnover documents status', by:'Li Na 李娜', notes:''},{_id:'a3', topic:'HSE observations', by:'Maria Santos', notes:''}],
     minutes:'1. Piling in Block E restarted after rain.\n2. As-built SLD to be issued for review next week.\n3. Fence gap at north boundary to be closed before Owner walk-down.',
-    actions:[{_id:'x1', action:'Issue as-built SLD for review', who:'Li Na 李娜', due:dd(3), done:false},{_id:'x2', action:'Close fence gap N-14', who:'Zhang Wei 张伟', due:dd(-1), done:false},{_id:'x3', action:'Send rain-delay notice to Owner', who:'Wang Lei 王磊', due:dd(-5), done:true}]});
+    actions:[{_id:'x1', action:'Issue as-built SLD for review', who:['Li Na 李娜'], due:dd(3), done:false},{_id:'x2', action:'Close fence gap N-14', who:['Zhang Wei 张伟', 'Chen Jie 陈杰'], due:dd(-1), done:false},{_id:'x3', action:'Send rain-delay notice to Owner', who:['Wang Lei 王磊'], due:dd(-5), done:true}]});
   add('reg_meetings', {regNo:'MOM-002', en:'Owner monthly progress meeting', zh:'业主月度进度会', date:dd(6), time:'14:00', mtype:'owner', loc:'Owner office', chair:'Wang Lei 王磊', attendees:['Wang Lei 王磊','Li Na 李娜'], status:'planned',
     agenda:[{_id:'b1', topic:'Overall progress & look-ahead', by:'Wang Lei 王磊', notes:''},{_id:'b2', topic:'Turnover plan for the next half-month', by:'Li Na 李娜', notes:''}], actions:[]});
   [['Notice to proceed','开工令','contract',-300,-300,-300],['Mechanical completion – Block B','B区机械完工','internal',-20,-14,-12],['Mechanical completion – Block C','C区机械完工','internal',10,24,null],['Mechanical completion – Block D','D区机械完工','internal',35,52,null],['Mechanical completion – Block E','E区机械完工','internal',55,82,null],['Back-feed / energisation','倒送电','owner',45,52,null],['Grid synchronisation','并网','owner',75,86,null],['Commercial operation date (COD)','商业运营（COD）','contract',105,118,null],['Taking-over certificate / PAC','移交证书 / PAC','contract',135,148,null],['Final acceptance (FAC)','最终验收（FAC）','contract',500,500,null]].forEach(function(x, i){

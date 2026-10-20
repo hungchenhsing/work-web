@@ -82,6 +82,11 @@ document.addEventListener('click', function(e){
     // register page
     case 'rview': S.rv[S.reg] = v; S.gKeep = false; saveUI(); renderMain(); break;
     case 'newRec': createRec(reg, nodeExtra(reg)); break;
+    case 'newTpl': (function(){ var t = regTpls(reg).filter(function(x){ return x.id === v; })[0]; if(!t) return; createRec(reg, Object.assign(tplData(t), nodeExtra(reg))).then(function(id){ if(id){ S.newBlank = null; toast(T('New item from “' + t.name + '”', '已按「' + t.name + '」新增')); } }); })(); break;
+    case 'tplSave': (function(){ var r0 = S.open && getRec(S.open); if(!r0) return; openModal({kind:'tplSave', reg:r0.reg, rec:r0.id}); setTimeout(function(){ var i = $('#tplName'); if(i) i.focus(); }, 30); })(); break;
+    case 'tplSaveDo': tplSaveDo(); break;
+    case 'tplManage': openModal({kind:'tplManage', reg:v || S.reg}); break;
+    case 'tplDel': (function(){ var r1 = getReg(S.modal && S.modal.reg), t = r1 && regTpls(r1).filter(function(x){ return x.id === v; })[0]; if(!t || !confirm(T('Delete the template “' + t.name + '”?', '删除模板「' + t.name + '」？'))) return; STORE.patchReg(r1.id, {tpls:regTpls(r1).filter(function(x){ return x.id !== v; })}).then(function(){ renderModal(); renderMain(); }, function(er){ toast(errText(er)); }); })(); break;
     case 'boardAdd': (function(){ var bf = boardField(reg); createRec(reg, mk(bf.key, v)); })(); break;
     case 'grpAdd': (function(){ var rg = el.dataset.reg ? getReg(el.dataset.reg) : reg; createRec(rg, JSON.parse(v)); })(); break;
     case 'impOpen': impOpen(getReg(v)); break;
@@ -161,7 +166,13 @@ document.addEventListener('click', function(e){
     case 'fmSave': (function(){ var m = S.modal, rg = getReg(m.reg), fs = m.d.fields;
       for(var i = 0; i < fs.length; i++){ if(!fs[i].en && !fs[i].zh){ toast(T('Every field needs a name', '每个字段都需要名称')); return; } if(fs[i].type === 'select' && !fs[i].list){ var bad = cleanOpts(fs[i].opts || []); if(bad){ toast(T1(fs[i].en, fs[i].zh) + ': ' + bad); return; } } }
       Object.keys(m.d.roles).forEach(function(r){ if(!m.d.roles[r]) delete m.d.roles[r]; });
-      STORE.patchReg(rg.id, {fields:fs, roles:m.d.roles}).then(function(){ toast(T('Fields saved', '字段已保存')); closeModal(); }).catch(function(er){ toast(errText(er)); }); })(); break;
+      /* v3.3: "several values" switched on or off → convert what the records hold (asks first when values would be dropped) */
+      var conv = multiChanges(rg, fs), mp = conv.length ? multiPatches(rg, conv) : {list:[], lost:0};
+      if(mp.lost && !confirm(T(mp.lost + ' values hold several entries. Only the first entry of each will be kept. Continue?', '有 ' + mp.lost + ' 个值包含多项，将只保留每个的第一项。继续？'))) return;
+      STORE.patchReg(rg.id, {fields:fs, roles:m.d.roles}).then(function(){ closeModal();
+        if(!mp.list.length){ toast(T('Fields saved', '字段已保存')); return; }
+        return setRecs(mp.list).then(function(r){ toast(T('Fields saved · ' + ((r && r.ok) || 0) + ' records converted', '字段已保存 · 已转换 ' + ((r && r.ok) || 0) + ' 条记录')); });
+      }).catch(function(er){ toast(errText(er)); }); })(); break;
     case 'colsOpen': (function(){ var parent = S.modal; S.modal = {kind:'cols', i:+v, parent:parent}; renderModal(); })(); break;
     case 'cdAdd': S.modal.cols.push(F('c' + (S.modal.cols.length + 1) + Date.now().toString(36).slice(-2), '', '', 'text')); renderModal(); break;
     case 'cdDel': S.modal.cols.splice(+v, 1); renderModal(); break;
@@ -324,7 +335,8 @@ function fmSet(d, el){
   else if(k === 'w') f.w = el.value ? +el.value : undefined;
   else if(k === 'show') f.hide = !el.checked;
   else if(k === 'ext') f.ext = el.checked;
-  else if(k === 'multi') f.multi = el.checked;
+  else if(k === 'multi'){ f.multi = el.checked; if(f.def != null) f.def = f.multi ? asArr(f.def).slice(0, 1) : asArr(f.def)[0]; }
+  else if(k === 'def'){ var dv = el.type === 'checkbox' ? (el.checked || undefined) : el.value; if(dv === '' || dv == null) delete f.def; else if(f.type === 'number' || f.type === 'percent') f.def = +dv; else if(f.type === 'select' && f.multi) f.def = [dv]; else f.def = dv; }
   else if(k === 'type'){ f.type = el.value; if(f.type === 'select' && !f.list && !f.opts) f.opts = []; if(f.type === 'tree' && !f.tree) f.tree = []; if(f.type === 'sub' && !f.cols) f.cols = [F('item','Item','事项','text')]; if(f.type === 'calc' && !f.calc) f.calc = {op:'pct', a:'', b:''}; m.exp = +p[0]; renderModal(); }
   else if(k === 'list'){ f.list = el.value || undefined; if(!f.list && !f.opts) f.opts = []; renderModal(); }
   else if(k === 'autoA' || k === 'autoB'){ f.auto = f.auto || {op:'pct'}; f.auto[k === 'autoA' ? 'a' : 'b'] = el.value; if(!f.auto.a || !f.auto.b){ if(!f.auto.a && !f.auto.b) delete f.auto; } }
@@ -371,7 +383,9 @@ document.addEventListener('change', function(e){
   if((d = el.dataset.fmrole)){ S.modal.d.roles[d] = el.value; return; }
   if((d = el.dataset.od)){ var q = d.split(':'), a = odArr(); if(a[+q[0]]) a[+q[0]][q[1]] = q[1] === 'done' ? el.checked : el.value; return; }
   if((d = el.dataset.td)){ var q2 = d.split(':'), t = tdArr(); if(t[+q2[0]]){ t[+q2[0]][q2[1]] = el.value; if(q2[1] === 'parent') rerenderDraft(); } return; }
-  if((d = el.dataset.cd)){ var q3 = d.split(':'), c = S.modal.cols[+q3[0]]; if(!c) return; if(q3[1] === 'type'){ c.type = el.value; if(c.type === 'select' && !c.opts) c.opts = []; renderModal(); } else if(q3[1] === 'optsTxt'){ c.opts = splitList(el.value, /\s*[,，;；]\s*/).map(function(x, i){ return O(x, x, '', COLORS[(i + 1) % COLORS.length]); }); } return; }
+  if((d = el.dataset.cd)){ var q3 = d.split(':'), c = S.modal.cols[+q3[0]]; if(!c) return; if(q3[1] === 'type'){ c.type = el.value; if(c.type === 'select' && !c.opts && !c.list) c.opts = []; if(c.type !== 'select'){ delete c.multi; } renderModal(); }
+    else if(q3[1] === 'list'){ if(el.value) c.list = el.value; else { delete c.list; if(!c.opts) c.opts = []; } renderModal(); }
+    else if(q3[1] === 'multi'){ c.multi = el.checked; } else if(q3[1] === 'optsTxt'){ c.opts = splitList(el.value, /\s*[,，;；]\s*/).map(function(x, i){ return O(x, x, '', COLORS[(i + 1) % COLORS.length]); }); } return; }
   if((d = el.dataset.rs)){ S.modal.d[d] = el.type === 'checkbox' ? el.checked : el.value; if(d === 'vis') renderModal(); return; }
   if(el.dataset.imap != null){ S.modal.map[+el.dataset.imap] = el.value; renderModal(); return; }
   if(el.id === 'impMatch'){ S.modal.matchKey = el.value; renderModal(); return; }

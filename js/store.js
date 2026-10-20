@@ -67,14 +67,19 @@ function DemoStore(){
     signUrls: function(){ return Promise.resolve(); },
     removeFile: function(){ return Promise.resolve(); }
   };
+  /* v3.3 · personal settings (in the demo: this browser) */
+  api.prefs = LS.get('ww3.prefs.demo', {}) || {};
+  api.savePrefs = function(p){ prefsMergeInto(api.prefs, p); LS.set('ww3.prefs.demo', api.prefs); notify(); return Promise.resolve(); };
   return api;
 }
+/* a top-level merge of settings; a key set to null is removed (the same as prefs_merge in schema.sql) */
+function prefsMergeInto(o, p){ Object.keys(p || {}).forEach(function(k){ if(p[k] == null) delete o[k]; else o[k] = clone(p[k]); }); return o; }
 
 /* ---------------- cloud: Supabase ---------------- */
 function CloudStore(url, key){
   var sb = window.supabase.createClient(url, key, {auth:{persistSession:true, autoRefreshToken:true, detectSessionInUrl:true}});
   var urls = {}, pendingUrls = {}, urlTimer = null, channel = null;
-  var api = {mode:'cloud', sb:sb, ready:false, rt:'connecting', session:null, me:null, cfg:null, regs:[], recs:[], audit:[], pubs:[], fb:[], users:[], v1:null};
+  var api = {mode:'cloud', sb:sb, ready:false, rt:'connecting', session:null, me:null, cfg:null, regs:[], recs:[], audit:[], pubs:[], fb:[], users:[], v1:null, prefs:{}, prefsLocal:false};
   function rowReg(r){ return {id:r.id, owner:r.owner, vis:r.visibility, d:cleanFields(r.data || {}), ua:r.updated_at}; }
   function rowRec(r){ return {id:r.id, reg:r.register_id, d:r.data || {}, ca:r.created_at, ua:r.updated_at, ub:r.updated_by}; }
   function check(res){ if(res && res.error) throw res.error; return res; }
@@ -117,7 +122,9 @@ function CloudStore(url, key){
     try{
       if(internal){
         /* the three things the first screen needs, in parallel; everything else loads after the site is shown */
+        var prefsP = loadPrefs();
         var three = await Promise.all([sb.from('app_config').select('id,data'), pageAll('registers', 'id,owner,visibility,data,updated_at'), pageAll('records', 'id,register_id,data,created_at,updated_at,updated_by')]);
+        await prefsP;
         var c = check(three[0]);
         c.data.forEach(function(r){ if(r.id === 'main') api.cfg = r.data; });
         api.regs = three[1].map(rowReg);
@@ -225,6 +232,26 @@ function CloudStore(url, key){
     if(!ops.length) return Promise.resolve();
     return opsCall('config_ops', 'config_patch', 'main', ops, p).then(function(r){ if(r.error) throw r.error; })
       .catch(function(e){ api.cfg = prev; notify(); failSave(e); throw e; }); };
+  /* v3.3 · personal settings follow the account (user_prefs). Until schema.sql is updated they stay in this browser. */
+  function prefsKey(){ return 'ww3.prefs.' + (api.uid || 'x'); }
+  function loadPrefs(){
+    api.prefs = {}; api.prefsLocal = false;
+    return sb.from('user_prefs').select('data').eq('user_id', api.uid).maybeSingle().then(function(r){
+      if(r.error) throw r.error; api.prefs = (r.data && r.data.data) || {}; LS.set(prefsKey(), api.prefs);
+    }).catch(function(e){
+      /* no table yet → this browser; any other failure (offline) → the last copy seen here, and saving keeps trying the server */
+      if(e && (e.code === '42P01' || e.code === 'PGRST205' || /user_prefs/.test(e.message || ''))) api.prefsLocal = true;
+      api.prefs = LS.get(prefsKey(), {}) || {};
+    });
+  }
+  api.savePrefs = function(p){
+    prefsMergeInto(api.prefs, p); LS.set(prefsKey(), api.prefs); notify();
+    if(api.prefsLocal) return Promise.resolve();
+    return sb.rpc('prefs_merge', {p:p}).then(function(r){
+      if(r.error && noFn(r.error)){ api.prefsLocal = true; notifySoft(); return; }
+      if(r.error) throw r.error;
+    }).catch(function(e){ fail(e); });
+  };
   /* element-level writes (v2.9): only what changed is sent, and the database applies it to what it holds now.
      Until schema.sql is updated the older whole-value patch is used. */
   function noFn(e){ return !!e && (e.code === 'PGRST202' || e.code === '42883' || /could not find the function/i.test(e.message || '')); }

@@ -30,6 +30,7 @@ function renderAll(){
   renderTop();
   if(typeof pkgUpgrade === 'function') setTimeout(pkgUpgrade, 0);
   if(typeof peopleSubUpgrade === 'function') setTimeout(peopleSubUpgrade, 0);
+  if(typeof multiUpgrade === 'function') setTimeout(multiUpgrade, 0);
   if(STORE.mode === 'cloud' && (!STORE.ready || !STORE.session || !STORE.me || role() === 'pending' || role() === 'none' || S.recovery)){ $('#side').innerHTML = ''; document.body.classList.add('gate'); renderGate(); renderDrawer(); renderPop(); renderModal(); return; }
   document.body.classList.remove('gate');
   if(role() === 'owner'){ $('#side').innerHTML = ''; document.body.classList.add('gate'); $('#main').innerHTML = viewOwnerPortal(); fitSlides(); renderDrawer(); renderPop(); renderModal(); return; }
@@ -118,21 +119,22 @@ function renderSheet(){
   var r = $('#sheet-root'); if(!r) return;
   if(!S.sheet){ r.innerHTML = ''; return; }
   var h = '';
-  if(S.sheet === 'regs') h = '<h2>' + L('Registers', '台账') + '</h2>' + regGroups().map(function(g){ return '<div class="sh">' + (g.s[0] === 'private' ? uic('lock', 12) + ' ' : '') + L(g.s[1], g.s[2]) + '</div>' + g.regs.map(function(x){ return regBtn(x, 'sreg'); }).join(''); }).join('') + (canCreateReg() ? '<button type="button" class="sadd" data-act="newReg">' + uic('plus', 14) + ' ' + L('New register', '新建台账') + '</button>' : '');
-  else h = '<h2>' + L('More', '更多') + '</h2><div class="snav">' + sidePages().filter(function(p){ return p[0] !== 'home' && p[0] !== 'mine'; }).map(function(p){ return '<button type="button" data-act="page" data-v="' + p[0] + '"' + (S.page === p[0] ? ' aria-current="page"' : '') + '>' + uic(p[1]) + '<span>' + L(p[2], p[3]) + '</span></button>'; }).join('') + '</div>' +
+  if(S.sheet === 'regs') h = '<h2>' + L('Registers', '台账') + '</h2>' + navRegsHtml('sreg', !!S.sideEdit) + (S.sideEdit ? navEditFoot() : (canCreateReg() ? '<button type="button" class="sadd" data-act="newReg">' + uic('plus', 14) + ' ' + L('New register', '新建台账') + '</button>' : '') + '<button type="button" class="sadd" data-act="navEdit">' + uic('gear', 14) + ' ' + L('Arrange this menu', '整理菜单') + '</button>');
+  else h = '<h2>' + L('More', '更多') + '</h2><div class="snav">' + navModel(false).pages.filter(function(p){ return p[0] !== 'home' && p[0] !== 'mine'; }).map(function(p){ return '<button type="button" data-act="page" data-v="' + p[0] + '"' + (S.page === p[0] ? ' aria-current="page"' : '') + '>' + uic(p[1]) + '<span>' + L(p[2], p[3]) + '</span></button>'; }).join('') + '</div>' +
     (STORE.mode === 'cloud' && STORE.me ? '<div class="sme"><span>' + esc(STORE.me.name || STORE.me.email || '') + ' · ' + esc(roleName(role())) + '</span><button type="button" class="btn sm" data-act="signout">' + L('Sign out', '退出登录') + '</button></div>' : '');
   var was = r.querySelector('.sheet');
   r.innerHTML = '<div class="sheet-scrim" data-act="sheetClose"></div><div class="sheet" role="dialog" aria-modal="true" tabindex="-1" aria-label="' + esc(S.sheet === 'regs' ? T('Registers', '台账') : T('More', '更多')) + '"><span class="sgrip"></span>' + h + '</div>';
   if(!was){ var sh = r.querySelector('.sheet'); if(sh) sh.focus(); }
 }
+/* v3.3 · the menu as each person arranged it (order, hidden items, pinned registers); "Arrange this menu" switches to edit mode */
 function renderSide(){
-  var pages = sidePages();
-  var h = '<div class="snav">' + pages.map(function(p){ return '<button type="button" data-act="page" data-v="' + p[0] + '"' + (S.page === p[0] ? ' aria-current="page"' : '') + '>' + uic(p[1]) + '<span>' + L(p[2], p[3]) + '</span></button>'; }).join('') + '</div>';
-  regGroups().forEach(function(g){
-    h += '<div class="sh">' + (g.s[0] === 'private' ? uic('lock', 12) + ' ' : '') + L(g.s[1], g.s[2]) + '</div>' + g.regs.map(function(r){ return regBtn(r, 'sreg'); }).join('');
-  });
-  if(canCreateReg()) h += '<button type="button" class="sadd" data-act="newReg">' + uic('plus', 14) + ' ' + L('New register', '新建台账') + '</button>';
-  $('#side').innerHTML = h;
+  var ed = !!S.sideEdit, m = navModel(ed);
+  var h = '<div class="snav">' + m.pages.map(function(p, i){ var lab = uic(p[1]) + '<span>' + L(p[2], p[3]) + '</span>'; return ed ? navEditRow(lab, p[0], 'pages', i, m.pages.length, false) : '<button type="button" data-act="page" data-v="' + p[0] + '"' + (S.page === p[0] ? ' aria-current="page"' : '') + '>' + lab + '</button>'; }).join('') + '</div>';
+  h += navRegsHtml('sreg', ed);
+  if(ed) h += navEditFoot();
+  else { if(canCreateReg()) h += '<button type="button" class="sadd" data-act="newReg">' + uic('plus', 14) + ' ' + L('New register', '新建台账') + '</button>';
+    h += '<button type="button" class="sadd sarr" data-act="navEdit">' + uic('gear', 14) + ' ' + L('Arrange this menu', '整理菜单') + '</button>'; }
+  $('#side').innerHTML = h; $('#side').classList.toggle('editing', ed);
   document.body.classList.toggle('side-open', !!S.sideOpen);
 }
 /* while the main area is rebuilt, the browser fires focusout on the element being replaced — inline editors ignore that */
@@ -387,6 +389,7 @@ function pickApply(v){
   if(p.bulk){ p.onPick(v); return; }
   var rec = p.rec && getRec(p.rec);
   if(p.kind === 'link'){ var have = asArr(rec.d[p.key]).slice(), i = have.indexOf(v); if(i >= 0) have.splice(i, 1); else have.push(v); setRec(rec, mk(p.key, have), {silent:true}); renderPop(); return; }
+  if(p.sub && f && f.multi){ var rows0 = asArr(rec.d[p.sub.key]), row0 = rows0.filter(function(x){ return x._id === p.sub.row; })[0], cur0 = asArr(row0 && row0[p.sub.col]).slice(), k0 = cur0.indexOf(v); if(k0 >= 0) cur0.splice(k0, 1); else cur0.push(v); subSet(rec, p.sub.key, p.sub.row, p.sub.col, cur0); renderPop(); return; }
   if(p.sub){ subSet(rec, p.sub.key, p.sub.row, p.sub.col, v); closePop(); return; }
   if(p.kind === 'opts' && f.multi){ var cur = asArr(rec.d[p.key]).slice(), j = cur.indexOf(v); if(j >= 0) cur.splice(j, 1); else cur.push(v); setRec(rec, mk(p.key, cur)); renderPop(); return; }
   setRec(rec, mk(p.key, v)); closePop();
@@ -411,7 +414,8 @@ function subEditor(reg, f, rec, ed){
       var v = r[c.key], a = ' data-sub="' + esc(f.key) + '" data-row="' + esc(r._id) + '" data-col="' + esc(c.key) + '" aria-label="' + esc(T1(c.en || c.key, c.zh) + ' ' + (i + 1)) + '"' + (ed ? '' : ' disabled');
       if(c.type === 'check') return '<td class="tc"><input type="checkbox"' + a + (v ? ' checked' : '') + '></td>';
       if(c.type === 'long') return '<td><textarea class="in" rows="2"' + a + ' data-fk="sub:' + esc(f.key + ':' + r._id + ':' + c.key) + '">' + esc(v || '') + '</textarea></td>';
-      if(c.type === 'select'){ var o = optOf(c, v); return '<td><button type="button" class="pickbtn" data-act="subPick"' + a + '>' + (c.list === 'people' && v ? '<span class="ppl">' + esc(o ? nm(o) : v) + '</span>' : o ? optChip(o, v) : v ? esc(v) : '<span class="muted">—</span>') + '</button></td>'; }
+      if(c.type === 'select'){ var vs = asArr(v).filter(function(x){ return x !== '' && x != null; });
+        return '<td><button type="button" class="pickbtn' + (c.multi ? ' multi' : '') + '" data-act="subPick"' + a + '>' + (vs.length ? vs.map(function(x){ var o = optOf(c, x); return c.list === 'people' ? '<span class="ppl">' + esc(o ? nm(o) : x) + '</span>' : o ? optChip(o, x) : esc(x); }).join(' ') : '<span class="muted">—</span>') + '</button></td>'; }
       return '<td><input class="in" type="' + (c.type === 'date' ? 'date' : c.type === 'number' ? 'number' : 'text') + '"' + a + ' value="' + esc(v == null ? '' : v) + '" data-fk="sub:' + esc(f.key + ':' + r._id + ':' + c.key) + '"></td>';
     }).join('') + (ed ? '<td class="tc"><button type="button" class="ib" data-act="subDel" data-sub="' + esc(f.key) + '" data-row="' + esc(r._id) + '" title="' + esc(T('Remove row', '删除行')) + '">' + uic('x', 14) + '</button></td>' : '') + '</tr>';
   });
@@ -462,6 +466,7 @@ function renderDrawer(){
   var desc = descendantsOf(rec).length, w = drawerW();
   var menu = '<details class="menu dmenu"><summary class="ib" aria-label="' + esc(T('More actions', '更多操作')) + '" title="' + esc(T('More actions', '更多操作')) + '">' + uic('dots', 18) + '</summary><div class="pop pop-r">' +
     (ed ? '<button type="button" data-act="dupRec">' + uic('copy', 14) + ' ' + L('Duplicate', '复制') + '</button>' : '') +
+    (ed && !lib && !trn && reg.d.kind !== 'decks' ? '<button type="button" data-act="tplSave">' + uic('layers', 14) + ' ' + L('Save as a template…', '存成模板…') + '</button>' : '') +
     (ed && !lib && !trn ? '<button type="button" data-act="dtab" data-v="subs">' + uic('list', 14) + ' ' + L('Sub-items…', '子项…') + '</button>' : '') +
     (ed ? '<button type="button" data-act="linkOpen" data-id="' + esc(rec.id) + '">' + uic('link', 14) + ' ' + L('Link to…', '关联到…') + '</button>' : '') +
     (reg.d.meeting ? '<button type="button" data-act="printMom">' + uic('print', 14) + ' ' + L('Print minutes', '打印纪要') + '</button>' : '') +

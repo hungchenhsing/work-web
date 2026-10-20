@@ -53,7 +53,10 @@ function peopleReplace(from, to){
         if(Array.isArray(v)){ if(v.indexOf(from) < 0) return; var nv = []; v.forEach(function(x){ var y = x === from ? to : x; if(y && nv.indexOf(y) < 0) nv.push(y); }); patch[f.key] = nv; }
         else if(v === from) patch[f.key] = f.multi ? [to] : to; });
       sc.forEach(function(x){ var rows = asArr(patch[x.f.key] || r.d[x.f.key]), hit = false;
-        var nr = rows.map(function(row){ if(row && row[x.c.key] === from){ hit = true; row = clone(row); row[x.c.key] = to; } return row; });
+        var nr = rows.map(function(row){ if(!row) return row; var cv = row[x.c.key];
+          if(Array.isArray(cv) && cv.indexOf(from) >= 0){ hit = true; row = clone(row); var nv = []; cv.forEach(function(y){ y = y === from ? to : y; if(y && nv.indexOf(y) < 0) nv.push(y); }); row[x.c.key] = nv; }
+          else if(cv === from){ hit = true; row = clone(row); row[x.c.key] = x.c.multi ? [to] : to; }
+          return row; });
         if(hit) patch[x.f.key] = nr; });
       if(Object.keys(patch).length){ n++; ps.push({id:r.id, patch:patch}); }
     });
@@ -186,6 +189,24 @@ function peopleSubUpgrade(){
         if(Object.keys(patch).length) list.push({rec:r, patch:patch}); });
       return setRecs(list);
     }).catch(function(){});
+  });
+}
+
+/* ---------------- one-time upgrade (v3.3): several people / companies ----------------
+   Meeting actions can have several owners; a punch item several people who raised it and several subcontractors.
+   Only fields still as the templates made them are changed; the change and the converted records are in the change log. */
+var MULTI_RUN = false;
+function multiUpgrade(){
+  if(MULTI_RUN || !appReady() || !canTeamEdit()) return; MULTI_RUN = true;
+  allRegs().filter(canWrite).forEach(function(reg){
+    if(reg.d.mig33 || isPeopleReg(reg)) return;
+    var fs = clone(fieldsOf(reg)), hit = [], punch = reg.d.tpl === 'punch' || (fieldOf(reg, 'raisedBy') && fieldOf(reg, 'subcon') && fieldOf(reg, 'prio'));
+    fs.forEach(function(f){
+      if(punch && f.type === 'select' && !f.multi && ((f.key === 'raisedBy' && f.list === 'people') || (f.key === 'subcon' && f.list === 'subcon'))){ f.multi = true; hit.push({key:f.key, to:true}); }
+      if((reg.d.tpl === 'meetings' || reg.d.meeting) && f.type === 'sub' && f.key === 'actions') (f.cols || []).forEach(function(c){ if(c.key === 'who' && c.type === 'select' && c.list === 'people' && !c.multi){ c.multi = true; hit.push({key:f.key, col:c.key, to:true}); } });
+    });
+    if(!hit.length) return;
+    STORE.patchReg(reg.id, {fields:fs, mig33:1}).then(function(){ var c = multiPatches(reg, hit); return c.list.length ? setRecs(c.list) : null; }).catch(function(){});
   });
 }
 

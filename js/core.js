@@ -141,13 +141,13 @@ var UI = LS.get('ww2.ui', {});
 var S = {
   lang: LS.get('ww.lang', 'both'),
   page: UI.page || 'home', reg: UI.reg || null, deck: UI.deck || null, dslide: null, dpage: 0, present: null,
-  rv: UI.rv || {}, rf: {}, rs: UI.rs || {}, rg: UI.rg || {}, rcols: UI.rcols || {}, rmx: UI.rmx || {}, rboard: UI.rboard || {},
+  rv: UI.rv || {}, rf: {}, rs: UI.rs || {}, rg: UI.rg || {}, rcols: UI.rcols || {}, rmx: UI.rmx || {}, rboard: UI.rboard || {}, cv: UI.cv || {},
   sel: {}, open: null, dtab: 'details', pop: null, modal: null, rexp: {}, treeEdit: {},
   stab: UI.stab || 'project', sreg: null, sched: UI.sched || null, gz: UI.gz || 'week', gcol: {},
   act: {reg:'', who:'', type:''}, files: {reg:'', q:''}, otab: 'live', oreg: null, pubSel: null, fbFor: null,
   q: '', auth: {tab:'in'}, sideOpen: false, imp: null, asOfLocal: null
 };
-function saveUI(){ LS.set('ww2.ui', {page:S.page, reg:S.reg, deck:S.deck, rv:S.rv, rs:S.rs, rg:S.rg, rcols:S.rcols, rmx:S.rmx, rboard:S.rboard, stab:S.stab, sched:S.sched, gz:S.gz}); }
+function saveUI(){ LS.set('ww2.ui', {page:S.page, reg:S.reg, deck:S.deck, rv:S.rv, rs:S.rs, rg:S.rg, rcols:S.rcols, rmx:S.rmx, rboard:S.rboard, cv:S.cv, stab:S.stab, sched:S.sched, gz:S.gz}); }
 
 /* ================= colours ================= */
 var COLORS = ['grey','blue','green','amber','red','violet','teal','pink'];
@@ -200,7 +200,8 @@ var DEF_LISTS = {
   people: {en:'People', zh:'人员', opts:[]},
   subcon: {en:'Subcontractors', zh:'分包商', opts:[]}
 };
-var DEF_CFG = {projectEn:'CEEC-TERRA I', projectZh:'TERRA I 光伏项目', asOf:'', ganttStart:'', ganttEnd:'2027-12-31', lists:DEF_LISTS, regOrder:[], v2:false};
+var DEF_CFG = {projectEn:'CEEC-TERRA I', projectZh:'TERRA I 光伏项目', asOf:'', ganttStart:'', ganttEnd:'2027-12-31', lists:DEF_LISTS, regOrder:[], v2:false,
+  deckTheme:null, prefDef:null, teamNote:null};   // v3.3: cfg() only passes on the keys listed here (deckTheme was missing: the team's default slide style never applied)
 
 /* ================= register templates ================= */
 var ST_DOC = [O('not_started','Not started','未开始','amber'),O('in_progress','In progress','进行中','blue'),O('submitted','Submitted','已提交','violet'),O('pending','Pending','暂缓 / 待定','red'),O('completed','Completed','已完成','green',{done:true})];
@@ -296,8 +297,8 @@ var TEMPLATES = {
     F('cat','Category','类别','select',{opts:[O('civil','Civil','土建','amber'),O('mech','Mechanical','机械','teal'),O('elec','Electrical','电气','blue'),O('inc','I&C / SCADA','仪控 / SCADA','violet'),O('hse','HSE','安全环保','red'),O('doc','Documentation','资料','grey')]}),
     F('prio','Priority','优先级','select',{opts:[O('A','A · critical','A · 紧急','red'),O('B','B · major','B · 重要','amber'),O('C','C · minor','C · 一般','blue')]}),
     F('status','Status','状态','select',{opts:[O('open','Open','未处理','red'),O('wip','In progress','处理中','blue'),O('ready','Ready for inspection','待验收','violet'),O('closed','Closed','已关闭','green',{done:true})]}),
-    F('raisedBy','Raised by','提出人','select',{list:'people'}),F('raised','Raised','提出日期','date'),
-    F('resp','Responsible','责任人','select',{list:'people', multi:true}),F('subcon','Subcontractor','分包商','select',{list:'subcon'}),
+    F('raisedBy','Raised by','提出人','select',{list:'people', multi:true}),F('raised','Raised','提出日期','date'),
+    F('resp','Responsible','责任人','select',{list:'people', multi:true}),F('subcon','Subcontractor','分包商','select',{list:'subcon', multi:true}),
     F('due','Due','要求完成','date'),F('closed','Closed on','关闭日期','date',{hide:true}),
     F('before','Photos · before','整改前照片','files'),F('after','Photos · after','整改后照片','files'),F('remarks','Remarks','备注','long',{hide:true})
   ], roles:{title:'en', title2:'zh', no:'regNo', start:'raised', finish:'due', status:'status', block:'areas'}, view:'board', board:'status'},
@@ -312,7 +313,7 @@ var TEMPLATES = {
     F('agenda','Agenda','议程','sub',{cols:[F('topic','Topic','议题','text'),F('by','Presenter','汇报人','text'),F('notes','Notes','说明','long')], hide:true}),
     F('s2','Minutes','纪要','section'),
     F('minutes','Minutes','会议纪要','long',{hide:true}),
-    F('actions','Action items','待办事项','sub',{cols:[F('action','Action','事项','long'),F('who','Owner','负责人','select',{list:'people'}),F('due','Due','期限','date'),F('done','Done','完成','check')], hide:true}),
+    F('actions','Action items','待办事项','sub',{cols:[F('action','Action','事项','long'),F('who','Owner','负责人','select',{list:'people', multi:true}),F('due','Due','期限','date'),F('done','Done','完成','check')], hide:true}),
     F('files','Files','附件','files',{hide:true}),F('links','Related records','关联记录','link',{hide:true})
   ], roles:{title:'en', title2:'zh', no:'regNo', start:'date', finish:'date', status:'status'}, view:'table', meeting:true},
 
