@@ -166,6 +166,13 @@ function pkgUndo(regId){
     .then(function(){ return setRecs(back.map(function(m){ var pt = {}; pt[mg.key] = m.from; return {rec:getRec(m.id), patch:pt}; })); })
     .then(function(){ closeModal(); toast(T('Previous packages restored.', '已恢复原来的文件包。')); });
 }
+/* v3.2: the same message as a notice behind the bell (unread until "Got it") */
+function pkgNotice(){
+  var at = ''; allRegs().forEach(function(r){ [r.d.pkgMig && r.d.pkgMig.at, r.d.ctItems && (r.d.ctItems.ids || []).length && r.d.ctItems.at].forEach(function(x){ if(x && x > at) at = x; }); }); if(!at) return null;
+  var seen = ''; try{ seen = localStorage.getItem('ww.pkgSeen') || ''; }catch(e){}
+  return {k:'pkg', unread:seen < at, html:L('The turnover register now follows the contract handover requirements: P0 handover process & milestones, P1–P12 submission list.', '移交台账已按合同移交需求更新：P0 移交流程与节点，P1–P12 对应提交资料清单。') +
+    '<div class="row" style="margin-top:6px"><button type="button" class="btn sm" data-act="pkgReview">' + L('See what changed', '查看变更') + '</button>' + (seen < at ? '<button type="button" class="btn sm" data-act="pkgSeen" data-v="' + esc(at) + '">' + L('Got it', '知道了') + '</button>' : '') + '</div>'};
+}
 /* a banner until each person has seen the change once (per browser) */
 function pkgBanner(){
   var at = ''; allRegs().forEach(function(r){ [r.d.pkgMig && r.d.pkgMig.at, r.d.ctItems && (r.d.ctItems.ids || []).length && r.d.ctItems.at].forEach(function(x){ if(x && x > at) at = x; }); }); if(!at) return '';

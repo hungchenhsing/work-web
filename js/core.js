@@ -127,7 +127,11 @@ function errText(e){
 
 /* ================= language ================= */
 function L(en, zh){ var m = S.lang; if(m === 'en' || !zh) return esc(en); if(m === 'zh') return esc(zh); return esc(en) + ' <span class="zh">' + esc(zh) + '</span>'; }
-function T(en, zh){ var m = S.lang; if(m === 'en' || !zh) return en; if(m === 'zh') return zh; return en + ' · ' + zh; }
+/* v3.2: in "EN + 中" the site's own words (buttons, menus, hints, messages) are in English, with the Chinese on hover;
+   slides, printouts and exports keep both languages in full (they run inside inDoc) */
+var T_DOC = 0;
+function T(en, zh){ var m = S.lang; if(m === 'en' || !zh) return en; if(m === 'zh') return zh; return T_DOC ? en + ' · ' + zh : en; }
+function inDoc(fn){ T_DOC++; try{ return fn(); } finally { T_DOC--; } }
 function T1(en, zh){ return S.lang === 'zh' ? (zh || en || '') : (en || zh || ''); }
 function nm(o){ return o ? T1(o.en, o.zh) : ''; }
 function nmL(o){ return o ? L(o.en || o.zh || '', o.en ? o.zh : '') : ''; }

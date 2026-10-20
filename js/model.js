@@ -301,13 +301,14 @@ function matchRec(reg, rec, f, skipNode){
     if(!have.some(function(x){ return want.indexOf(x) >= 0; })) return false; }
   if(f.from || f.to){ var p = planOf(reg, rec); if(!p) return false; if(f.from && p.f < d2n(f.from)) return false; if(f.to && p.s > d2n(f.to)) return false; }
   if(f.od && !isOverdue(reg, rec)) return false;
+  if(f.due){ var pd = planOf(reg, rec), A0 = asOfN(); if(!pd || isDone(reg, rec) || pd.f < A0 || pd.f > A0 + 14) return false; }   // v3.2: due in the next 14 days
   if(f.star && !rec.d.star) return false;
   if(f.ext && !rec.d.ext) return false;
   if(!skipNode && f.node && f.node !== 'all'){ var tf = rf(reg, 'tree'); if(tf){ if(f.node === 'none'){ if(rec.d[tf.key] && treeNode(tf, rec.d[tf.key])) return false; } else if(!treeDesc(tf, f.node)[rec.d[tf.key]]) return false; } }
   return true;
 }
 function filteredRecs(reg){ var f = rfil(reg.id); return recsOf(reg.id).filter(function(r){ return matchRec(reg, r, f); }); }
-function activeFilterCount(reg){ var f = rfil(reg.id), n = 0; for(var k in f.fx) if(f.fx[k] && f.fx[k].length) n++; return n + (f.q ? 1 : 0) + (f.from || f.to ? 1 : 0) + (f.od ? 1 : 0) + (f.star ? 1 : 0) + (f.ext ? 1 : 0) + (f.node && f.node !== 'all' ? 1 : 0); }
+function activeFilterCount(reg){ var f = rfil(reg.id), n = 0; for(var k in f.fx) if(f.fx[k] && f.fx[k].length) n++; return n + (f.q ? 1 : 0) + (f.from || f.to ? 1 : 0) + (f.od ? 1 : 0) + (f.due ? 1 : 0) + (f.star ? 1 : 0) + (f.ext ? 1 : 0) + (f.node && f.node !== 'all' ? 1 : 0); }
 
 /* grouping */
 function groupable(reg){ return dataFields(reg).filter(function(f){ return ['select','tree','check','date','text'].indexOf(f.type) >= 0; }); }

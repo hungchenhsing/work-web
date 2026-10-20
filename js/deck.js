@@ -23,7 +23,7 @@ function ensureDeckReg(){
   return STORE.createReg(r).then(function(){ return deckReg(); });
 }
 function tplReg(key){ var r = allRegs().filter(function(x){ return x.d.tpl === key && !isPrivate(x); })[0]; return r ? r.id : ''; }
-function withLang(lang, fn){ var old = S.lang; S.lang = lang || 'en'; try{ return fn(); } finally { S.lang = old; } }
+function withLang(lang, fn){ var old = S.lang; S.lang = lang || 'en'; T_DOC++; try{ return fn(); } finally { S.lang = old; T_DOC--; } }
 function regLab(reg){ return reg ? {en:reg.d.en || '', zh:reg.d.zh || '', icon:reg.d.icon, color:reg.d.color || 'blue'} : {en:'', zh:''}; }
 function bil(o){ if(!o) return ''; if(S.lang === 'zh') return esc(o.zh || o.en || ''); if(S.lang === 'en' || !o.zh || o.zh === o.en) return esc(o.en || o.zh || ''); return esc(o.en || '') + '<span class="sl-zh">' + esc(o.zh) + '</span>'; }
 /* a slide title as editable spans: data-ed names the path that inline editing writes to */

@@ -64,7 +64,8 @@ function sha256(buf){ return crypto.subtle.digest('SHA-256', buf).then(function(
 function trnCreate(ids){
   var recs = (ids || []).map(getRec).filter(function(r){ return r && isDocReg(getReg(r.reg)); });
   return ensureTrnReg().then(function(g){
-    var d = {en:recs.length === 1 ? T('Submission of ', '提交 ') + (recs[0].d.docNo || recNo(getReg(recs[0].reg), recs[0])) : T('Documents for review', '送审文件'), purpose:'review', status:'draft', items:recs.map(newItem)};
+    var one = recs.length === 1 ? (recs[0].d.docNo || recNo(getReg(recs[0].reg), recs[0])) : '';
+    var d = {en:one ? 'Submission of ' + one : 'Documents for review', zh:one ? '提交 ' + one : '送审文件', purpose:'review', status:'draft', items:recs.map(newItem)};
     return createRec(g, d, true);
   }).then(function(id){ if(id){ S.newBlank = null; S.dtab = 'trn'; renderDrawer(); } return id; }).catch(function(e){ toast(errText(e)); });   // (not removed as an untouched new item)
 }

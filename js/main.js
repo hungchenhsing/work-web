@@ -1,8 +1,8 @@
 /* work-web v2 · events and start-up. */
 'use strict';
 
-function goPage(p){ S.page = p; S.sideOpen = false; S.q = ''; S.sel = {}; S.bulkF = null; closePop(); saveUI(); renderAll(); $('#main').scrollTop = 0; }
-function goReg(id){ S.page = 'reg'; S.reg = id; S.sideOpen = false; S.q = ''; S.sel = {}; S.bulkF = null; S.gKeep = false; closePop(); saveUI(); renderAll(); $('#main').scrollTop = 0; }
+function goPage(p){ S.page = p; S.sideOpen = false; S.sheet = null; S.q = ''; S.sel = {}; S.bulkF = null; closePop(); saveUI(); renderAll(); $('#main').scrollTop = 0; }
+function goReg(id){ S.page = 'reg'; S.reg = id; S.sideOpen = false; S.sheet = null; S.q = ''; S.sel = {}; S.bulkF = null; S.gKeep = false; closePop(); saveUI(); renderAll(); $('#main').scrollTop = 0; }
 function openRec(id, tab){ var r = getRec(id); if(!r) return; if(isDeckRec(r)){ openDeck(id); return; } S.open = id; S.dtab = tab || 'details'; S.delAsk = false; S.hist = null; S.q = ''; closePop(); renderAll(); }
 function curReg(){ return S.page === 'reg' ? getReg(S.reg) : null; }
 function odArr(){ var m = S.modal; if(m && m.kind === 'fields' && m.exp != null){ var f = m.d.fields[m.exp]; if(f.type === 'select' && !f.list){ f.opts = f.opts || []; return f.opts; } } if(m && m.kind === 'opts' && m.d && m.d.opts) return m.d.opts; return S.ldraft ? S.ldraft.opts : []; }
@@ -25,8 +25,11 @@ document.addEventListener('click', function(e){
   var reg = curReg(), rec = S.open && getRec(S.open), drReg = rec && getReg(rec.reg);
   switch(act){
     case 'side': S.sideOpen = !S.sideOpen; renderSide(); break;
+    case 'bnav': if(v === '@regs' || v === '@more'){ var sh = v.slice(1); S.sheet = S.sheet === sh ? null : sh; S.msearch = false; renderBnav(); } else if(v === '@search'){ S.sheet = null; S.msearch = !S.msearch; document.body.classList.toggle('msearch', S.msearch); renderBnav(); if(S.msearch) setTimeout(function(){ var q = $('#gq'); if(q) q.focus(); }, 30); } else { S.sheet = null; goPage(v); } break;
+    case 'sheetClose': S.sheet = null; renderBnav(); break;
     case 'page': goPage(v); break;
     case 'reg': goReg(v); break;
+    case 'notices': S.nOpen = !S.nOpen; renderTop(); break;
     case 'lang': S.lang = v; if(STORE && STORE.mode === 'public') LS.set('ww.publang', v); else LS.set('ww.lang', v); renderAll(); break;
     case 'signout': STORE.signOut && STORE.signOut(); break;
     case 'recheck': STORE.boot(true); break;
@@ -34,7 +37,9 @@ document.addEventListener('click', function(e){
     case 'setup': runSetup(); break;
     case 'openRec': openRec(el.dataset.id, el.dataset.tab); break;
     case 'close': S.open = null; S.delAsk = false; renderDrawer(); break;
-    case 'dtab': S.dtab = v; renderDrawer(); break;
+    case 'dtab': S.dtab = v; S.delAsk = false; renderDrawer(); break;
+    case 'dwide': S.dwide = !S.dwide; renderDrawer(); break;
+    case 'dAll': S.dAll = !S.dAll; renderDrawer(); break;
     case 'star': setRec(rec, {star:!rec.d.star}, {silent:true}); break;
     case 'msTog': setRec(rec, {ms:!rec.d.ms}); break;
     case 'printMom': printMinutes(rec); break;
@@ -87,8 +92,13 @@ document.addEventListener('click', function(e){
     case 'fToggle': S.fOpen = !S.fOpen; renderMain(); break;
     case 'fx': (function(){ var f = rfil(S.reg), k = el.dataset.k, a = (f.fx[k] = f.fx[k] || []), i = a.indexOf(v); if(i >= 0) a.splice(i, 1); else a.push(v); renderMain(); })(); break;
     case 'fxPick': fxPick(reg, el.dataset.k, el); break;
+    case 'tbOd': (function(){ var f = rfil(S.reg); f.od = !f.od; if(f.od) f.due = false; renderMain(); })(); break;
+    case 'tbDue': (function(){ var f = rfil(S.reg); f.due = !f.due; if(f.due) f.od = false; renderMain(); })(); break;
+    case 'fxClear': (function(){ var f = rfil(S.reg), k = el.dataset.k || ''; if(k.indexOf('fx:') === 0) delete f.fx[k.slice(3)]; else if(k === 'dates'){ f.from = ''; f.to = ''; } else f[k] = false; renderMain(); })(); break;
     case 'fClear': (function(){ var n = rfil(S.reg).node; S.rf[S.reg] = null; rfil(S.reg).node = n; renderMain(); })(); break;
     case 'tnode': rfil(S.reg).node = v; renderMain(); break;
+    case 'treeTog': setPref('treeHide', !uiPref('treeHide', false)); renderMain(); break;
+    case 'dense': setPref('dense', v === '1'); VW = {}; renderMain(); break;
     case 'treeEdit': S.treeEdit = S.treeEdit || {}; S.treeEdit[S.reg] = !S.treeEdit[S.reg]; renderMain(); break;
     case 'tnAdd': tnEditor(reg, rf(reg, 'tree'), null, v || '', el); break;
     case 'tnRen': tnEditor(reg, rf(reg, 'tree'), v, null, el); break;
@@ -257,7 +267,7 @@ function dateFix(reg, rec, k, v){
   if(k === ro.finish && s != null && f < s) o[ro.start] = v;
   return o;
 }
-document.addEventListener('change', function(e){ if(e.target.dataset && e.target.dataset.ie && e.target.type === 'date' && S.edit) commitEdit(false); }, true);
+document.addEventListener('change', function(e){ if(e.target.dataset && e.target.dataset.ie && (e.target.type === 'date' || e.target.classList.contains('dti')) && S.edit) commitEdit(false); }, true);
 document.addEventListener('focusout', function(e){ if(e.target.dataset && e.target.dataset.ie && S.edit) setTimeout(function(){ if(S.edit) commitEdit(false); }, 0); });
 
 /* ---------------- keyboard ---------------- */
@@ -324,7 +334,8 @@ document.addEventListener('change', function(e){
   if(el.id === 'mxRow' || el.id === 'mxCol' || el.id === 'mxVal'){ var mm = S.rmx[S.reg] = S.rmx[S.reg] || {}; mm[el.id === 'mxRow' ? 'row' : el.id === 'mxCol' ? 'col' : 'val'] = el.value; saveUI(); renderMain(); return; }
   if(el.id === 'gAsOf'){ if(canTeamEdit()) STORE.saveCfg({asOf:el.value || ''}); else { S.asOfLocal = el.value || null; renderMain(); } return; }
   if(el.id === 'ffrom' || el.id === 'fto'){ rfil(S.reg)[el.id === 'ffrom' ? 'from' : 'to'] = el.value || ''; renderMain(); return; }
-  if(el.id === 'fod' || el.id === 'fstar' || el.id === 'fext'){ rfil(S.reg)[el.id.slice(1)] = el.checked; renderMain(); return; }
+  if(el.id === 'vsel'){ S.rv[S.reg] = el.value; S.gKeep = false; saveUI(); renderMain(); return; }
+  if(el.id === 'fod' || el.id === 'fstar' || el.id === 'fext' || el.id === 'fdue'){ rfil(S.reg)[el.id.slice(1)] = el.checked; renderMain(); return; }
   if(el.id === 'schOpen'){ S.schOpen = el.checked; renderMain(); return; }
   if(el.id === 'actReg' || el.id === 'actType'){ S.act[el.id === 'actReg' ? 'reg' : 'type'] = el.value; S.act.rows = null; renderMain(); return; }
   if(el.id === 'actWho'){ S.act.who = el.value; renderMain(); return; }

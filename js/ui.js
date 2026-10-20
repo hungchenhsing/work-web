@@ -25,6 +25,7 @@ function renderAll(){
   if(S.newBlank && typeof dropIfBlank === 'function') dropIfBlank();
   var fk = focusKey(document.activeElement);
   document.documentElement.lang = S.lang === 'zh' ? 'zh-CN' : 'en';
+  document.body.classList.toggle('lang-both', S.lang === 'both');
   if(STORE.mode === 'public'){ renderPublic(); return; }
   renderTop();
   if(typeof pkgUpgrade === 'function') setTimeout(pkgUpgrade, 0);
@@ -34,6 +35,7 @@ function renderAll(){
   if(role() === 'owner'){ $('#side').innerHTML = ''; document.body.classList.add('gate'); $('#main').innerHTML = viewOwnerPortal(); fitSlides(); renderDrawer(); renderPop(); renderModal(); return; }
   renderSide();
   renderMain();
+  renderBnav();
   renderDrawer(); renderPop(); renderModal();
   restoreFocus(fk);
   if(STORE.ready && canTeamEdit() && !S.snapT){ S.snapT = 1; setTimeout(function(){ S.snapT = 0; takeSnapshotIfDue(); }, 4000); }
@@ -49,27 +51,75 @@ function renderTop(){
     '<div class="brand"><b>' + esc(c.projectEn) + '</b><span>' + esc(c.projectZh) + '</span></div>' +
     (appReady() && isInternal() || (STORE && STORE.mode === 'demo') ? '<label class="gsearch">' + uic('search', 15) + '<input id="gq" type="search" data-fk="gq" placeholder="' + esc(T('Search all registers', '搜索全部台账')) + '" value="' + esc(S.q) + '" autocomplete="off"></label>' : '<span style="flex:1"></span>') +
     '<div class="tools">' + (st ? '<span class="sync ' + st[2] + '" role="status" title="' + esc(st[3] ? T(st[3], st[4]) : T(st[0], st[1])) + '"><span class="dot ' + st[2] + '"></span><span class="stx">' + L(st[0], st[1]) + '</span></span>' : '') +
-    '<div class="seg" role="group" aria-label="Language">' + [['en','EN'],['both','EN + 中'],['zh','中']].map(function(o){ return '<button type="button" data-act="lang" data-v="' + o[0] + '" aria-pressed="' + (S.lang === o[0]) + '">' + o[1] + '</button>'; }).join('') + '</div>' +
+    noticeBell() +
+    '<div class="seg lseg" role="group" aria-label="Language">' + [['en','EN'],['both','EN + 中'],['zh','中']].map(function(o){ return '<button type="button" data-act="lang" data-v="' + o[0] + '" aria-pressed="' + (S.lang === o[0]) + '">' + o[1] + '</button>'; }).join('') + '</div>' +
     (signed ? '<details class="menu um"><summary class="btn sm">' + esc(STORE.me.name || STORE.me.email || '') + ' · ' + esc(roleName(role())) + '</summary><div class="pop pop-r"><div class="note" style="padding:6px 10px">' + esc(STORE.me.email || '') + '</div><button type="button" data-act="signout">' + L('Sign out', '退出登录') + '</button></div></details>' : '') + '</div>' +
-    (S.q && appReady() ? searchResults() : '');
+    (S.q && appReady() ? searchResults() : '') + (S.nOpen ? noticePanel() : '');
 }
+/* v3.2 · notices: what the site wants to tell you sits behind the bell instead of across the top of every page;
+   only things that need action now (update the database, load the new version, the first set-up) stay as one line on the page */
+UI_ICONS.bell = '<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20a2 2 0 0 0 4 0"/>';
+function noticeList(){
+  var out = [];
+  if(STORE && STORE.mode === 'demo') out.push({k:'demo', unread:false, html:L('Demo mode: data stays in this browser. Connect Supabase (see README) to go live for everyone.', '演示模式：数据只保存在本浏览器。连接 Supabase 后即可多人在线使用。')});
+  if(typeof pkgNotice === 'function' && STORE && !STORE.needSchema && !STORE.v1){ var p = pkgNotice(); if(p) out.push(p); }
+  return out;
+}
+function noticeBell(){
+  if(!STORE || !(appReady() || STORE.mode === 'demo')) return '';
+  var ns = noticeList(), n = ns.filter(function(x){ return x.unread; }).length;
+  return '<button type="button" class="ib nbell' + (S.nOpen ? ' on' : '') + '" data-act="notices" aria-expanded="' + !!S.nOpen + '" aria-label="' + esc(T('Notices', '通知') + (n ? ' (' + n + ')' : '')) + '" title="' + esc(T('Notices', '通知')) + '">' + uic('bell', 18) + (n ? '<span class="nbn">' + n + '</span>' : '') + '</button>';
+}
+function noticePanel(){
+  var ns = noticeList();
+  return '<div class="npanel card" role="dialog" aria-label="' + esc(T('Notices', '通知')) + '"><div class="nph"><b>' + L('Notices', '通知') + '</b><button type="button" class="ib" data-act="notices" aria-label="' + esc(T('Close', '关闭')) + '">' + uic('x', 15) + '</button></div>' +
+    (ns.length ? ns.map(function(x){ return '<div class="nitem' + (x.unread ? ' unread' : '') + '">' + x.html + '</div>'; }).join('') : '<div class="note" style="padding:8px 2px">' + L('Nothing new.', '没有新通知。') + '</div>') + '</div>';
+}
+document.addEventListener('click', function(e){
+  if(!S.nOpen) return;
+  if(e.target.closest && (e.target.closest('.npanel') || e.target.closest('.nbell'))) return;
+  S.nOpen = false; renderTop();
+}, true);
+/* in "EN + 中" the Chinese of a button or hint shows when the pointer rests on it */
+document.addEventListener('mouseover', function(e){
+  if(S.lang !== 'both' || !e.target.closest) return;
+  var el = e.target.closest('button, a, label, .chip, .note, .achip, .tb-c, summary, .flab'); if(!el || el.hasAttribute('title')) return;
+  var z = el.querySelector('.zh'); if(z && getComputedStyle(z).display === 'none'){ var t = z.textContent.trim(); if(t) el.setAttribute('title', t); }
+});
+
 function roleName(r){ var m = {admin:['Admin','管理员'], editor:['Editor','编辑'], viewer:['Viewer','只读'], owner:['Owner','业主'], pending:['Waiting','待审批']}[r] || [r, '']; return T1(m[0], m[1]); }
 function searchResults(){
   var q = S.q.toLowerCase(), out = [];
   allRegs().concat(libReg() ? [libReg()] : []).forEach(function(reg){ recsOf(reg.id).forEach(function(r){ if(out.length > 40) return; var t = (recNo(reg, r) + ' ' + (r.d[rolesOf(reg).title] || '') + ' ' + (r.d[rolesOf(reg).title2] || '') + ' ' + (r.d.docNo || '')).toLowerCase(); if(t.indexOf(q) >= 0) out.push({reg:reg, rec:r}); }); });
   return '<div class="gres card">' + (out.length ? out.map(function(x){ return '<button type="button" data-act="openRec" data-id="' + esc(x.rec.id) + '">' + icon(x.reg.d.icon, 14) + '<span class="mono muted">' + esc(recNo(x.reg, x.rec)) + '</span> ' + esc(recTitle(x.reg, x.rec) || '—') + ' <span class="muted" style="margin-left:auto;font-size:12px">' + esc(regName(x.reg)) + '</span></button>'; }).join('') : '<div class="note" style="padding:10px">' + L('No matches', '没有匹配') + '</div>') + '</div>';
 }
+/* v3.2 · phones: a bottom bar (overview, my work, registers, search, more); registers and more open as sheets */
+function sidePages(){ return [['home','home','Overview','总览']].concat(peopleDir() && (isInternal() || STORE.mode === 'demo') ? [['mine','user','My work','我的工作']] : []).concat([['schedule','cal','Schedule','进度计划'],['decks','present','Presentations','演示文稿'],['activity','hist','Change log','修改记录'],['files','file','Documents','文件库'],['owner','owner','Owner plan','业主计划'],['settings','gear','Settings','设置']]); }
+function regGroups(){ var regs = allRegs(), out = SECS.map(function(s){ return {s:s, regs:regs.filter(function(r){ return !isPrivate(r) && (r.d.sec || 'other') === s[0]; })}; }); out.push({s:['private','Only me','仅自己可见'], regs:regs.filter(isPrivate)}); return out.filter(function(g){ return g.regs.length; }); }
+function regBtn(r, cls){ var n = recsOf(r.id), od = n.filter(function(x){ return isOverdue(r, x); }).length;
+  return '<button type="button" class="' + cls + '" data-act="reg" data-v="' + esc(r.id) + '"' + (S.page === 'reg' && S.reg === r.id ? ' aria-current="page"' : '') + '><span class="ri c-' + esc(r.d.color || 'blue') + '">' + icon(r.d.icon) + '</span><span class="rn">' + esc(regName(r)) + '</span><span class="scnt">' + (od ? '<b class="odn" title="' + esc(T(od + ' overdue', od + ' 项逾期')) + '">' + od + '</b> ' : '') + n.length + '</span></button>'; }
+function renderBnav(){
+  var nb = $('#bnav'); if(!nb) return;
+  if(!STORE || document.body.classList.contains('gate') || STORE.mode === 'public'){ nb.innerHTML = ''; renderSheet(); return; }
+  var mine = peopleDir() && (isInternal() || STORE.mode === 'demo'), inMore = ['schedule','decks','activity','files','owner','settings'].indexOf(S.page) >= 0;
+  var it = [['home','home','Overview','总览', S.page === 'home' && !S.sheet], mine ? ['mine','user','My work','我的工作', S.page === 'mine' && !S.sheet] : null, ['@regs','table','Registers','台账', S.sheet === 'regs' || (S.page === 'reg' && !S.sheet)], ['@search','search','Search','搜索', !!S.msearch], ['@more','menu','More','更多', S.sheet === 'more' || (inMore && !S.sheet)]].filter(Boolean);
+  nb.innerHTML = it.map(function(x){ return '<button type="button" data-act="bnav" data-v="' + x[0] + '"' + (x[4] ? ' aria-current="page"' : '') + '>' + uic(x[1], 20) + '<span>' + esc(T1(x[2], x[3])) + '</span></button>'; }).join('');
+  renderSheet();
+}
+function renderSheet(){
+  var r = $('#sheet-root'); if(!r) return;
+  if(!S.sheet){ r.innerHTML = ''; return; }
+  var h = '';
+  if(S.sheet === 'regs') h = '<h2>' + L('Registers', '台账') + '</h2>' + regGroups().map(function(g){ return '<div class="sh">' + (g.s[0] === 'private' ? uic('lock', 12) + ' ' : '') + L(g.s[1], g.s[2]) + '</div>' + g.regs.map(function(x){ return regBtn(x, 'sreg'); }).join(''); }).join('') + (canCreateReg() ? '<button type="button" class="sadd" data-act="newReg">' + uic('plus', 14) + ' ' + L('New register', '新建台账') + '</button>' : '');
+  else h = '<h2>' + L('More', '更多') + '</h2><div class="snav">' + sidePages().filter(function(p){ return p[0] !== 'home' && p[0] !== 'mine'; }).map(function(p){ return '<button type="button" data-act="page" data-v="' + p[0] + '"' + (S.page === p[0] ? ' aria-current="page"' : '') + '>' + uic(p[1]) + '<span>' + L(p[2], p[3]) + '</span></button>'; }).join('') + '</div>' +
+    (STORE.mode === 'cloud' && STORE.me ? '<div class="sme"><span>' + esc(STORE.me.name || STORE.me.email || '') + ' · ' + esc(roleName(role())) + '</span><button type="button" class="btn sm" data-act="signout">' + L('Sign out', '退出登录') + '</button></div>' : '');
+  r.innerHTML = '<div class="sheet-scrim" data-act="sheetClose"></div><div class="sheet" role="dialog" aria-modal="true" aria-label="' + esc(S.sheet === 'regs' ? T('Registers', '台账') : T('More', '更多')) + '"><span class="sgrip"></span>' + h + '</div>';
+}
 function renderSide(){
-  var pages = [['home','home','Overview','总览']].concat(peopleDir() && (isInternal() || STORE.mode === 'demo') ? [['mine','user','My work','我的工作']] : []).concat([['schedule','cal','Schedule','进度计划'],['decks','present','Presentations','演示文稿'],['activity','hist','Change log','修改记录'],['files','file','Documents','文件库'],['owner','owner','Owner plan','业主计划'],['settings','gear','Settings','设置']]);
+  var pages = sidePages();
   var h = '<div class="snav">' + pages.map(function(p){ return '<button type="button" data-act="page" data-v="' + p[0] + '"' + (S.page === p[0] ? ' aria-current="page"' : '') + '>' + uic(p[1]) + '<span>' + L(p[2], p[3]) + '</span></button>'; }).join('') + '</div>';
-  var regs = allRegs(), secs = SECS.map(function(s){ return {s:s, regs:regs.filter(function(r){ return !isPrivate(r) && (r.d.sec || 'other') === s[0]; })}; });
-  secs.push({s:['private','Only me','仅自己可见'], regs:regs.filter(isPrivate)});
-  secs.forEach(function(g){
-    if(!g.regs.length) return;
-    h += '<div class="sh">' + (g.s[0] === 'private' ? uic('lock', 12) + ' ' : '') + L(g.s[1], g.s[2]) + '</div>' + g.regs.map(function(r){
-      var n = recsOf(r.id), od = n.filter(function(x){ return isOverdue(r, x); }).length;
-      return '<button type="button" class="sreg" data-act="reg" data-v="' + esc(r.id) + '"' + (S.page === 'reg' && S.reg === r.id ? ' aria-current="page"' : '') + '><span class="ri c-' + esc(r.d.color || 'blue') + '">' + icon(r.d.icon) + '</span><span class="rn">' + esc(regName(r)) + '</span><span class="scnt mono">' + (od ? '<b class="odn">' + od + '</b> ' : '') + n.length + '</span></button>';
-    }).join('');
+  regGroups().forEach(function(g){
+    h += '<div class="sh">' + (g.s[0] === 'private' ? uic('lock', 12) + ' ' : '') + L(g.s[1], g.s[2]) + '</div>' + g.regs.map(function(r){ return regBtn(r, 'sreg'); }).join('');
   });
   if(canCreateReg()) h += '<button type="button" class="sadd" data-act="newReg">' + uic('plus', 14) + ' ' + L('New register', '新建台账') + '</button>';
   $('#side').innerHTML = h;
@@ -92,13 +142,13 @@ function renderMain0(){
     else { S.page = 'home'; h = viewHome(); }
   }catch(e){ console.error(e); h = '<div class="card empty">' + L('Something went wrong showing this page.', '页面显示出错。') + '<pre class="note">' + esc(e && e.message) + '</pre></div>'; }
   var banner = '';
-  if(STORE.mode === 'demo') banner = '<div class="banner">' + L('Demo mode: data stays in this browser. Connect Supabase (see README) to go live for everyone.', '演示模式：数据只保存在本浏览器。连接 Supabase 后即可多人在线使用。') + '</div>';
-  else if(STORE.needSchema) banner = '<div class="banner" style="background:var(--warn-soft);color:var(--warn)">' + L('The database needs the updated structure. In Supabase open SQL Editor → New query, paste the new supabase/schema.sql, click Run, then reload this page.', '数据库需要更新结构：在 Supabase 打开 SQL Editor → New query，粘贴新的 supabase/schema.sql，点 Run，然后刷新本页。') + '</div>';
-  else if(STORE.v1 && role() === 'admin') banner = '<div class="banner">' + L('One-time setup: create the registers (turnover, site works, punch list, meetings, TDS) and move existing turnover data into the new structure.', '一次性设置：建立台账（移交、现场施工、尾项、会议、TDS），并把现有移交数据迁移到新结构。') + ' <button type="button" class="btn pri sm" data-act="setup">' + L('Set up now', '立即设置') + '</button></div>';
-  else if(STORE.v1) banner = '<div class="banner">' + L('The project admin needs to sign in once to finish setting up the registers.', '需要项目管理员登录一次完成台账设置。') + '</div>';
-  if(!STORE.needSchema && !STORE.v1 && typeof pkgBanner === 'function' && S.page !== 'decks') banner += pkgBanner();
-  if(S.newVer) banner = '<div class="banner" style="background:var(--warn-soft);color:var(--warn)">' + L('A newer version of this site is available (' + S.newVer + ').', '网站有新版本（' + S.newVer + '）。') + ' <button type="button" class="btn pri sm" data-act="appReload">' + L('Load it now', '立即载入') + '</button></div>' + banner;
+  if(STORE.mode === 'demo') banner = '';
+  else if(STORE.needSchema) banner = '<div class="banner strip">' + L('The database needs the updated structure. In Supabase open SQL Editor → New query, paste the new supabase/schema.sql, click Run, then reload this page.', '数据库需要更新结构：在 Supabase 打开 SQL Editor → New query，粘贴新的 supabase/schema.sql，点 Run，然后刷新本页。') + '</div>';
+  else if(STORE.v1 && role() === 'admin') banner = '<div class="banner strip">' + L('One-time setup: create the registers (turnover, site works, punch list, meetings, TDS) and move existing turnover data into the new structure.', '一次性设置：建立台账（移交、现场施工、尾项、会议、TDS），并把现有移交数据迁移到新结构。') + ' <button type="button" class="btn pri sm" data-act="setup">' + L('Set up now', '立即设置') + '</button></div>';
+  else if(STORE.v1) banner = '<div class="banner strip">' + L('The project admin needs to sign in once to finish setting up the registers.', '需要项目管理员登录一次完成台账设置。') + '</div>';
+  if(S.newVer) banner = '<div class="banner strip">' + L('A newer version of this site is available (' + S.newVer + ').', '网站有新版本（' + S.newVer + '）。') + ' <button type="button" class="btn pri sm" data-act="appReload">' + L('Load it now', '立即载入') + '</button></div>' + banner;
   if(h.indexOf('data-rg=') < 0 || !regionPatch(m, banner + h)){ RG = {}; m.innerHTML = banner + h; }
+  if(typeof enhanceDates === 'function') enhanceDates(m);
   $$('.dke-film .dk-t').forEach(function(t){ t.classList.toggle('on', t.dataset.v === S.dslide); });
   document.body.classList.toggle('dkfull', S.page === 'decks' && !!m.querySelector('.dke'));
   m.scrollTop = sx;
@@ -348,7 +398,7 @@ function subEditor(reg, f, rec, ed){
   var h = '<div class="subwrap"><table class="subt"><thead><tr>' + cols.map(function(c){ return '<th>' + L(c.en, c.zh) + '</th>'; }).join('') + (ed ? '<th></th>' : '') + '</tr></thead><tbody>';
   rows.forEach(function(r, i){
     h += '<tr>' + cols.map(function(c){
-      var v = r[c.key], a = ' data-sub="' + esc(f.key) + '" data-row="' + esc(r._id) + '" data-col="' + esc(c.key) + '"' + (ed ? '' : ' disabled');
+      var v = r[c.key], a = ' data-sub="' + esc(f.key) + '" data-row="' + esc(r._id) + '" data-col="' + esc(c.key) + '" aria-label="' + esc(T1(c.en || c.key, c.zh) + ' ' + (i + 1)) + '"' + (ed ? '' : ' disabled');
       if(c.type === 'check') return '<td class="tc"><input type="checkbox"' + a + (v ? ' checked' : '') + '></td>';
       if(c.type === 'long') return '<td><textarea class="in" rows="2"' + a + ' data-fk="sub:' + esc(f.key + ':' + r._id + ':' + c.key) + '">' + esc(v || '') + '</textarea></td>';
       if(c.type === 'select'){ var o = optOf(c, v); return '<td><button type="button" class="pickbtn" data-act="subPick"' + a + '>' + (c.list === 'people' && v ? '<span class="ppl">' + esc(o ? nm(o) : v) + '</span>' : o ? optChip(o, v) : v ? esc(v) : '<span class="muted">—</span>') + '</button></td>'; }
@@ -360,25 +410,69 @@ function subEditor(reg, f, rec, ed){
 }
 
 /* ---------------- record drawer ---------------- */
+/* v3.2 · the record drawer: a title block with the fields that matter most (edit them in place), then the rest grouped by
+   section with secondary empty fields folded away; only the tabs a record can use; duplicate / delete in the ⋯ menu;
+   the drawer can be widened (drag its left edge) or opened full width */
+function sumFields(reg){
+  var ro = rolesOf(reg), out = [], add = function(f){ if(f && out.indexOf(f) < 0 && ['sub','files','link','long','section','calc','tree'].indexOf(f.type) < 0) out.push(f); };
+  add(rf(reg, 'status')); add(fieldOf(reg, 'ownerResult')); add(fieldOf(reg, 'rev'));
+  var ppl = dataFields(reg).filter(function(f){ return f.list === 'people' && f.key !== 'attendees'; }), who = ppl.filter(function(f){ return /resp|owner|who|contact|chair|assign/i.test(f.key); })[0] || ppl[0]; add(who);
+  add(rf(reg, 'start')); add(rf(reg, 'finish')); add(rf(reg, 'progress')); add(rf(reg, 'astart')); add(rf(reg, 'afinish'));
+  return out.filter(function(f){ return f.key !== ro.title && f.key !== ro.title2 && f.key !== ro.no; }).slice(0, 8);
+}
+function sumCell(reg, f, rec, ed){
+  var v = rec.d[f.key], inner;
+  if(f.type === 'select') inner = '<button type="button" class="sumv pickbtn"' + (ed ? ' data-act="pick" data-id="' + esc(rec.id) + '" data-k="' + esc(f.key) + '"' : ' disabled') + '>' + (isEmpty(v) ? '<span class="muted">—</span>' : cellHtml(reg, f, rec)) + '</button>';
+  else if(f.type === 'percent' && isAutoNow(rec, f)) inner = '<div class="sumv ro">' + pbar(val(rec, f)) + '</div>';
+  else inner = fieldInput(reg, f, rec, ed).replace('<input class="in"', '<input class="in" placeholder="—"');
+  return '<div class="sumc t-' + esc(f.type) + '" role="group" aria-label="' + esc(T1(f.en || f.key, f.zh)) + '"><span class="flab">' + L(f.en, f.zh) + '</span>' + inner + '</div>';
+}
+function drawerTabs(reg, rec, kids){
+  var lib = isLibRec(rec), trn = typeof isTrnReg === 'function' && isTrnReg(reg), fl = lib ? 0 : recFiles(rec).length, lk = relCount(rec);
+  if(lib) return [['details','Document','文件'],['links','Used by & related','引用与相关', lk],['history','History','修改记录']];
+  var tabs = [['details','Details','详情']];
+  if(trn) tabs.push(['trn','Documents','文件清单', trnItems(rec).length]);
+  if(isPeopleReg(reg)) tabs.push(['work','Assignments','参与事项', peopleWorkCount(reg, rec)]);
+  if(!trn && (kids.length || S.dtab === 'subs')) tabs.push(['subs','Sub-items','子项', kids.length]);
+  if(!trn) tabs.push(['files','Files','文件', fl]);
+  tabs.push(['links','Related','相关', lk]);
+  tabs.push(['history','History','修改记录']);
+  if(((STORE && STORE.fb) || []).some(function(x){ return x.item_id === rec.id; })) tabs.push(['comments','Owner comments','业主意见', openFb(rec.id)]);
+  return tabs;
+}
+function drawerW(){ var w = +LS.get('ww.dw', 0); return w >= 420 ? Math.min(w, window.innerWidth) : 0; }
 function renderDrawer(){
   var root = $('#drawer-root'), rec = S.open && getRec(S.open);
   if(!rec){ if(S.open && STORE && STORE.ready){ S.open = null; } root.innerHTML = ''; document.body.classList.remove('dopen'); return; }
   var reg = getReg(rec.reg); if(!reg){ root.innerHTML = ''; return; }
   var ed = canWrite(reg), fk = focusKey(document.activeElement), ds = $('.dbody') ? $('.dbody').scrollTop : 0;
-  var lib = isLibRec(rec), fl = lib ? 0 : recFiles(rec).length, lk = relCount(rec);
-  var kids = lib ? [] : childrenOf(rec);
-  var tabs = lib ? [['details','Document','文件'],['links','Used by & related','引用与相关', lk],['history','History','修改记录']] : [['details','Details','详情'],['subs','Sub-items','子项', kids.length],['files','Files','文件', fl],['links','Related','相关', lk],['history','History','修改记录']];
-  if(isPeopleReg(reg)) tabs.splice(1, 0, ['work','Assignments','参与事项', peopleWorkCount(reg, rec)]);
-  if(typeof isTrnReg === 'function' && isTrnReg(reg)) tabs.splice(1, 0, ['trn','Documents','文件清单', trnItems(rec).length]);
-  if(((STORE && STORE.fb) || []).some(function(x){ return x.item_id === rec.id; })) tabs.push(['comments','Owner comments','业主意见', openFb(rec.id)]);
-  var h = '<div class="scrim" data-act="close"></div><aside class="drawer" role="dialog" aria-modal="true" aria-label="' + esc(recLabel(rec)) + '">' +
-    '<div class="dh"><div class="dhr"><span class="crumb">' + icon(reg.d.icon, 14) + ' ' + esc(regName(reg)) + (isPrivate(reg) ? ' ' + uic('lock', 12) : '') + ' · ' + (parentRec(rec) ? '<button type="button" class="lnk mono" data-act="openRec" data-id="' + esc(parentRec(rec).id) + '">' + esc(recNo(reg, parentRec(rec)) || '↑') + '</button> › ' : '') + '<span class="mono">' + esc(recNo(reg, rec)) + '</span></span><span class="dha">' +
-    (ed && !reg.d.allMs && !isLibRec(rec) ? '<button type="button" class="ib' + (rec.d.ms ? ' on' : '') + '" data-act="msTog" title="' + esc(T('Milestone (shows as a diamond on timelines)', '里程碑（在时间轴上显示为菱形）')) + '">' + icon('flag', 16) + '</button>' : '') +
-    (ed ? '<button type="button" class="ib' + (rec.d.star ? ' on' : '') + '" data-act="star" title="' + esc(T('Key item', '重点')) + '">' + uic('star', 16) + '</button>' : '') +
-    (reg.d.meeting ? '<button type="button" class="ib" data-act="printMom" title="' + esc(T('Print minutes', '打印纪要')) + '">' + uic('print', 16) + '</button>' : '') +
-    '<button type="button" class="ib" data-act="close" aria-label="Close">' + uic('x', 18) + '</button></span></div>' +
-    '<div class="dtitle">' + esc(recTitle(reg, rec) || T('Untitled', '未命名')) + '</div>' + (recTitle2(reg, rec) ? '<div class="muted">' + esc(recTitle2(reg, rec)) + '</div>' : '') +
-    '<div class="dchips">' + (statusOpt(reg, rec) ? optChip(statusOpt(reg, rec)) : '') + (rf(reg, 'block') ? ' ' + blockChips(rec.d[rf(reg, 'block').key], rf(reg, 'block')) : '') + (isOverdue(reg, rec) ? ' ' + chip('red', L('Overdue', '逾期')) : '') + (rec.d.ext ? ' ' + chip('violet', L('Owner can see', '业主可见')) : '') + '</div>' + (reg.d.meeting && !isPrivate(reg) ? meetingDeckStrip(rec) : '') +
+  var lib = isLibRec(rec), trn = typeof isTrnReg === 'function' && isTrnReg(reg), kids = lib ? [] : childrenOf(rec);
+  var tabs = drawerTabs(reg, rec, kids);
+  if(!tabs.some(function(t){ return t[0] === S.dtab; })) S.dtab = 'details';
+  var desc = descendantsOf(rec).length, w = drawerW();
+  var menu = '<details class="menu dmenu"><summary class="ib" aria-label="' + esc(T('More actions', '更多操作')) + '" title="' + esc(T('More actions', '更多操作')) + '">' + uic('dots', 18) + '</summary><div class="pop pop-r">' +
+    (ed ? '<button type="button" data-act="dupRec">' + uic('copy', 14) + ' ' + L('Duplicate', '复制') + '</button>' : '') +
+    (ed && !lib && !trn ? '<button type="button" data-act="dtab" data-v="subs">' + uic('list', 14) + ' ' + L('Sub-items…', '子项…') + '</button>' : '') +
+    (ed ? '<button type="button" data-act="linkOpen" data-id="' + esc(rec.id) + '">' + uic('link', 14) + ' ' + L('Link to…', '关联到…') + '</button>' : '') +
+    (reg.d.meeting ? '<button type="button" data-act="printMom">' + uic('print', 14) + ' ' + L('Print minutes', '打印纪要') + '</button>' : '') +
+    '<button type="button" data-act="dtab" data-v="history">' + uic('hist', 14) + ' ' + L('History', '修改记录') + '</button>' +
+    (canSchemaEdit(reg) ? '<button type="button" data-act="fieldsOpen" data-v="' + esc(reg.id) + '">' + uic('gear', 14) + ' ' + L('Fields of this register', '本台账字段') + '</button>' : '') +
+    (ed ? '<hr><button type="button" class="dang" data-act="delAsk">' + uic('trash', 14) + ' ' + (desc ? L('Delete with ' + desc + ' sub-items…', '连同 ' + desc + ' 个子项删除…') : L('Delete…', '删除…')) + '</button>' : '') + '</div></details>';
+  var es = relsOf(rec).filter(function(e){ return getRec(e.id); });
+  var chips = (rf(reg, 'block') ? blockChips(rec.d[rf(reg, 'block').key], rf(reg, 'block')) : '') + (isOverdue(reg, rec) ? chip('red', L('Overdue', '逾期')) : '') + (!ed ? chip('grey', L('Read only', '只读')) : '') +
+    (ownerGated(reg) && !isPrivate(reg) ? (ed ? '<label class="chip c-violet tog"><input type="checkbox" data-act="extTog"' + (rec.d.ext ? ' checked' : '') + '>' + uic('eye', 12) + ' ' + L('Owner can see', '业主可见') + '</label>' : (rec.d.ext ? chip('violet', uic('eye', 12) + ' ' + L('Owner can see', '业主可见')) : '')) : '') +
+    (!lib && !es.length && ed ? '<button type="button" class="rchip add" data-act="linkOpen" data-id="' + esc(rec.id) + '">' + uic('plus', 12) + ' ' + L('Link', '关联') + '</button>' : '');
+  var sf = lib || trn ? [] : sumFields(reg);
+  var h = '<div class="scrim" data-act="close"></div><aside class="drawer' + (S.dwide ? ' wide' : '') + '" role="dialog" aria-modal="true" aria-label="' + esc(recLabel(rec)) + '"' + (w && !S.dwide ? ' style="width:' + w + 'px"' : '') + '><div class="dres" data-dres="1" title="' + esc(T('Drag to resize', '拖动调整宽度')) + '"></div>' +
+    '<div class="dh"><div class="dhr"><span class="crumb">' + icon(reg.d.icon, 14) + ' ' + esc(regName(reg)) + (isPrivate(reg) ? ' ' + uic('lock', 12) : '') + ' <span class="cs">›</span> ' + (parentRec(rec) ? '<button type="button" class="lnk" data-act="openRec" data-id="' + esc(parentRec(rec).id) + '">' + esc(recNo(reg, parentRec(rec)) || '↑') + '</button> <span class="cs">›</span> ' : '') + '<b>' + esc(recNo(reg, rec)) + '</b></span><span class="dha">' +
+    (ed && !reg.d.allMs && !lib ? '<button type="button" class="ib' + (rec.d.ms ? ' on' : '') + '" data-act="msTog" aria-pressed="' + !!rec.d.ms + '" title="' + esc(T('Milestone (shows as a diamond on timelines)', '里程碑（在时间轴上显示为菱形）')) + '">' + icon('flag', 16) + '</button>' : '') +
+    (ed ? '<button type="button" class="ib' + (rec.d.star ? ' on' : '') + '" data-act="star" aria-pressed="' + !!rec.d.star + '" title="' + esc(T('Key item', '重点')) + '">' + uic('star', 16) + '</button>' : '') + menu +
+    '<button type="button" class="ib dwbtn" data-act="dwide" aria-pressed="' + !!S.dwide + '" title="' + esc(S.dwide ? T('Narrower', '收窄') : T('Full width', '展开全宽')) + '">' + uic(S.dwide ? 'right' : 'left', 16) + '</button>' +
+    '<button type="button" class="ib" data-act="close" aria-label="' + esc(T('Close', '关闭')) + '">' + uic('x', 18) + '</button></span></div>' +
+    '<div class="dtitle">' + esc(recTitle(reg, rec) || T('Untitled', '未命名')) + '</div>' + (recTitle2(reg, rec) ? '<div class="dtitle2">' + esc(recTitle2(reg, rec)) + '</div>' : '') +
+    (chips ? '<div class="dchips">' + chips + '</div>' : '') + (reg.d.meeting && !isPrivate(reg) ? meetingDeckStrip(rec) : '') +
+    (S.delAsk ? '<div class="dconf"><span>' + (desc ? L('Delete ' + recNo(reg, rec) + ' and its ' + desc + ' sub-items? You can restore them from the change log.', '删除 ' + recNo(reg, rec) + ' 及其 ' + desc + ' 个子项？可在修改记录中恢复。') : L('Delete ' + (recNo(reg, rec) || T('this item', '此项')) + '? You can restore it from the change log.', '删除 ' + (recNo(reg, rec) || '此项') + '？可在修改记录中恢复。')) + '</span><button type="button" class="btn sm danger" data-act="delYes">' + L('Delete', '删除') + '</button><button type="button" class="btn sm" data-act="delNo">' + L('Cancel', '取消') + '</button></div>' : '') +
+    (sf.length && S.dtab === 'details' ? '<div class="dsum">' + sf.map(function(f){ return sumCell(reg, f, rec, ed); }).join('') + '</div>' : '') +
     '<div class="dtabs" role="tablist">' + tabs.map(function(t){ return '<button type="button" role="tab" data-act="dtab" data-v="' + t[0] + '" aria-selected="' + (S.dtab === t[0]) + '">' + L(t[1], t[2]) + (t[3] ? ' <span class="cnt">' + t[3] + '</span>' : '') + '</button>'; }).join('') + '</div></div><div class="dbody">';
   if(S.dtab === 'files') h += drawerFiles(reg, rec, ed);
   else if(S.dtab === 'links') h += drawerLinks(reg, rec, ed);
@@ -386,14 +480,22 @@ function renderDrawer(){
   else if(S.dtab === 'history') h += drawerHistory(reg, rec);
   else if(S.dtab === 'comments') h += drawerComments(reg, rec);
   else if(S.dtab === 'work' && isPeopleReg(reg)) h += peopleWork(reg, rec);
-  else if(S.dtab === 'trn' && typeof isTrnReg === 'function' && isTrnReg(reg)) h += trnItemsHtml(reg, rec, ed);
-  else h += (lib ? docPreview(rec, ed) : relStrip(rec, ed)) + (typeof closeChecklistHtml === 'function' ? closeChecklistHtml(reg, rec) : '') + drawerForm(reg, rec, ed) + (typeof docTrnHtml === 'function' && !isPrivate(reg) ? docTrnHtml(reg, rec) : '');
-  h += '</div><div class="dfoot">' + (ed ? '<button type="button" class="btn sm" data-act="dupRec">' + uic('copy', 14) + ' ' + L('Duplicate', '复制') + '</button>' + (ownerGated(reg) && !isPrivate(reg) ? '<label class="chk"><input type="checkbox" data-act="extTog"' + (rec.d.ext ? ' checked' : '') + '>' + L('Owner can see', '业主可见') + '</label>' : '') +
-    (S.delAsk ? '<span class="dl"><button type="button" class="btn sm danger" data-act="delYes">' + (descendantsOf(rec).length ? L('Delete with ' + descendantsOf(rec).length + ' sub-items', '连同 ' + descendantsOf(rec).length + ' 个子项一起删除') : L('Confirm delete', '确认删除')) + '</button><button type="button" class="btn sm" data-act="delNo">' + L('Cancel', '取消') + '</button></span>' : '<button type="button" class="btn sm danger-o" data-act="delAsk">' + uic('trash', 14) + ' ' + L('Delete', '删除') + '</button>') : '<span class="note">' + L('Read only', '只读') + '</span>') + '</div></aside>';
+  else if(S.dtab === 'trn' && trn) h += trnItemsHtml(reg, rec, ed);
+  else h += (lib ? docPreview(rec, ed) : (es.length ? relStrip(rec, ed) : '')) + (typeof closeChecklistHtml === 'function' ? closeChecklistHtml(reg, rec) : '') + drawerForm(reg, rec, ed, sf) + (typeof docTrnHtml === 'function' && !isPrivate(reg) ? docTrnHtml(reg, rec) : '');
+  h += '</div></aside>';
   root.innerHTML = h; document.body.classList.add('dopen');
+  if(typeof enhanceDates === 'function') enhanceDates(root);
   var b = $('.dbody'); if(b) b.scrollTop = ds;
   restoreFocus(fk);
 }
+/* dragging the drawer's left edge sets its width (kept in this browser) */
+document.addEventListener('pointerdown', function(e){
+  var hnd = e.target.closest && e.target.closest('[data-dres]'); if(!hnd) return;
+  var dr = hnd.parentNode; e.preventDefault(); hnd.setPointerCapture && hnd.setPointerCapture(e.pointerId);
+  function mv(ev){ var w = Math.max(420, Math.min(window.innerWidth - 40, window.innerWidth - ev.clientX)); dr.style.width = w + 'px'; }
+  function up(ev){ hnd.removeEventListener('pointermove', mv); hnd.removeEventListener('pointerup', up); var w = parseInt(dr.style.width, 10); if(w) LS.set('ww.dw', w); }
+  hnd.addEventListener('pointermove', mv); hnd.addEventListener('pointerup', up);
+});
 function fieldInput(reg, f, rec, ed){
   var v = rec.d[f.key], dis = ed ? '' : ' disabled', a = ' data-df="' + esc(f.key) + '" data-fk="df:' + esc(rec.id + ':' + f.key) + '" aria-label="' + esc(T(f.en || f.key, f.zh)) + '"' + dis;
   switch(f.type){
@@ -413,16 +515,28 @@ function fieldInput(reg, f, rec, ed){
     default: return esc(v);
   }
 }
-function drawerForm(reg, rec, ed){
-  var h = '<div class="fg">';
-  var lib = isLibRec(rec);
+function drawerForm(reg, rec, ed, skip){
+  var lib = isLibRec(rec), ro = rolesOf(reg), all = !!S.dAll || (S.newBlank && S.newBlank.id === rec.id), folded = 0;
+  /* sections: fields up to the next section heading; secondary fields (hidden in the table by default) that are empty fold away */
+  var secs = [{h:null, fs:[]}];
   fieldsOf(reg).forEach(function(f){
     if(lib && f.type === 'files') return;
-    if(f.type === 'section'){ h += '<h3 class="fsec full">' + L(f.en, f.zh) + '</h3>'; return; }
-    var wide = ['long','sub','files','link'].indexOf(f.type) >= 0 || f.key === rolesOf(reg).title || f.key === rolesOf(reg).title2;
-    h += '<div class="fl' + (wide ? ' full' : '') + '" role="group" aria-label="' + esc(T(f.en || f.key, f.zh)) + '"><span class="flab">' + L(f.en, f.zh) + (f.help ? ' <span class="note">' + esc(f.help) + '</span>' : '') + '</span>' + fieldInput(reg, f, rec, ed) + '</div>';
+    if(f.type === 'section'){ secs.push({h:f, fs:[]}); return; }
+    if(skip && skip.indexOf(f) >= 0) return;
+    if(!all && f.hide && isEmpty(rec.d[f.key]) && f.key !== ro.title && f.type !== 'sub'){ folded++; return; }
+    secs[secs.length - 1].fs.push(f);
+  });
+  var h = '<div class="fg">';
+  secs.forEach(function(sc){
+    if(!sc.fs.length) return;
+    if(sc.h) h += '<h3 class="fsec full">' + L(sc.h.en, sc.h.zh) + '</h3>';
+    sc.fs.forEach(function(f){
+      var wide = ['long','sub','files','link'].indexOf(f.type) >= 0 || f.key === ro.title || f.key === ro.title2;
+      h += '<div class="fl' + (wide ? ' full' : '') + '" role="group" aria-label="' + esc(T1(f.en || f.key, f.zh)) + '"><span class="flab">' + L(f.en, f.zh) + (f.help ? ' <span class="note">' + esc(f.help) + '</span>' : '') + '</span>' + fieldInput(reg, f, rec, ed) + '</div>';
+    });
   });
   h += '</div>';
+  if(folded || S.dAll) h += '<button type="button" class="lnk dmore" data-act="dAll">' + (S.dAll ? L('Hide empty fields', '收起空字段') : L('Show ' + folded + ' more fields', '显示另外 ' + folded + ' 个字段')) + '</button>';
   h += baseInfo(reg, rec);
   h += '<div class="note" style="margin-top:14px">' + L('Created', '创建') + ' ' + esc(fmtTime(rec.ca)) + ' · ' + L('last change', '最后修改') + ' ' + esc(fmtTime(rec.ua)) + (canSchemaEdit(reg) ? ' · <button type="button" class="lnk" data-act="fieldsOpen" data-v="' + esc(reg.id) + '">' + L('Add or change fields', '增删 / 修改字段') + '</button>' : '') + '</div>';
   return h;
@@ -524,6 +638,7 @@ function renderModal(){
   var mb = $('.mbody'), sy = mb ? mb.scrollTop : 0;
   root.innerHTML = '<div class="scrim" data-act="mclose"></div><div class="modal card' + (body.wide ? ' wide' : '') + '" role="dialog" aria-modal="true" aria-label="' + esc(body.title) + '"><div class="mhead"><h2>' + body.title + '</h2><button type="button" class="ib" data-act="mclose" aria-label="Close">' + uic('x', 18) + '</button></div><div class="mbody">' + body.html + '</div>' + (body.foot ? '<div class="mfoot">' + body.foot + '</div>' : '') + '</div>';
   var nb = $('.mbody'); if(nb) nb.scrollTop = sy;
+  if(typeof enhanceDates === 'function') enhanceDates(root);
   restoreFocus(fk);
   if(root.querySelector('.dk-fit') && typeof fitSlides === 'function') fitSlides();
 }

@@ -231,7 +231,8 @@ function saveJson(data, name){
 }
 
 /* ---------------- meeting minutes print ---------------- */
-function printMinutes(rec){
+function printMinutes(rec){ return inDoc(function(){ return printMinutes0(rec); }); }
+function printMinutes0(rec){
   var reg = getReg(rec.reg), d = rec.d, c = cfg();
   function fv(k){ var f = fieldOf(reg, k); return f ? esc(textOf(reg, f, rec)) : ''; }
   function carryPrint(){ var f = fieldOf(reg, 'actions'); if(!isActionField(f)) return ''; var list = earlierActions(reg, rec, f); if(!list.length) return '';

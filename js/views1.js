@@ -8,17 +8,22 @@ function heat(p){ if(p == null) return ''; var a = Math.round(8 + p * 0.5); retu
 /* ================= Overview ================= */
 function viewHome(){
   var c = cfg(), regs = allRegs(), A = asOfN();
-  var h = '<div class="ph"><div><h1 class="vtitle">' + L('Overview', '总览') + '</h1><span class="muted">' + esc(c.projectEn) + ' · ' + L('status date', '状态日期') + ' <span class="mono">' + esc(n2d(A)) + '</span></span></div></div>';
+  var nOpen = 0, nOd = 0, nDue = 0; regs.forEach(function(r){ recsOf(r.id).forEach(function(x){ if(isDone(r, x)) return; nOpen++; if(isOverdue(r, x)) nOd++; else { var p = planOf(r, x); if(p && p.f >= A && p.f <= A + 14) nDue++; } }); });
+  var h = '<header class="tblk"><div class="tb-name"><div class="tb-nm"><h1 class="vtitle">' + L('Overview', '总览') + '</h1><span class="tb-sub">' + esc(c.projectEn) + (c.projectZh ? ' · ' + esc(c.projectZh) : '') + '</span></div></div><div class="tb-cells">' +
+    '<div class="tb-c tb-asof"><span class="tb-l">' + L('Status date', '状态日期') + '</span><span class="tb-v">' + esc(n2d(A)) + '</span></div>' +
+    '<div class="tb-c"><span class="tb-l">' + L('Open items', '未完成') + '</span><span class="tb-v">' + nOpen + '</span></div>' +
+    '<div class="tb-c' + (nOd ? ' bad' : '') + '"><span class="tb-l">' + L('Overdue', '逾期') + '</span><span class="tb-v">' + nOd + '</span></div>' +
+    '<div class="tb-c' + (nDue ? ' soon' : '') + '"><span class="tb-l">' + L('Due in 14 days', '14 天内到期') + '</span><span class="tb-v">' + nDue + '</span></div></div></header>';
   if(!regs.length) return h + '<div class="card empty">' + L('No registers yet.', '还没有台账。') + (canCreateReg() ? ' <button type="button" class="btn pri" data-act="newReg">' + L('Create the first register', '建立第一个台账') + '</button>' : '') + '</div>';
   // block panel (PV site): progress from registers with a block role
   var bl = lists().blocks, bregs = regs.filter(function(r){ return rf(r, 'block'); });
   if(bl && bl.opts.length && bregs.length){
-    h += '<section class="card sec"><div class="sech"><h2>' + L('By block', '按区域') + '</h2><span class="note">' + L('Average progress of each register in that block · open items', '各台账在该区域的平均进度 · 未完成项') + '</span></div><div class="blocks">' + bl.opts.map(function(b){
+    h += '<section class="card sec"><div class="sech"><h2>' + L('By block', '按区域') + '</h2><span class="blegend"><span><i class="lgbar"></i>' + L('average progress', '平均进度') + '</span><span><b>4</b> ' + L('open items', '未完成项') + '</span><span class="odn"><b>1!</b> ' + L('overdue', '逾期') + '</span></span></div><div class="blocks">' + bl.opts.map(function(b){
       var rows = bregs.map(function(r){
         var its = recsOf(r.id).filter(function(x){ return blocksOf(r, x).indexOf(b.v) >= 0; }); if(!its.length) return '';
         var ps = its.map(function(x){ return progressOf(r, x); }).filter(function(x){ return x != null; }), avg = ps.length ? Math.round(ps.reduce(function(s, x){ return s + x; }, 0) / ps.length) : null;
         var open = its.filter(function(x){ return !isDone(r, x); }).length, od = its.filter(function(x){ return isOverdue(r, x); }).length;
-        return '<button type="button" class="brow" data-act="goBlock" data-v="' + esc(r.id + '|' + b.v) + '"><span class="ri c-' + esc(r.d.color || 'blue') + '">' + icon(r.d.icon, 13) + '</span><span class="bn">' + esc(regName(r)) + '</span>' + (avg != null ? pbar(avg) : '<span></span>') + '<span class="mono muted">' + open + (od ? ' <b class="odn">' + od + '!</b>' : '') + '</span></button>';
+        return '<button type="button" class="brow" data-act="goBlock" data-v="' + esc(r.id + '|' + b.v) + '"><span class="ri c-' + esc(r.d.color || 'blue') + '">' + icon(r.d.icon, 13) + '</span><span class="bn">' + esc(regName(r)) + '</span>' + (avg != null ? pbar(avg) : '<span></span>') + '<span class="mono muted" title="' + esc(T(open + ' open' + (od ? ', ' + od + ' overdue' : ''), open + ' 项未完成' + (od ? '，' + od + ' 项逾期' : ''))) + '">' + open + (od ? ' <b class="odn">' + od + '!</b>' : '') + '</span></button>';
       }).join('');
       return '<div class="bcard"><div class="bh"><span class="ar c-' + esc(b.color) + '">' + esc(b.v) + '</span> <b>' + esc(nm(b)) + '</b></div>' + (rows || '<div class="note">' + L('Nothing yet', '暂无') + '</div>') + '</div>';
     }).join('') + '</div></section>';
@@ -62,16 +67,8 @@ function viewRegister(reg){
   if(boardField(reg)) views.push(['board','board','Board','看板']);
   if(ro.start || ro.finish) views.push(['gantt','gantt','Gantt','甘特图']);
   if(ro.block) views.push(['matrix','grid','Block matrix','区域矩阵']);
-  var h = '<div class="ph"><div class="pht"><span class="ri big c-' + esc(reg.d.color || 'blue') + '">' + icon(reg.d.icon, 20) + '</span><div><h1 class="vtitle">' + regNameL(reg) + '</h1><span class="muted">' + (isPrivate(reg) ? uic('lock', 12) + ' ' + L('Only you can see this register', '仅你自己可见') + ' · ' : '') + L(list.length + ' of ' + all.length + ' items', all.length + ' 项中显示 ' + list.length + ' 项') + (ed ? '' : ' · ' + L('read only', '只读')) + '</span></div></div>' +
-    '<div class="pha"><div class="seg">' + views.map(function(x){ return '<button type="button" data-act="rview" data-v="' + x[0] + '" aria-pressed="' + (v === x[0]) + '">' + uic(x[1], 14) + ' ' + L(x[2], x[3]) + '</button>'; }).join('') + '</div>' +
-    (ed ? '<button type="button" class="btn pri" data-act="newRec">' + uic('plus', 14) + ' ' + L('New', '新增') + '</button>' : '') +
-    '<details class="menu"><summary class="btn">⋯</summary><div class="pop pop-r">' +
-      (canSchemaEdit(reg) ? '<button type="button" data-act="fieldsOpen" data-v="' + esc(reg.id) + '">' + L('Fields & columns', '字段与列') + '</button><button type="button" data-act="regSettings" data-v="' + esc(reg.id) + '">' + L('Register settings', '台账设置') + '</button>' : '') +
-      (ed ? '<button type="button" data-act="impOpen" data-v="' + esc(reg.id) + '">' + L('Import Excel…', '导入 Excel…') + '</button>' : '') +
-      '<button type="button" data-act="expReg" data-v="' + esc(reg.id) + '">' + L('Export Excel (filtered)', '导出 Excel（当前筛选）') + '</button>' +
-      '<button type="button" data-act="regHist" data-v="' + esc(reg.id) + '">' + L('Change log of this register', '本台账修改记录') + '</button>' + regPlanMenu(reg) + regMenuItem(reg) + (typeof trnMenu === 'function' ? trnMenu(reg) : '') + (isPeopleReg(reg) && canTeamEdit() ? '<button type="button" data-act="peopleMatch">' + L('Match names in other registers…', '对照其他台账中的名字…') + '</button>' : '') + (canTeamEdit() && !isPrivate(reg) && reg.d.kind !== 'decks' && !isPeopleReg(reg) ? '<button type="button" data-act="shareReg" data-v="' + esc(reg.id) + '">' + L('Public link for this view…', '为当前视图生成公开链接…') + '</button>' : '') +
-    '</div></details></div></div>';
-  h += regFilters(reg);
+  var h;
+  h = regHead(reg, list, all, ed) + regFilters(reg, views, v);
   var body;
   if(v === 'board') body = viewBoard(reg, list);
   else if(v === 'gantt') body = ganttHtml([{reg:reg, items:list}], {reg:reg, group:S.rg[reg.id + ':g'] || (ro.tree || 'none')});
@@ -82,12 +79,17 @@ function viewRegister(reg){
   else h += body;
   return h;
 }
+/* small per-browser view preferences (row density, package tree folded) */
+function uiPref(k, def){ S.pref = S.pref || {}; if(!(k in S.pref)) S.pref[k] = LS.get('ww.' + k, def); return S.pref[k]; }
+function setPref(k, v){ S.pref = S.pref || {}; S.pref[k] = v; LS.set('ww.' + k, v); }
 function treePanel(reg, tf){
+  if(uiPref('treeHide', false) && !(S.treeEdit && S.treeEdit[reg.id])){ var f0 = rfil(reg.id), on = f0.node && f0.node !== 'all' ? treeNode(tf, f0.node) : null;
+    return '<aside class="tree rail"><button type="button" class="railb" data-act="treeTog" aria-expanded="false" title="' + esc(T('Show ', '显示') + T1(tf.en, tf.zh)) + '">' + uic('right', 14) + '<span>' + esc(T1(tf.en, tf.zh)) + (on ? ': ' + esc((on.code ? on.code + ' ' : '') + nm(on)) : '') + '</span></button></aside>'; }
   var f = rfil(reg.id), base = recsOf(reg.id).filter(function(r){ return matchRec(reg, r, f, true); }), cnt = {};
   base.forEach(function(r){ treePath(tf, r.d[tf.key]).forEach(function(n){ cnt[n.id] = (cnt[n.id] || 0) + 1; }); });
   var none = base.filter(function(r){ return !treeNode(tf, r.d[tf.key]); }).length;
   var te = !!(S.treeEdit && S.treeEdit[reg.id]) && canSchemaEdit(reg);
-  var h = '<aside class="tree card' + (te ? ' editing' : '') + '"><div class="th"><b>' + L(tf.en, tf.zh) + '</b>' + (canSchemaEdit(reg) ? '<button type="button" class="btn sm' + (te ? ' on' : '') + '" data-act="treeEdit">' + (te ? L('Done', '完成') : L('Edit', '编辑')) + '</button>' : '') + '</div>';
+  var h = '<aside class="tree card' + (te ? ' editing' : '') + '"><div class="th"><b>' + L(tf.en, tf.zh) + '</b><span class="row" style="gap:2px">' + (canSchemaEdit(reg) ? '<button type="button" class="btn sm' + (te ? ' on' : '') + '" data-act="treeEdit">' + (te ? L('Done', '完成') : L('Edit', '编辑')) + '</button>' : '') + (te ? '' : '<button type="button" class="ib" data-act="treeTog" aria-expanded="true" aria-label="' + esc(T('Fold the list', '收起')) + '" title="' + esc(T('Fold the list', '收起')) + '">' + uic('left', 14) + '</button>') + '</span></div>';
   if(te) h += '<p class="note" style="margin:0 6px 6px">' + L('＋ adds a sub-level, ✎ renames, ↑↓ reorders, × deletes. Changes save at once and are in the change log.', '＋ 添加下级，✎ 改名，↑↓ 排序，× 删除。修改即时保存并记入修改记录。') + '</p>';
   h += '<button type="button" class="tnode' + (f.node === 'all' || !f.node ? ' on' : '') + '" data-act="tnode" data-v="all"><span>' + L('All', '全部') + '</span><span class="mono muted">' + base.length + '</span></button>';
   treeDfs(tf, function(n, d){
@@ -97,21 +99,58 @@ function treePanel(reg, tf){
   if(none) h += '<button type="button" class="tnode' + (f.node === 'none' ? ' on' : '') + '" data-act="tnode" data-v="none"><span class="muted">' + L('Unclassified', '未分类') + '</span><span class="mono muted">' + none + '</span></button>';
   return h + '</aside>';
 }
-function regFilters(reg){
-  var f = rfil(reg.id), n = activeFilterCount(reg), ff = filterFields(reg);
-  var h = '<div class="card filters' + (S.fOpen ? ' open' : '') + '"><label class="search">' + uic('search', 15) + '<input id="fq" type="search" data-fk="fq:' + esc(reg.id) + '" placeholder="' + esc(T('Search this register', '搜索本台账')) + '" value="' + esc(f.q) + '"></label>' +
-    '<button type="button" class="btn ftoggle" data-act="fToggle">' + L('Filters', '筛选') + (n ? ' (' + n + ')' : '') + '</button><div class="fmore">';
+/* v3.2 · the register's title block: name, then the figures that matter (overdue and due soon filter the list), then actions */
+function regHead(reg, list, all, ed){
+  var ro = rolesOf(reg), A = asOfN(), f = rfil(reg.id), sf = rf(reg, 'status');
+  var done = sf ? all.filter(function(x){ return isDone(reg, x); }).length : 0, od = 0, due = 0;
+  if(ro.finish || ro.start) all.forEach(function(x){ if(isOverdue(reg, x)) od++; else if(!isDone(reg, x)){ var p = planOf(reg, x); if(p && p.f >= A && p.f <= A + 14) due++; } });
+  var cells = [[L('Items', '项'), list.length === all.length ? String(all.length) : list.length + ' / ' + all.length, '', '']];
+  if(sf) cells.push([L('Done', '完成'), pct(done, all.length) + '%', '', '']);
+  if(ro.finish || ro.start){ cells.push([L('Overdue', '逾期'), String(od), od ? ' bad' : '', 'tbOd', f.od]); cells.push([L('Due in 14 days', '14 天内到期'), String(due), due ? ' soon' : '', 'tbDue', f.due]); }
+  return '<header class="tblk"><div class="tb-name"><span class="ri big c-' + esc(reg.d.color || 'blue') + '">' + icon(reg.d.icon, 20) + '</span><div class="tb-nm"><h1 class="vtitle">' + regNameL(reg) + '</h1>' +
+      (isPrivate(reg) || !ed ? '<span class="tb-sub">' + (isPrivate(reg) ? uic('lock', 12) + ' ' + L('Only you can see this register', '仅你自己可见') : '') + (!ed ? (isPrivate(reg) ? ' · ' : '') + L('Read only', '只读') : '') + '</span>' : '') + '</div></div>' +
+    '<div class="tb-cells">' + cells.map(function(c){ return c[3] ? '<button type="button" class="tb-c' + c[2] + (c[4] ? ' on' : '') + '" data-act="' + c[3] + '" aria-pressed="' + !!c[4] + '"><span class="tb-l">' + c[0] + '</span><span class="tb-v">' + c[1] + '</span></button>' : '<div class="tb-c' + c[2] + '"><span class="tb-l">' + c[0] + '</span><span class="tb-v">' + c[1] + '</span></div>'; }).join('') + '</div>' +
+    '<div class="tb-act">' + (ed ? '<button type="button" class="btn pri" data-act="newRec">' + uic('plus', 14) + ' ' + L('New', '新增') + '</button>' : '') +
+    '<details class="menu"><summary class="btn" aria-label="' + esc(T('More', '更多')) + '">⋯</summary><div class="pop pop-r">' +
+      (canSchemaEdit(reg) ? '<button type="button" data-act="fieldsOpen" data-v="' + esc(reg.id) + '">' + L('Fields & columns', '字段与列') + '</button><button type="button" data-act="regSettings" data-v="' + esc(reg.id) + '">' + L('Register settings', '台账设置') + '</button>' : '') +
+      (ed ? '<button type="button" data-act="impOpen" data-v="' + esc(reg.id) + '">' + L('Import Excel…', '导入 Excel…') + '</button>' : '') +
+      '<button type="button" data-act="expReg" data-v="' + esc(reg.id) + '">' + L('Export Excel (filtered)', '导出 Excel（当前筛选）') + '</button>' +
+      '<button type="button" data-act="regHist" data-v="' + esc(reg.id) + '">' + L('Change log of this register', '本台账修改记录') + '</button>' + regPlanMenu(reg) + regMenuItem(reg) + (typeof trnMenu === 'function' ? trnMenu(reg) : '') + (isPeopleReg(reg) && canTeamEdit() ? '<button type="button" data-act="peopleMatch">' + L('Match names in other registers…', '对照其他台账中的名字…') + '</button>' : '') + (canTeamEdit() && !isPrivate(reg) && reg.d.kind !== 'decks' && !isPeopleReg(reg) ? '<button type="button" data-act="shareReg" data-v="' + esc(reg.id) + '">' + L('Public link for this view…', '为当前视图生成公开链接…') + '</button>' : '') +
+    '</div></details></div></header>';
+}
+/* the filters that are on, each with × to remove it */
+function activeChips(reg){
+  var f = rfil(reg.id), out = [];
+  filterFields(reg).forEach(function(fd){ var sel = f.fx[fd.key] || []; if(!sel.length) return;
+    var lab = sel.map(function(v){ if(v === '__none') return T('(empty)', '（空）'); if(fd.type === 'check') return v === '1' ? T('Yes', '是') : T('No', '否'); var o = optOf(fd, v); return o ? nm(o) : v; }).join(', ');
+    out.push(['fx:' + fd.key, T1(fd.en, fd.zh) + ': ' + (lab.length > 40 ? lab.slice(0, 38) + '…' : lab)]); });
+  if(f.from || f.to) out.push(['dates', T('Dates', '日期') + ': ' + (f.from || '…') + ' – ' + (f.to || '…')]);
+  if(f.od) out.push(['od', T('Overdue', '逾期')]);
+  if(f.due) out.push(['due', T('Due in 14 days', '14 天内到期')]);
+  if(f.star) out.push(['star', '★ ' + T('Key', '重点')]);
+  if(f.ext) out.push(['ext', T('Owner can see', '业主可见')]);
+  return out;
+}
+function regFilters(reg, views, v){
+  var f = rfil(reg.id), n = activeFilterCount(reg), ff = filterFields(reg), chips = activeChips(reg), open = !!S.fOpen;
+  var h = '<div class="rtool">' + (views && views.length > 1 ? '<div class="seg vseg" role="group" aria-label="' + esc(T('View', '视图')) + '">' + views.map(function(x){ return '<button type="button" data-act="rview" data-v="' + x[0] + '" aria-pressed="' + (v === x[0]) + '">' + uic(x[1], 14) + '<span class="vsl"> ' + L(x[2], x[3]) + '</span></button>'; }).join('') + '</div>' +
+      '<select class="in vsel" id="vsel" aria-label="' + esc(T('View', '视图')) + '">' + views.map(function(x){ return '<option value="' + x[0] + '"' + (v === x[0] ? ' selected' : '') + '>' + esc(T(x[2], x[3])) + '</option>'; }).join('') + '</select>' : '') +
+    '<label class="search">' + uic('search', 15) + '<input id="fq" type="search" data-fk="fq:' + esc(reg.id) + '" placeholder="' + esc(T('Search this register', '搜索本台账')) + '" value="' + esc(f.q) + '"></label>' +
+    '<button type="button" class="btn ftog' + (open ? ' on' : '') + '" data-act="fToggle" aria-expanded="' + open + '">' + uic('filter', 14) + ' ' + L('Filter', '筛选') + (chips.length ? ' <span class="cnt">' + chips.length + '</span>' : '') + '</button>' +
+    (chips.length ? '<div class="achips">' + chips.map(function(c){ return '<span class="achip">' + esc(c[1]) + '<button type="button" class="ax" data-act="fxClear" data-k="' + esc(c[0]) + '" aria-label="' + esc(T('Remove filter', '移除筛选')) + '">' + uic('x', 12) + '</button></span>'; }).join('') + (chips.length > 1 ? '<button type="button" class="lnk" data-act="fClear">' + L('Clear all', '全部清除') + '</button>' : '') + '</div>' : '') + '</div>';
+  if(!open) return h;
+  h += '<div class="fpanel">';
   ff.forEach(function(fd){
     var sel = f.fx[fd.key] || [];
-    if(fd.list === 'blocks'){ h += '<div class="fchips">' + optsOf(fd).map(function(o){ return '<button type="button" class="fchip" data-act="fx" data-k="' + esc(fd.key) + '" data-v="' + esc(o.v) + '" aria-pressed="' + (sel.indexOf(o.v) >= 0) + '">' + esc(S.lang === 'zh' ? (o.zh || o.v) : o.en || o.v) + '</button>'; }).join('') + '</div>'; return; }
-    var lab = sel.length ? sel.map(function(v){ if(fd.type === 'check') return v === '1' ? T('Yes', '是') : T('No', '否'); var o = optOf(fd, v); return o ? nm(o) : v; }).join(', ') : '';
+    if(fd.list === 'blocks'){ h += '<div class="fgrp"><span class="flab">' + L(fd.en, fd.zh) + '</span><div class="fchips">' + optsOf(fd).map(function(o){ return '<button type="button" class="fchip" data-act="fx" data-k="' + esc(fd.key) + '" data-v="' + esc(o.v) + '" aria-pressed="' + (sel.indexOf(o.v) >= 0) + '">' + esc(S.lang === 'zh' ? (o.zh || o.v) : o.en || o.v) + '</button>'; }).join('') + '</div></div>'; return; }
+    var lab = sel.length ? sel.map(function(x){ if(fd.type === 'check') return x === '1' ? T('Yes', '是') : T('No', '否'); var o = optOf(fd, x); return o ? nm(o) : x; }).join(', ') : '';
     h += '<button type="button" class="fbtn' + (sel.length ? ' on' : '') + '" data-act="fxPick" data-k="' + esc(fd.key) + '">' + esc(T1(fd.en, fd.zh)) + (lab ? ': <b>' + esc(lab.length > 26 ? lab.slice(0, 24) + '…' : lab) + '</b>' : ' ▾') + '</button>';
   });
-  if(rolesOf(reg).start || rolesOf(reg).finish) h += '<span class="drange"><span class="muted">' + L('Dates', '日期') + '</span><input class="in" type="date" id="ffrom" value="' + esc(f.from) + '" aria-label="From">–<input class="in" type="date" id="fto" value="' + esc(f.to) + '" aria-label="To"></span>';
-  h += (rolesOf(reg).finish ? '<label class="chk"><input type="checkbox" id="fod"' + (f.od ? ' checked' : '') + '>' + L('Overdue', '逾期') + '</label>' : '') +
+  if(rolesOf(reg).start || rolesOf(reg).finish) h += '<span class="drange"><span class="flab">' + L('Dates', '日期') + '</span>' + dateIn({id:'ffrom', value:f.from, label:T('From', '从')}) + '–' + dateIn({id:'fto', value:f.to, label:T('To', '到')}) + '</span>';
+  h += '<span class="fchk">' + (rolesOf(reg).finish ? '<label class="chk"><input type="checkbox" id="fod"' + (f.od ? ' checked' : '') + '>' + L('Overdue', '逾期') + '</label><label class="chk"><input type="checkbox" id="fdue"' + (f.due ? ' checked' : '') + '>' + L('Due in 14 days', '14 天内到期') + '</label>' : '') +
     '<label class="chk"><input type="checkbox" id="fstar"' + (f.star ? ' checked' : '') + '>★ ' + L('Key', '重点') + '</label>' +
-    (reg.d.ownerPublish ? '<label class="chk"><input type="checkbox" id="fext"' + (f.ext ? ' checked' : '') + '>' + L('Owner can see', '业主可见') + '</label>' : '') +
-    (n ? '<button type="button" class="btn sm" data-act="fClear">' + L('Clear', '清除') + '</button>' : '') + '</div></div>';
+    (reg.d.ownerPublish ? '<label class="chk"><input type="checkbox" id="fext"' + (f.ext ? ' checked' : '') + '>' + L('Owner can see', '业主可见') + '</label>' : '') + '</span>' +
+    '<button type="button" class="btn sm fdone" data-act="fToggle">' + L('Done', '完成') + '</button></div>';
   return h;
 }
 
@@ -125,7 +164,8 @@ function viewTable(reg, list){
   var selIds = Object.keys(S.sel).filter(function(id){ return S.sel[id] && getRec(id) && getRec(id).reg === reg.id; });
   var h = '<div class="tbar"><label class="fl row">' + L('Group', '分组') + '<select class="in" id="rgroup"><option value="none">' + esc(T('None', '不分组')) + '</option>' + groupable(reg).map(function(f){ return '<option value="' + esc(f.key) + '"' + (gk === f.key ? ' selected' : '') + '>' + esc(T1(f.en, f.zh)) + '</option>'; }).join('') + '</select></label>' +
     '<button type="button" class="btn" data-act="colsPick">' + L('Columns', '列') + ' ▾</button>' +
-    '<span class="note">' + L('Click a cell to edit · click the No. for all fields', '点单元格直接编辑 · 点编号查看全部字段') + '</span></div>';
+    '<div class="seg dseg" role="group" aria-label="' + esc(T('Row height', '行高')) + '"><button type="button" data-act="dense" data-v="0" aria-pressed="' + !uiPref('dense', false) + '">' + L('Comfortable', '舒适') + '</button><button type="button" data-act="dense" data-v="1" aria-pressed="' + !!uiPref('dense', false) + '">' + L('Compact', '紧凑') + '</button></div>' +
+    '<span class="note hint">' + L('Click a cell to edit · click the No. for all fields', '点单元格直接编辑 · 点编号查看全部字段') + '</span></div>';
   if(selIds.length && ed){
     h += '<div class="bulk"><b>' + L(selIds.length + ' selected', '已选 ' + selIds.length) + '</b><select class="in" id="bulkField"><option value="">' + esc(T('Set a field…', '批量设置字段…')) + '</option>' + dataFields(reg).filter(function(f){ return ['text','number','percent','date','select','tree','check','long'].indexOf(f.type) >= 0 && !(f.type === 'percent' && f.auto); }).map(function(f){ return '<option value="' + esc(f.key) + '">' + esc(T1(f.en, f.zh)) + '</option>'; }).join('') + '</select>' +
       (S.bulkF ? bulkInput(reg, fieldOf(reg, S.bulkF)) : '') +
@@ -151,7 +191,7 @@ function viewTable(reg, list){
   var vkey = 'tbl:' + reg.id, rowsA = vwSplit(body, 'tr'), long = rowsA.length > VW_MIN;
   var cg = long ? '<colgroup>' + (ed ? '<col style="width:34px">' : '') + cols.map(function(f){ return '<col style="width:' + colWidth(reg, f) + 'px">'; }).join('') + (canSchemaEdit(reg) ? '<col style="width:40px">' : '') + '</colgroup>' : '';
   var tw = long ? (ed ? 34 : 0) + cols.reduce(function(s0, f){ return s0 + colWidth(reg, f); }, 0) + (canSchemaEdit(reg) ? 40 : 0) : 0;
-  return h + '<div class="card tbl-wrap"' + (long ? ' data-vw="' + esc(vkey) + '"' : '') + '><table class="tbl' + (long ? ' vwt' : '') + '"' + (long ? ' style="min-width:' + tw + 'px"' : '') + '>' + cg + '<thead>' + th + '</thead><tbody data-vwb="' + esc(vkey) + '">' + vwHtml(vkey, rowsA, 'tr', span) + '</tbody></table></div>';
+  return h + '<div class="card tbl-wrap"' + (long ? ' data-vw="' + esc(vkey) + '"' : '') + '><table class="tbl' + (long ? ' vwt' : '') + (uiPref('dense', false) ? ' dense' : '') + '"' + (long ? ' style="min-width:' + tw + 'px"' : '') + '>' + cg + '<thead>' + th + '</thead><tbody data-vwb="' + esc(vkey) + '">' + vwHtml(vkey, rowsA, 'tr', span) + '</tbody></table></div>';
 }
 function hierRows(reg, items, cols, ed){
   var ids = {}, kids = {}, roots = [], all = kidsIndex(reg.id), out = '';
