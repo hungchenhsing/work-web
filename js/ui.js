@@ -75,10 +75,18 @@ function noticePanel(){
   return '<div class="npanel card" role="dialog" aria-label="' + esc(T('Notices', '通知')) + '"><div class="nph"><b>' + L('Notices', '通知') + '</b><button type="button" class="ib" data-act="notices" aria-label="' + esc(T('Close', '关闭')) + '">' + uic('x', 15) + '</button></div>' +
     (ns.length ? ns.map(function(x){ return '<div class="nitem' + (x.unread ? ' unread' : '') + '">' + x.html + '</div>'; }).join('') : '<div class="note" style="padding:8px 2px">' + L('Nothing new.', '没有新通知。') + '</div>') + '</div>';
 }
+/* a click elsewhere closes the notices without redrawing the bar, so the click still lands where it was aimed */
 document.addEventListener('click', function(e){
   if(!S.nOpen) return;
   if(e.target.closest && (e.target.closest('.npanel') || e.target.closest('.nbell'))) return;
-  S.nOpen = false; renderTop();
+  S.nOpen = false; var np = document.querySelector('.npanel'); if(np) np.remove();
+  var nb = document.querySelector('.nbell'); if(nb){ nb.classList.remove('on'); nb.setAttribute('aria-expanded', 'false'); }
+}, true);
+/* ⋯ menus (<details class="menu">): a choice or a click elsewhere closes them */
+document.addEventListener('click', function(e){
+  var t = e.target, own = t.closest && t.closest('details.menu');
+  Array.prototype.forEach.call(document.querySelectorAll('details.menu[open]'), function(d){ if(d !== own) d.removeAttribute('open'); });
+  if(own && !(t.closest('summary')) && t.closest('button, a, [data-act]')) own.removeAttribute('open');
 }, true);
 /* in "EN + 中" the Chinese of a button or hint shows when the pointer rests on it */
 document.addEventListener('mouseover', function(e){
@@ -113,7 +121,9 @@ function renderSheet(){
   if(S.sheet === 'regs') h = '<h2>' + L('Registers', '台账') + '</h2>' + regGroups().map(function(g){ return '<div class="sh">' + (g.s[0] === 'private' ? uic('lock', 12) + ' ' : '') + L(g.s[1], g.s[2]) + '</div>' + g.regs.map(function(x){ return regBtn(x, 'sreg'); }).join(''); }).join('') + (canCreateReg() ? '<button type="button" class="sadd" data-act="newReg">' + uic('plus', 14) + ' ' + L('New register', '新建台账') + '</button>' : '');
   else h = '<h2>' + L('More', '更多') + '</h2><div class="snav">' + sidePages().filter(function(p){ return p[0] !== 'home' && p[0] !== 'mine'; }).map(function(p){ return '<button type="button" data-act="page" data-v="' + p[0] + '"' + (S.page === p[0] ? ' aria-current="page"' : '') + '>' + uic(p[1]) + '<span>' + L(p[2], p[3]) + '</span></button>'; }).join('') + '</div>' +
     (STORE.mode === 'cloud' && STORE.me ? '<div class="sme"><span>' + esc(STORE.me.name || STORE.me.email || '') + ' · ' + esc(roleName(role())) + '</span><button type="button" class="btn sm" data-act="signout">' + L('Sign out', '退出登录') + '</button></div>' : '');
-  r.innerHTML = '<div class="sheet-scrim" data-act="sheetClose"></div><div class="sheet" role="dialog" aria-modal="true" aria-label="' + esc(S.sheet === 'regs' ? T('Registers', '台账') : T('More', '更多')) + '"><span class="sgrip"></span>' + h + '</div>';
+  var was = r.querySelector('.sheet');
+  r.innerHTML = '<div class="sheet-scrim" data-act="sheetClose"></div><div class="sheet" role="dialog" aria-modal="true" tabindex="-1" aria-label="' + esc(S.sheet === 'regs' ? T('Registers', '台账') : T('More', '更多')) + '"><span class="sgrip"></span>' + h + '</div>';
+  if(!was){ var sh = r.querySelector('.sheet'); if(sh) sh.focus(); }
 }
 function renderSide(){
   var pages = sidePages();
@@ -472,7 +482,6 @@ function renderDrawer(){
     '<div class="dtitle">' + esc(recTitle(reg, rec) || T('Untitled', '未命名')) + '</div>' + (recTitle2(reg, rec) ? '<div class="dtitle2">' + esc(recTitle2(reg, rec)) + '</div>' : '') +
     (chips ? '<div class="dchips">' + chips + '</div>' : '') + (reg.d.meeting && !isPrivate(reg) ? meetingDeckStrip(rec) : '') +
     (S.delAsk ? '<div class="dconf"><span>' + (desc ? L('Delete ' + recNo(reg, rec) + ' and its ' + desc + ' sub-items? You can restore them from the change log.', '删除 ' + recNo(reg, rec) + ' 及其 ' + desc + ' 个子项？可在修改记录中恢复。') : L('Delete ' + (recNo(reg, rec) || T('this item', '此项')) + '? You can restore it from the change log.', '删除 ' + (recNo(reg, rec) || '此项') + '？可在修改记录中恢复。')) + '</span><button type="button" class="btn sm danger" data-act="delYes">' + L('Delete', '删除') + '</button><button type="button" class="btn sm" data-act="delNo">' + L('Cancel', '取消') + '</button></div>' : '') +
-    (sf.length && S.dtab === 'details' ? '<div class="dsum">' + sf.map(function(f){ return sumCell(reg, f, rec, ed); }).join('') + '</div>' : '') +
     '<div class="dtabs" role="tablist">' + tabs.map(function(t){ return '<button type="button" role="tab" data-act="dtab" data-v="' + t[0] + '" aria-selected="' + (S.dtab === t[0]) + '">' + L(t[1], t[2]) + (t[3] ? ' <span class="cnt">' + t[3] + '</span>' : '') + '</button>'; }).join('') + '</div></div><div class="dbody">';
   if(S.dtab === 'files') h += drawerFiles(reg, rec, ed);
   else if(S.dtab === 'links') h += drawerLinks(reg, rec, ed);
@@ -481,7 +490,7 @@ function renderDrawer(){
   else if(S.dtab === 'comments') h += drawerComments(reg, rec);
   else if(S.dtab === 'work' && isPeopleReg(reg)) h += peopleWork(reg, rec);
   else if(S.dtab === 'trn' && trn) h += trnItemsHtml(reg, rec, ed);
-  else h += (lib ? docPreview(rec, ed) : (es.length ? relStrip(rec, ed) : '')) + (typeof closeChecklistHtml === 'function' ? closeChecklistHtml(reg, rec) : '') + drawerForm(reg, rec, ed, sf) + (typeof docTrnHtml === 'function' && !isPrivate(reg) ? docTrnHtml(reg, rec) : '');
+  else h += (sf.length ? '<div class="dsum">' + sf.map(function(f){ return sumCell(reg, f, rec, ed); }).join('') + '</div>' : '') + (lib ? docPreview(rec, ed) : (es.length ? relStrip(rec, ed) : '')) + (typeof closeChecklistHtml === 'function' ? closeChecklistHtml(reg, rec) : '') + drawerForm(reg, rec, ed, sf) + (typeof docTrnHtml === 'function' && !isPrivate(reg) ? docTrnHtml(reg, rec) : '');
   h += '</div></aside>';
   root.innerHTML = h; document.body.classList.add('dopen');
   if(typeof enhanceDates === 'function') enhanceDates(root);
@@ -517,13 +526,14 @@ function fieldInput(reg, f, rec, ed){
 }
 function drawerForm(reg, rec, ed, skip){
   var lib = isLibRec(rec), ro = rolesOf(reg), all = !!S.dAll || (S.newBlank && S.newBlank.id === rec.id), folded = 0;
+  if(!S.dFold || S.dFold.id !== rec.id) S.dFold = {id:rec.id, keys:fieldsOf(reg).filter(function(f){ return f.hide && isEmpty(rec.d[f.key]); }).map(function(f){ return f.key; })};
   /* sections: fields up to the next section heading; secondary fields (hidden in the table by default) that are empty fold away */
   var secs = [{h:null, fs:[]}];
   fieldsOf(reg).forEach(function(f){
     if(lib && f.type === 'files') return;
     if(f.type === 'section'){ secs.push({h:f, fs:[]}); return; }
     if(skip && skip.indexOf(f) >= 0) return;
-    if(!all && f.hide && isEmpty(rec.d[f.key]) && f.key !== ro.title && f.type !== 'sub'){ folded++; return; }
+    if(!all && f.hide && S.dFold.keys.indexOf(f.key) >= 0 && isEmpty(rec.d[f.key]) && f.key !== ro.title && f.type !== 'sub'){ folded++; return; }
     secs[secs.length - 1].fs.push(f);
   });
   var h = '<div class="fg">';

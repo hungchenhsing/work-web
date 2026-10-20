@@ -261,7 +261,7 @@ function hoDocs(reg, node){
   if(tf) (function w(p){ treeKids(tf, p).forEach(function(n){ order[n.id] = i++; w(n.id); }); })('');
   return recsOf(reg.id).filter(function(r){ return !inside || inside[r.d[tf.key]]; }).sort(function(a, b){ var x = tf ? (order[a.d[tf.key]] == null ? 1e6 : order[a.d[tf.key]]) - (order[b.d[tf.key]] == null ? 1e6 : order[b.d[tf.key]]) : 0; return x || String(recNo(reg, a)).localeCompare(String(recNo(reg, b)), undefined, {numeric:true}); });
 }
-function hoFolder(reg, r){ var tf = rf(reg, 'tree'), path = tf ? treePath(tf, r.d[tf.key]) : []; return path.map(function(n){ return safeName((n.code ? n.code + ' ' : '') + (n.en || n.zh || '')); }).join('/') || safeName(T('No package', '未分类')); }
+function hoFolder(reg, r){ var tf = rf(reg, 'tree'), path = tf ? treePath(tf, r.d[tf.key]) : []; return path.map(function(n){ return safeName((n.code ? n.code + ' ' : '') + (n.en || n.zh || '')); }).join('/') || 'No package 未分类'; }
 function hoModal(m){
   var reg = getReg(m.reg), tf = rf(reg, 'tree'), docs = hoDocs(reg, m.node || ''), nf = 0, size = 0, nofile = 0, notacc = 0;
   docs.forEach(function(r){ var fl = docFiles(r); nf += fl.length; fl.forEach(function(f){ size += +f.size || 0; }); if(!fl.length) nofile++; if(TRN_OK.indexOf(r.d.ownerResult) < 0) notacc++; });

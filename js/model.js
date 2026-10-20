@@ -213,7 +213,7 @@ function setRec(rec, patch, opts){
 function quickUndo(){ var u = S.lastUndo; if(!u) return; var rec = getRec(u.id); S.lastUndo = null; if(rec) STORE.patchRec(rec.id, u.old, u.now ? Object.assign({}, rec.d, u.now) : null).then(function(){ toast(T('Undone', '已撤销')); }).catch(function(e){ toast(errText(e)); }); }
 function createRec(reg, extra, open){
   if(!canWrite(reg)) return Promise.resolve(null);
-  var id = uid('r'), d = blankData(reg, extra);
+  var id = uid('r'), d = blankData(reg, extra); S.delAsk = false;
   return STORE.createRec({id:id, reg:reg.id, d:d}).then(function(){ if(open !== false){ S.open = id; S.dtab = 'details'; var r0 = getRec(id); S.newBlank = {id:id, d:clone(r0 ? r0.d : d)}; renderDrawer(); } return id; }).catch(function(e){ toast(errText(e)); return null; });
 }
 /* a new item opened with New and closed without anything typed in it is removed again (v3.0) */

@@ -3,7 +3,7 @@
 
 function goPage(p){ S.page = p; S.sideOpen = false; S.sheet = null; S.q = ''; S.sel = {}; S.bulkF = null; closePop(); saveUI(); renderAll(); $('#main').scrollTop = 0; }
 function goReg(id){ S.page = 'reg'; S.reg = id; S.sideOpen = false; S.sheet = null; S.q = ''; S.sel = {}; S.bulkF = null; S.gKeep = false; closePop(); saveUI(); renderAll(); $('#main').scrollTop = 0; }
-function openRec(id, tab){ var r = getRec(id); if(!r) return; if(isDeckRec(r)){ openDeck(id); return; } S.open = id; S.dtab = tab || 'details'; S.delAsk = false; S.hist = null; S.q = ''; closePop(); renderAll(); }
+function openRec(id, tab){ var r = getRec(id); if(!r) return; if(isDeckRec(r)){ openDeck(id); return; } S.open = id; S.dtab = tab || 'details'; S.delAsk = false; S.dFold = null; S.hist = null; S.q = ''; closePop(); renderAll(); }
 function curReg(){ return S.page === 'reg' ? getReg(S.reg) : null; }
 function odArr(){ var m = S.modal; if(m && m.kind === 'fields' && m.exp != null){ var f = m.d.fields[m.exp]; if(f.type === 'select' && !f.list){ f.opts = f.opts || []; return f.opts; } } if(m && m.kind === 'opts' && m.d && m.d.opts) return m.d.opts; return S.ldraft ? S.ldraft.opts : []; }
 function tdArr(){ var m = S.modal; if(m && m.kind === 'fields' && m.exp != null){ var f = m.d.fields[m.exp]; f.tree = f.tree || []; return f.tree; } if(m && m.kind === 'opts' && m.d && m.d.tree) return m.d.tree; return []; }
@@ -14,7 +14,7 @@ document.addEventListener('click', function(e){
   var t = e.target;
   // inline-edit cells
   var gce = t.closest && t.closest('[data-gce]');
-  if(gce){ S.edit = {id:gce.dataset.gce, k:gce.dataset.k}; S.gKeep = true; renderMain(); var gi = $('[data-ie]'); if(gi){ gi.focus(); try{ gi.showPicker && gi.showPicker(); }catch(_){} } return; }
+  if(gce){ S.edit = {id:gce.dataset.gce, k:gce.dataset.k}; S.gKeep = true; renderMain(); var gi = $('[data-ie]'); if(gi){ gi.focus(); if(gi.select) gi.select(); if(gi.classList.contains('dti') && typeof dpOpen === 'function') dpOpen(gi); else try{ gi.showPicker && gi.showPicker(); }catch(_){} } return; }
   var ce = t.closest && t.closest('td[data-ce]');
   if(ce && !t.closest('button,a,input,textarea,select')){ startCellEdit(ce); return; }
   var el = t.closest && t.closest('[data-act]'); if(!el) return;
@@ -26,7 +26,7 @@ document.addEventListener('click', function(e){
   switch(act){
     case 'side': S.sideOpen = !S.sideOpen; renderSide(); break;
     case 'bnav': if(v === '@regs' || v === '@more'){ var sh = v.slice(1); S.sheet = S.sheet === sh ? null : sh; S.msearch = false; renderBnav(); } else if(v === '@search'){ S.sheet = null; S.msearch = !S.msearch; document.body.classList.toggle('msearch', S.msearch); renderBnav(); if(S.msearch) setTimeout(function(){ var q = $('#gq'); if(q) q.focus(); }, 30); } else { S.sheet = null; goPage(v); } break;
-    case 'sheetClose': S.sheet = null; renderBnav(); break;
+    case 'sheetClose': S.sheet = null; renderBnav(); (function(){ var b = $('#bnav [aria-current]') || $('#bnav button'); if(b) b.focus(); })(); break;
     case 'page': goPage(v); break;
     case 'reg': goReg(v); break;
     case 'notices': S.nOpen = !S.nOpen; renderTop(); break;
@@ -39,13 +39,13 @@ document.addEventListener('click', function(e){
     case 'close': S.open = null; S.delAsk = false; renderDrawer(); break;
     case 'dtab': S.dtab = v; S.delAsk = false; renderDrawer(); break;
     case 'dwide': S.dwide = !S.dwide; renderDrawer(); break;
-    case 'dAll': S.dAll = !S.dAll; renderDrawer(); break;
+    case 'dAll': S.dAll = !S.dAll; S.dFold = null; renderDrawer(); break;
     case 'star': setRec(rec, {star:!rec.d.star}, {silent:true}); break;
     case 'msTog': setRec(rec, {ms:!rec.d.ms}); break;
     case 'printMom': printMinutes(rec); break;
     case 'dupRec': (function(){ var d = clone(rec.d); var ro = rolesOf(drReg); if(ro.no) d[ro.no] = nextNo(drReg); dataFields(drReg).forEach(function(f){ if(f.type === 'files') delete d[f.key]; });
       if(typeof isTrnReg === 'function' && isTrnReg(drReg)){ d.status = 'draft'; delete d.pub; delete d.date; delete d._trn; d.items = asArr(d.items).map(function(it){ return {_id:uid('t'), rid:it.rid, no:it.no, docNo:it.docNo, title:it.title, title2:it.title2, rev:it.rev, files:asArr(it.files).map(function(f){ return {path:f.path, name:f.name, size:f.size, type:f.type}; })}; }); } var id = uid('r'); STORE.createRec({id:id, reg:drReg.id, d:d}).then(function(){ openRec(id); toast(T('Duplicated', '已复制')); }).catch(function(er){ toast(errText(er)); }); })(); break;
-    case 'delAsk': S.delAsk = true; renderDrawer(); break;
+    case 'delAsk': S.delAsk = true; renderDrawer(); (function(){ var c = $('.dconf [data-act="delNo"]'); if(c) c.focus(); })(); break;
     case 'delNo': S.delAsk = false; renderDrawer(); break;
     case 'delYes': (function(){ var id = rec.id, lab = recLabel(rec), desc = descendantsOf(rec); S.open = null; S.delAsk = false; desc.reverse().forEach(function(k){ STORE.deleteRec(k.id).catch(function(){}); }); STORE.deleteRec(id).then(function(){ toast(T('Deleted ', '已删除 ') + lab + ' — ' + T('restore it from the Change log', '可在修改记录中恢复')); }).catch(function(er){ toast(errText(er)); }); renderAll(); })(); break;
     case 'pick': (function(){ var pr = (el.dataset.id && getRec(el.dataset.id)) || rec; openPick('opts', {reg:pr.reg, rec:pr.id, key:el.dataset.k}, el); })(); break;
@@ -244,14 +244,19 @@ function startCellEdit(td){
   if(f.type === 'select'){ openPick('opts', {reg:reg.id, rec:rec.id, key:f.key}, td); return; }
   if(f.type === 'tree'){ openPick('tree', {reg:reg.id, rec:rec.id, key:f.key}, td); return; }
   if(f.type === 'check'){ setRec(rec, mk(f.key, !rec.d[f.key])); return; }
-  if(canInline(f)){ S.edit = {id:rec.id, k:f.key}; renderMain(); var i = $('[data-ie]'); if(i){ i.focus(); if(i.select && f.type !== 'date') i.select(); } return; }
+  if(canInline(f)){ S.edit = {id:rec.id, k:f.key}; renderMain(); var i = $('[data-ie]'); if(i){ i.focus(); if(i.select) i.select(); } return; }
   openRec(rec.id, f.type === 'files' ? 'files' : f.type === 'link' ? 'links' : 'details');
 }
-function commitEdit(cancel){
+function commitEdit(cancel, byKey){
   var ed = S.edit; if(!ed) return; S.edit = null;
   var i = $('[data-ie]'), rec = getRec(ed.id), reg = rec && getReg(rec.reg), f = reg && fieldOf(reg, ed.k);
   if(!cancel && i && rec && f){
     var v = i.value;
+    if(f.type === 'date' && typeof normDate === 'function'){ var nv = normDate(v);   // v3.2: typed dates are tidied (2026/11/3 → 2026-11-03)
+      if(nv === null){ toast(T('Not a date: ', '不是有效日期：') + v + ' — ' + T('use YYYY-MM-DD', '请用 YYYY-MM-DD'));
+        if(byKey){ S.edit = ed; i.focus(); if(i.select) i.select(); return; }
+        renderMain(); return; }
+      v = nv; }
     if(f.type === 'number') v = num(v); else if(f.type === 'percent') v = v === '' ? null : clamp(Math.round(+v || 0), 0, 100);
     if(f.type === 'date' && (f.key === rolesOf(reg).start || f.key === rolesOf(reg).finish)) setRec(rec, dateFix(reg, rec, f.key, v));
     else setRec(rec, mk(f.key, v));
@@ -277,7 +282,7 @@ document.addEventListener('keydown', function(e){
   if(el.getAttribute && el.getAttribute('role') === 'button' && el.tagName !== 'BUTTON' && (e.key === 'Enter' || e.key === ' ')){ e.preventDefault(); e.stopPropagation(); el.click(); return; }
   if(el.dataset && el.dataset.ie){
     if(e.key === 'Escape'){ e.preventDefault(); commitEdit(true); return; }
-    if(e.key === 'Enter' && (el.tagName !== 'TEXTAREA' || e.ctrlKey || e.metaKey)){ e.preventDefault(); commitEdit(false); return; }
+    if(e.key === 'Enter' && (el.tagName !== 'TEXTAREA' || e.ctrlKey || e.metaKey)){ e.preventDefault(); commitEdit(false, true); return; }
     return;
   }
   if(el.id === 'qadd' && e.key === 'Enter'){
@@ -291,7 +296,9 @@ document.addEventListener('keydown', function(e){
   if(el.id === 'subQuick' && e.key === 'Enter'){ e.preventDefault(); var b0 = $('[data-act="subQuick"]'); if(b0) b0.click(); return; }
   if(el.id === 'popq' && e.key === 'Enter'){ e.preventDefault(); var b = $('.popover [data-act="popAdd"]') || $('.popover [data-act="popPick"]'); if(b) b.click(); return; }
   if(e.key === 'Escape'){
-    if(S.pop){ closePop(); return; } if(S.modal){ closeModal(); return; } if(S.open){ S.open = null; renderDrawer(); return; } if(S.q){ S.q = ''; renderTop(); return; } if(S.sideOpen){ S.sideOpen = false; renderSide(); }
+    var om = document.querySelector('details.menu[open]'); if(om){ om.removeAttribute('open'); var sm = om.querySelector('summary'); if(sm) sm.focus(); return; }
+    if(S.nOpen){ S.nOpen = false; renderTop(); return; } if(S.sheet){ S.sheet = null; renderBnav(); return; }
+    if(S.pop){ closePop(); return; } if(S.modal){ closeModal(); return; } if(S.open){ S.open = null; S.delAsk = false; renderDrawer(); return; } if(S.q){ S.q = ''; renderTop(); return; } if(S.sideOpen){ S.sideOpen = false; renderSide(); }
   }
 });
 
@@ -335,6 +342,8 @@ document.addEventListener('change', function(e){
   if(el.id === 'gAsOf'){ if(canTeamEdit()) STORE.saveCfg({asOf:el.value || ''}); else { S.asOfLocal = el.value || null; renderMain(); } return; }
   if(el.id === 'ffrom' || el.id === 'fto'){ rfil(S.reg)[el.id === 'ffrom' ? 'from' : 'to'] = el.value || ''; renderMain(); return; }
   if(el.id === 'vsel'){ S.rv[S.reg] = el.value; S.gKeep = false; saveUI(); renderMain(); return; }
+  if(el.id === 'fod' && el.checked) rfil(S.reg).due = false;
+  if(el.id === 'fdue' && el.checked) rfil(S.reg).od = false;
   if(el.id === 'fod' || el.id === 'fstar' || el.id === 'fext' || el.id === 'fdue'){ rfil(S.reg)[el.id.slice(1)] = el.checked; renderMain(); return; }
   if(el.id === 'schOpen'){ S.schOpen = el.checked; renderMain(); return; }
   if(el.id === 'actReg' || el.id === 'actType'){ S.act[el.id === 'actReg' ? 'reg' : 'type'] = el.value; S.act.rows = null; renderMain(); return; }

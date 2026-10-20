@@ -939,9 +939,10 @@ body.pubv .top .tools{margin-left:auto;display:flex;align-items:center;gap:10px}
 .vtitle{font-size:21px;font-weight:650;letter-spacing:-.012em;line-height:1.25}
 .card{border-color:var(--line2);box-shadow:var(--shadow-s);border-radius:var(--r-l)}
 .btn{border-radius:var(--r-m);font-weight:500}
-.btn:hover{background:var(--surface2);border-color:var(--line)}
-.btn.pri:hover{background:var(--accent);filter:brightness(1.1)}
-.btn.danger:hover{background:var(--bad);filter:brightness(1.1)}
+.btn:where(:not(.pri,.danger,.on,[aria-pressed="true"])):hover{background:var(--surface2);border-color:var(--line)}
+.btn.pri:hover,.btn.danger:hover{filter:brightness(1.1)}
+/* the dark presentation bars keep their own button colours on hover */
+.pres-bar .btn:where(:not([aria-pressed="true"])):hover,.pvbar .btn:where(:not([aria-pressed="true"])):hover,.pres-lv .btn:where(:not(.pri)):hover{background:#2C3239;border-color:#59616B;color:#fff}
 .in{border-radius:var(--r-s)}
 .in:focus,.pickbtn:focus-visible{border-color:var(--accent);outline:2px solid color-mix(in srgb,var(--accent) 28%,transparent);outline-offset:0}
 .chip{border-radius:999px;font-weight:500}
@@ -1145,3 +1146,9 @@ body.lang-both :is(.btn,.seg button,.ib,.pop button,.popt,.fchip,.fbtn,.snav but
   .dbody{padding:14px 14px 40px}
 }
 @media (pointer: coarse){ .dpd{height:38px} .dpb{width:36px;height:36px} .achip .ax{width:32px;height:32px} }
+
+/* v3.2 review fixes */
+.gc .din{display:flex;width:100%} .gc .dpb{display:none}                 /* the gantt cell opens the calendar by itself */
+.dpd.cur{outline:2px solid var(--accent);outline-offset:-2px}
+.dbody > .dsum{margin:0 0 14px}
+@media print{ .rtool,.tb-act,.fpanel,.bnav,#bnav,#sheet-root,.npanel,.nbell,#toast,.dpop,.achips,.dmore{display:none!important} }

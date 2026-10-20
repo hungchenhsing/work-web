@@ -137,7 +137,7 @@ function regFilters(reg, views, v){
       '<select class="in vsel" id="vsel" aria-label="' + esc(T('View', '视图')) + '">' + views.map(function(x){ return '<option value="' + x[0] + '"' + (v === x[0] ? ' selected' : '') + '>' + esc(T(x[2], x[3])) + '</option>'; }).join('') + '</select>' : '') +
     '<label class="search">' + uic('search', 15) + '<input id="fq" type="search" data-fk="fq:' + esc(reg.id) + '" placeholder="' + esc(T('Search this register', '搜索本台账')) + '" value="' + esc(f.q) + '"></label>' +
     '<button type="button" class="btn ftog' + (open ? ' on' : '') + '" data-act="fToggle" aria-expanded="' + open + '">' + uic('filter', 14) + ' ' + L('Filter', '筛选') + (chips.length ? ' <span class="cnt">' + chips.length + '</span>' : '') + '</button>' +
-    (chips.length ? '<div class="achips">' + chips.map(function(c){ return '<span class="achip">' + esc(c[1]) + '<button type="button" class="ax" data-act="fxClear" data-k="' + esc(c[0]) + '" aria-label="' + esc(T('Remove filter', '移除筛选')) + '">' + uic('x', 12) + '</button></span>'; }).join('') + (chips.length > 1 ? '<button type="button" class="lnk" data-act="fClear">' + L('Clear all', '全部清除') + '</button>' : '') + '</div>' : '') + '</div>';
+    (chips.length ? '<div class="achips">' + chips.map(function(c){ return '<span class="achip">' + esc(c[1]) + '<button type="button" class="ax" data-act="fxClear" data-k="' + esc(c[0]) + '" aria-label="' + esc(T('Remove filter: ', '移除筛选：') + c[1]) + '">' + uic('x', 12) + '</button></span>'; }).join('') + (chips.length > 1 ? '<button type="button" class="lnk" data-act="fClear">' + L('Clear all', '全部清除') + '</button>' : '') + '</div>' : '') + '</div>';
   if(!open) return h;
   h += '<div class="fpanel">';
   ff.forEach(function(fd){

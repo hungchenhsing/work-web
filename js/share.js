@@ -231,6 +231,7 @@ function shareFilter(reg, mode){
     if(f.q){ snapOnly.push(T('Search text', '搜索文字')); f.q = ''; }
     if(f.from || f.to){ snapOnly.push(T('Date range', '日期范围')); f.from = ''; f.to = ''; }
     if(f.od){ snapOnly.push(T('Overdue only', '仅逾期')); f.od = false; }
+    if(f.due){ snapOnly.push(T('Due in 14 days', '14 天内到期')); f.due = false; }
   }
   return {f:f, dropped:dropped, snapOnly:snapOnly};
 }
@@ -273,7 +274,7 @@ function shareNewModal(m){
       return '<label class="chk"><input type="checkbox" data-shreg="' + esc(r.id) + '"' + (on ? ' checked' : '') + '>' + esc(regName(r)) + ' <span class="note">' + (g ? L(nn + ' marked for the Owner', nn + ' 条对业主公开') : L(nn + ' records', nn + ' 条')) + '</span></label>'; }).join('') + '</div></div>';
     notes.push(L('The overview shows headline figures, milestones, the programme, block progress and status per package, built the same way as Owner-mode slides: besides fields marked “Owner can see”, the charts use dates, progress, status, block and package of the shared records. Other fields (remarks, contacts…) go out only if marked “Owner can see”; files, links and field explanations never do.', '总览包括关键数字、里程碑、进度计划、区域进度和各文件包状态，规则与业主模式简报相同：除「业主可见」字段外，图表会用到所公开记录的日期、进度、状态、区域和文件包。其他字段（备注、联系人等）只有标记为「业主可见」才会公开；附件、关联和字段说明永不公开。'));
     if(!m.regs.length){ ok = false; }
-    if(!m.title) m.title = T('Progress overview', '进度总览');
+    if(!m.title) m.title = inDoc(function(){ return T('Progress overview', '进度总览'); });
   }
   h = '<label class="fl">' + L('Title', '标题') + '<input class="in" id="shareTitle" data-fk="shareTitle" value="' + esc(m.title) + '"></label>' + h +
     '<div class="fl"><span class="flab">' + L('Data', '数据') + '</span><div class="seg">' + [['live', 'Live — always current', '实时：打开时为最新'], ['snap', 'Snapshot — as it is now', '快照：按现在冻结']].map(function(o){ return '<button type="button" class="' + (m.mode === o[0] ? 'on' : '') + '" data-act="shareMode" data-v="' + o[0] + '">' + L(o[1], o[2]) + '</button>'; }).join('') + '</div></div>' +
