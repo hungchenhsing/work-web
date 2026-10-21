@@ -8,7 +8,7 @@ function heat(p){ if(p == null) return ''; var a = Math.round(8 + p * 0.5); retu
 /* ================= Overview: home.js (v3.3 widgets) ================= */
 
 /* ================= Register page ================= */
-function regView(reg){ var v = S.rv[reg.id] || reg.d.view || 'table'; if(v === 'gantt' && !rolesOf(reg).start && !rolesOf(reg).finish) v = 'table'; if(v === 'board' && !boardField(reg)) v = 'table'; if(v === 'matrix' && !matrixCfg(reg).col) v = 'table'; return v; }
+function regView(reg){ var v = S.rv[reg.id] || reg.d.view || 'table'; if(v === 'gantt' && !rolesOf(reg).start && !rolesOf(reg).finish) v = 'table'; if(v === 'comments' && !(typeof cmField === 'function' && cmField(reg))) v = 'table'; if(v === 'board' && !boardField(reg)) v = 'table'; if(v === 'matrix' && !matrixCfg(reg).col) v = 'table'; return v; }
 function boardField(reg){ var k = S.rboard[reg.id] || reg.d.board || rolesOf(reg).status; var f = k && fieldOf(reg, k); if(f && f.type === 'select') return f; return dataFields(reg).filter(function(x){ return x.type === 'select' && !x.multi; })[0] || null; }
 function matrixCfg(reg){ var m = Object.assign({}, reg.d.matrix || {}, S.rmx[reg.id] || {}); if(!m.col || !fieldOf(reg, m.col)) m.col = rolesOf(reg).block || ''; if(!m.row || !fieldOf(reg, m.row)) m.row = rolesOf(reg).tree || rolesOf(reg).status || ''; if(!m.val) m.val = rolesOf(reg).progress ? 'progress' : 'count'; return m; }
 function viewRegister(reg){
@@ -18,12 +18,14 @@ function viewRegister(reg){
   if(boardField(reg)) views.push(['board','board','Board','看板']);
   if(ro.start || ro.finish) views.push(['gantt','gantt','Gantt','甘特图']);
   if(ro.block) views.push(['matrix','grid','Block matrix','区域矩阵']);
+  if(typeof cmField === 'function' && cmField(reg)) views.push(['comments','list','Comments','意见']);
   var h;
   h = regHead(reg, list, all, ed) + regFilters(reg, views, v);
   var body;
   if(v === 'board') body = viewBoard(reg, list);
   else if(v === 'gantt') body = ganttHtml([{reg:reg, items:list}], {reg:reg, group:S.rg[reg.id + ':g'] || (ro.tree || 'none')});
   else if(v === 'matrix') body = viewMatrix(reg, list);
+  else if(v === 'comments') body = viewComments(reg, list);
   else body = viewTable(reg, list);
   var tf = rf(reg, 'tree');
   if(tf && (v === 'table' || v === 'board')) h += '<div class="withtree">' + treePanel(reg, tf) + '<div class="wt-main">' + body + '</div></div>';
@@ -87,6 +89,7 @@ function activeChips(reg){
   if(f.due) out.push(['due', T('Due in 14 days', '14 天内到期')]);
   if(f.star) out.push(['star', '★ ' + T('Key', '重点')]);
   if(f.ext) out.push(['ext', T('Owner can see', '业主可见')]);
+  if(f.cmo) out.push(['cmo', T('Open review comments', '有未关闭的审查意见')]);
   return out;
 }
 function regFilters(reg, views, v){
@@ -107,7 +110,8 @@ function regFilters(reg, views, v){
   if(rolesOf(reg).start || rolesOf(reg).finish) h += '<span class="drange"><span class="flab">' + L('Dates', '日期') + '</span>' + dateIn({id:'ffrom', value:f.from, label:T('From', '从')}) + '–' + dateIn({id:'fto', value:f.to, label:T('To', '到')}) + '</span>';
   h += '<span class="fchk">' + (rolesOf(reg).finish ? '<label class="chk"><input type="checkbox" id="fod"' + (f.od ? ' checked' : '') + '>' + L('Overdue', '逾期') + '</label><label class="chk"><input type="checkbox" id="fdue"' + (f.due ? ' checked' : '') + '>' + L('Due in 14 days', '14 天内到期') + '</label>' : '') +
     '<label class="chk"><input type="checkbox" id="fstar"' + (f.star ? ' checked' : '') + '>★ ' + L('Key', '重点') + '</label>' +
-    (reg.d.ownerPublish ? '<label class="chk"><input type="checkbox" id="fext"' + (f.ext ? ' checked' : '') + '>' + L('Owner can see', '业主可见') + '</label>' : '') + '</span>' +
+    (reg.d.ownerPublish ? '<label class="chk"><input type="checkbox" id="fext"' + (f.ext ? ' checked' : '') + '>' + L('Owner can see', '业主可见') + '</label>' : '') +
+    (typeof cmField === 'function' && cmField(reg) ? '<label class="chk"><input type="checkbox" id="fcmo"' + (f.cmo ? ' checked' : '') + '>' + L('Open review comments', '有未关闭的审查意见') + '</label>' : '') + '</span>' +
     '<button type="button" class="btn sm fdone" data-act="fToggle">' + L('Done', '完成') + '</button></div>';
   return h;
 }

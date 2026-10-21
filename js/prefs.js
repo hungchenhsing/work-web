@@ -26,7 +26,9 @@ function viewNow(reg){
     c:S.rcols[id] && S.rcols[id].length ? S.rcols[id].slice() : null, b:S.rboard[id] || null, mx:S.rmx[id] ? clone(S.rmx[id]) : null};
 }
 function normFil(f){ f = f || {}; var fx = {}; Object.keys(f.fx || {}).forEach(function(k){ if(f.fx[k] && f.fx[k].length) fx[k] = f.fx[k].slice().sort(); });
-  return {q:f.q || '', fx:fx, from:f.from || '', to:f.to || '', od:!!f.od, due:!!f.due, star:!!f.star, ext:!!f.ext, node:f.node || 'all'}; }
+  var cm = f.cm ? {st:(f.cm.st || []).slice().sort(), rev:f.cm.rev || 'cur', from:f.cm.from || '', to:f.cm.to || '', q:f.cm.q || ''} : null;
+  if(cm && !cm.st.length && cm.rev === 'cur' && !cm.from && !cm.to && !cm.q) cm = null;
+  return {q:f.q || '', fx:fx, from:f.from || '', to:f.to || '', od:!!f.od, due:!!f.due, star:!!f.star, ext:!!f.ext, cmo:!!f.cmo, node:f.node || 'all', cm:cm}; }
 function viewNorm(st){ st = st || {}; return {v:st.v || null, f:normFil(st.f), s:st.s || null, g:st.g && st.g !== 'none' ? st.g : null, gg:st.gg || null, c:st.c && st.c.length ? st.c : null, b:st.b || null, mx:st.mx || null}; }
 function viewSame(a, b){ return sameData(viewNorm(a), viewNorm(b)); }
 function teamViews(reg){ return asArr(reg && reg.d.views).filter(function(x){ return x && x.id && x.st; }); }

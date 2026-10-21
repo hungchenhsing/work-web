@@ -358,11 +358,12 @@ function matchRec(reg, rec, f, skipNode){
   if(f.due){ var pd = planOf(reg, rec), A0 = asOfN(); if(!pd || isDone(reg, rec) || pd.f < A0 || pd.f > A0 + 14) return false; }   // v3.2: due in the next 14 days
   if(f.star && !rec.d.star) return false;
   if(f.ext && !rec.d.ext) return false;
+  if(f.cmo){ var cf = typeof cmField === 'function' ? cmField(reg) : null; if(!cf || !cmStats(cf, cmRows(rec, cf)).open) return false; }   // v3.3.1
   if(!skipNode && f.node && f.node !== 'all'){ var tf = rf(reg, 'tree'); if(tf){ if(f.node === 'none'){ if(rec.d[tf.key] && treeNode(tf, rec.d[tf.key])) return false; } else if(!treeDesc(tf, f.node)[rec.d[tf.key]]) return false; } }
   return true;
 }
 function filteredRecs(reg){ var f = rfil(reg.id); return recsOf(reg.id).filter(function(r){ return matchRec(reg, r, f); }); }
-function activeFilterCount(reg){ var f = rfil(reg.id), n = 0; for(var k in f.fx) if(f.fx[k] && f.fx[k].length) n++; return n + (f.q ? 1 : 0) + (f.from || f.to ? 1 : 0) + (f.od ? 1 : 0) + (f.due ? 1 : 0) + (f.star ? 1 : 0) + (f.ext ? 1 : 0) + (f.node && f.node !== 'all' ? 1 : 0); }
+function activeFilterCount(reg){ var f = rfil(reg.id), n = 0; for(var k in f.fx) if(f.fx[k] && f.fx[k].length) n++; return n + (f.q ? 1 : 0) + (f.from || f.to ? 1 : 0) + (f.od ? 1 : 0) + (f.due ? 1 : 0) + (f.star ? 1 : 0) + (f.ext ? 1 : 0) + (f.cmo ? 1 : 0) + (f.node && f.node !== 'all' ? 1 : 0); }
 
 /* grouping */
 function groupable(reg){ return dataFields(reg).filter(function(f){ return ['select','tree','check','date','text'].indexOf(f.type) >= 0; }); }
@@ -502,8 +503,14 @@ function buildDemo(){
     add('reg_ms', {regNo:'MS-' + String(i + 1).padStart(3, '0'), en:x[0], zh:x[1], cat:x[2], base:dd(x[3]), forecast:dd(x[4]), actual:x[5] != null ? dd(x[5]) : undefined, status:x[5] != null ? 'done' : x[4] - x[3] > 10 ? 'risk' : 'planned', areas:/Block ([BCDE])/.test(x[0]) ? [RegExp.$1] : []}); });
   [['issue','Grid connection approval from NGCP still pending','NGCP 并网批复仍未取得','A',-12,6,'Escalate at Owner meeting; request joint letter'],['risk','Typhoon season may stop module installation in Block E','台风季可能导致 E 区组件安装停工','B',-20,30,'Secure modules; add second crew after storms'],['decision','Approve revised MV energisation date','批准调整后的中压送电日期','A',-5,8,'Proposed new date with recovery plan attached'],['issue','Late return of as-built markups from subcontractor','分包商竣工标注返回滞后','B',-9,3,'Weekly review; payment linked to markups']].forEach(function(x, i){
     add('reg_issues', {regNo:'ISS-' + String(i + 1).padStart(3, '0'), en:x[1], zh:x[2], kind:x[0], prio:x[3], raised:dd(x[4]), due:dd(x[5]), status:'open', mitig:x[6], escalate:x[3] === 'A', owner:['Wang Lei 王磊']}); });
-  add('reg_tds', {regNo:'TDS-001', en:'Bifacial PV module 580 W', zh:'双面光伏组件 580W', cat:'module', mfr:'—', model:'—', rev:'A', status:'approved', submitted:dd(-90), approved:dd(-70)});
-  add('reg_tds', {regNo:'TDS-002', en:'String inverter 320 kW', zh:'组串式逆变器 320kW', cat:'inverter', mfr:'—', model:'—', rev:'B', status:'submitted', submitted:dd(-10)});
+  add('reg_tds', {regNo:'TDS-001', en:'Bifacial PV module 580 W', zh:'双面光伏组件 580W', cat:'module', mfr:'—', model:'—', rev:'A', status:'approved_c', submitted:dd(-90), approved:dd(-70),
+    rvc:[{_id:'c5', no:'1', rev:'A', by:'Owner engineer', cmt:'State the bifaciality factor and its test standard.', cdate:dd(-80), rep:'70 ± 5 % per IEC TS 60904-1-2.', rdate:dd(-76), st:'notacc'},
+      {_id:'c6', no:'2', rev:'A', by:'Owner engineer', ref:'#1', cmt:'Provide the third-party test report for the bifaciality factor.', cdate:dd(-72), st:'open'}]});
+  add('reg_tds', {regNo:'TDS-002', en:'String inverter 320 kW', zh:'组串式逆变器 320kW', cat:'inverter', mfr:'—', model:'—', rev:'B', status:'submitted', submitted:dd(-10),
+    rvc:[{_id:'c1', no:'1', rev:'A', by:'Owner engineer', cmt:'Provide the efficiency curve at 25 / 50 / 75 / 100 % load.', cdate:dd(-40), rep:'Curve added on page 4 of Rev. B.', rdate:dd(-12), st:'closed', cldate:dd(-6)},
+      {_id:'c2', no:'2', rev:'A', by:'Owner engineer', cmt:'Confirm the IP rating of the enclosure (IP66 required).', cdate:dd(-40), rep:'IP66 confirmed, certificate attached.', rdate:dd(-12), st:'closed', cldate:dd(-6)},
+      {_id:'c3', no:'3', rev:'B', by:'Owner engineer', cmt:'Derating above 45 °C ambient is not shown — add the derating curve.', cdate:dd(-4), st:'open'},
+      {_id:'c4', no:'4', rev:'B', by:'Grid consultant', cmt:'Reactive power capability (P-Q chart) at the PCC voltage range.', cdate:dd(-4), rep:'P-Q chart is in the grid-code compliance report, section 3.', rdate:dd(-1), st:'replied'}]});
   add('reg_tds', {regNo:'TDS-003', en:'MV cable 33 kV 1×300 mm²', zh:'33kV 中压电缆', cat:'cable', mfr:'—', model:'—', rev:'A', status:'draft'});
   regs.push({id:'reg_snaps', owner:'demo', vis:'team', d:{kind:'snaps', en:'Progress snapshots', zh:'进度快照', fields:[F('week','Week','周','text'),F('date','Date','日期','date')], roles:{title:'week', no:'week'}}});
   for(var wk = 10; wk >= 1; wk--){ var vals = {reg_site:{}}; recs.forEach(function(r){ if(r.reg !== 'reg_site') return; var p = r.d.qtyPlan ? Math.min(100, r.d.qtyDone / r.d.qtyPlan * 100) : (r.d.status === 'completed' ? 100 : 0); vals.reg_site[r.id] = Math.max(0, Math.round(p * (1 - wk * 0.075) * 10) / 10); }); add('reg_snaps', {week:isoWeek(A - wk * 7), date:dd(-wk * 7), vals:vals}); }

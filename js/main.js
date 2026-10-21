@@ -358,7 +358,7 @@ document.addEventListener('change', function(e){
   if(el.id === 'vsel'){ S.rv[S.reg] = el.value; S.gKeep = false; saveUI(); renderMain(); return; }
   if(el.id === 'fod' && el.checked) rfil(S.reg).due = false;
   if(el.id === 'fdue' && el.checked) rfil(S.reg).od = false;
-  if(el.id === 'fod' || el.id === 'fstar' || el.id === 'fext' || el.id === 'fdue'){ rfil(S.reg)[el.id.slice(1)] = el.checked; renderMain(); return; }
+  if(el.id === 'fod' || el.id === 'fstar' || el.id === 'fext' || el.id === 'fdue' || el.id === 'fcmo'){ rfil(S.reg)[el.id.slice(1)] = el.checked; renderMain(); return; }
   if(el.id === 'schOpen'){ S.schOpen = el.checked; renderMain(); return; }
   if(el.id === 'actReg' || el.id === 'actType'){ S.act[el.id === 'actReg' ? 'reg' : 'type'] = el.value; S.act.rows = null; renderMain(); return; }
   if(el.id === 'actWho'){ S.act.who = el.value; renderMain(); return; }

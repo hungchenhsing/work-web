@@ -1215,3 +1215,33 @@ body.lang-both :is(.nrow .nlab,.hwopt b,.hwbar .hwn,.vph,.hedbar,.vdef,.btn,.seg
 .hw-ed .hwb>.sech{display:none}
 .cdsel .chk{flex:none}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+
+/* v3.3.1 · review comments */
+.cmbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;margin:0 0 12px}
+.cmsum{display:flex;flex-wrap:wrap;gap:4px}
+.cmsum .fchip{display:inline-flex;align-items:center;gap:4px;padding:2px 6px}
+.cmbar .in.sm,.cmtool .in.sm{min-height:30px;padding:2px 8px;width:auto;font-size:12.5px}
+.cmcnt{white-space:nowrap;font-size:12.5px} .cmcnt.wait b{color:var(--bad)}
+.cmrev{font-size:13px;margin:16px 0 8px;display:flex;gap:6px;align-items:center}
+.cmcard{border:1px solid var(--line);border-left:3px solid var(--sb-red);border-radius:var(--r-m);background:var(--surface);padding:10px 12px;margin:0 0 10px;display:flex;flex-direction:column;gap:8px}
+.cmcard.st-replied{border-left-color:var(--sb-blue)} .cmcard.st-notacc{border-left-color:var(--sb-amber)} .cmcard.st-closed{border-left-color:var(--sb-green);background:var(--surface2)}
+.cmcard.focus{box-shadow:0 0 0 2px var(--accent)}
+.cmh{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:flex-end}
+.cmh>b{font-size:15px;align-self:center;min-width:28px}
+.cmf{display:flex;flex-direction:column;gap:2px;min-width:0}
+.cmf .in{min-height:30px;padding:3px 8px;font-size:13px}
+.cmf .din .in{min-width:118px}
+.cml{font-size:11px;color:var(--muted)}
+.cmt{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0} .cmt textarea{min-height:52px;font-size:13.5px;line-height:1.45}
+.cmr{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap} .cmr .cmt{min-width:240px}
+.cmfoot{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
+.cmdays{font-size:12px;color:var(--muted);align-self:flex-end;padding-bottom:7px;white-space:nowrap} .cmdays.late{color:var(--bad);font-weight:600}
+.cmdel{margin-left:auto;align-self:flex-end}
+select.cmst{font-weight:600} select.cmst.c-red{color:var(--bad)} select.cmst.c-blue{color:var(--accent-ink)} select.cmst.c-amber{color:var(--warn)} select.cmst.c-green{color:var(--ok)}
+.cmtool{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;margin-bottom:6px}
+.cmtool .search{min-width:200px;flex:1}
+.cmtbl td{vertical-align:top} .cmtbl .cmtx{white-space:pre-wrap;min-width:200px;max-width:420px}
+.cmrow{cursor:pointer} .cmrow:hover td{background:var(--surface2)} .cmrow:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.cmprev{margin:4px 0 0 18px;padding:0;max-height:220px;overflow:auto;font-size:13px} .cmprev li{margin:0 0 4px;white-space:pre-wrap}
+@media (max-width:760px){ .cmr .cmt{min-width:0;flex-basis:100%} .cmh{gap:6px 8px} }
+@media print{ .cmbar .btn,.cmbar .menu,.cmdel,.cmtool .btn{display:none!important} }

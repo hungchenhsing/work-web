@@ -31,6 +31,7 @@ function renderAll(){
   if(typeof pkgUpgrade === 'function') setTimeout(pkgUpgrade, 0);
   if(typeof peopleSubUpgrade === 'function') setTimeout(peopleSubUpgrade, 0);
   if(typeof multiUpgrade === 'function') setTimeout(multiUpgrade, 0);
+  if(typeof cmUpgrade === 'function') setTimeout(cmUpgrade, 0);
   if(STORE.mode === 'cloud' && (!STORE.ready || !STORE.session || !STORE.me || role() === 'pending' || role() === 'none' || S.recovery)){ $('#side').innerHTML = ''; document.body.classList.add('gate'); renderGate(); renderDrawer(); renderPop(); renderModal(); return; }
   document.body.classList.remove('gate');
   if(role() === 'owner'){ $('#side').innerHTML = ''; document.body.classList.add('gate'); $('#main').innerHTML = viewOwnerPortal(); fitSlides(); renderDrawer(); renderPop(); renderModal(); return; }
@@ -319,7 +320,7 @@ function cellHtml(reg, f, rec, opts){
       return (u ? '<img class="thumb" src="' + esc(u) + '" alt="">' : '') + '<span class="mono muted">' + fl.length + '</span>';
     case 'link': var ls = asArr(v); if(ls.length && ls.length <= 2){ var nms = ls.map(function(id){ var r = getRec(id), g = r && getReg(r.reg); return r ? (isPeopleReg(g) ? personName(r) : recLabel(r)) : ''; }).filter(Boolean); if(nms.length === ls.length) return esc(nms.join(', ')); }
       return ls.length ? '<span class="chip c-teal">' + uic('link', 12) + ' ' + ls.length + '</span>' : '<span class="muted">—</span>';
-    case 'sub': var rows = asArr(v); if(!rows.length) return '<span class="muted">—</span>'; var open = f.key === 'actions' ? rows.filter(function(x){ return !x.done; }).length : null; return '<span class="mono muted">' + rows.length + (open != null ? ' · ' + open + ' ' + T('open', '未完成') : '') + '</span>';
+    case 'sub': var rows = asArr(v); if(!rows.length) return '<span class="muted">—</span>'; if(f.kind === 'comments' && typeof cmCountHtml === 'function') return cmCountHtml(f, rows.filter(isPlainObj)); var open = f.key === 'actions' ? rows.filter(function(x){ return !x.done; }).length : null; return '<span class="mono muted">' + rows.length + (open != null ? ' · ' + open + ' ' + T('open', '未完成') : '') + '</span>';
     case 'url': return v ? '<a href="' + esc(/^https?:/i.test(v) ? v : 'https://' + v) + '" target="_blank" rel="noopener">' + uic('link', 13) + ' ' + esc(String(v).replace(/^https?:\/\//, '').slice(0, 28)) + '</a>' : '<span class="muted">—</span>';
     case 'long': return v ? '<span class="clamp">' + esc(v) + '</span>' : '<span class="muted">—</span>';
     default: if(isEmpty(v)) return '<span class="muted">—</span>'; var ch = f.type === 'text' ? contactHref(f, v) : ''; return ch ? '<a class="ctl" href="' + esc(ch) + '">' + esc(v) + '</a>' : '<span class="clamp">' + esc(v) + '</span>';
@@ -450,6 +451,7 @@ function drawerTabs(reg, rec, kids){
   if(isPeopleReg(reg)) tabs.push(['work','Assignments','参与事项', peopleWorkCount(reg, rec)]);
   if(!trn && (kids.length || S.dtab === 'subs')) tabs.push(['subs','Sub-items','子项', kids.length]);
   if(!trn) tabs.push(['files','Files','文件', fl]);
+  var cmf = typeof cmField === 'function' ? cmField(reg) : null; if(cmf){ var cms = cmStats(cmf, cmRows(rec, cmf)); tabs.splice(1, 0, ['rvc','Review comments','审查意见', cms.n ? cms.open + '/' + cms.n : 0]); }
   tabs.push(['links','Related','相关', lk]);
   tabs.push(['history','History','修改记录']);
   if(((STORE && STORE.fb) || []).some(function(x){ return x.item_id === rec.id; })) tabs.push(['comments','Owner comments','业主意见', openFb(rec.id)]);
@@ -494,9 +496,10 @@ function renderDrawer(){
   else if(S.dtab === 'subs') h += drawerSubs(reg, rec, ed, kids);
   else if(S.dtab === 'history') h += drawerHistory(reg, rec);
   else if(S.dtab === 'comments') h += drawerComments(reg, rec);
+  else if(S.dtab === 'rvc' && typeof cmPanel === 'function') h += cmPanel(reg, rec, ed);
   else if(S.dtab === 'work' && isPeopleReg(reg)) h += peopleWork(reg, rec);
   else if(S.dtab === 'trn' && trn) h += trnItemsHtml(reg, rec, ed);
-  else h += (sf.length ? '<div class="dsum">' + sf.map(function(f){ return sumCell(reg, f, rec, ed); }).join('') + '</div>' : '') + (lib ? docPreview(rec, ed) : (es.length ? relStrip(rec, ed) : '')) + (typeof closeChecklistHtml === 'function' ? closeChecklistHtml(reg, rec) : '') + drawerForm(reg, rec, ed, sf) + (typeof docTrnHtml === 'function' && !isPrivate(reg) ? docTrnHtml(reg, rec) : '');
+  else h += (sf.length ? '<div class="dsum">' + sf.map(function(f){ return sumCell(reg, f, rec, ed); }).join('') + '</div>' : '') + (lib ? docPreview(rec, ed) : (es.length ? relStrip(rec, ed) : '')) + (typeof closeChecklistHtml === 'function' ? closeChecklistHtml(reg, rec) : '') + drawerForm(reg, rec, ed, sf.concat(typeof cmField === 'function' && cmField(reg) ? [cmField(reg)] : [])) + (typeof docTrnHtml === 'function' && !isPrivate(reg) ? docTrnHtml(reg, rec) : '');
   h += '</div></aside>';
   root.innerHTML = h; document.body.classList.add('dopen');
   if(typeof enhanceDates === 'function') enhanceDates(root);

@@ -288,6 +288,10 @@ var TEMPLATES = {
     F('mfr','Manufacturer','厂家','text'),F('model','Model','型号','text'),F('spec','Key specifications','主要参数','long',{hide:true}),F('rev','Rev.','版本','text',{w:56}),
     F('status','Status','状态','select',{opts:[O('draft','Draft','草稿','grey'),O('submitted','Submitted','已提交','violet'),O('approved','Approved','已批准','green',{done:true}),O('approved_c','Approved w/ comments','带意见批准','green',{done:true}),O('rejected','Rejected','退回','red'),O('superseded','Superseded','已作废','grey',{done:true})]}),
     F('submitted','Submitted','提交日期','date'),F('approved','Approved','批准日期','date'),
+    F('rvc','Review comments','审查意见','sub',{kind:'comments', cols:[F('no','No.','序号','text'),F('rev','Rev.','版本','text'),F('by','Reviewer','审核人','text'),F('cmt','Comment','意见内容','long'),F('cdate','Comment date','意见日期','date'),
+      F('rep','Our reply','我方回复','long'),F('rdate','Reply date','回复日期','date'),
+      F('st','Status','状态','select',{opts:[O('open','Awaiting reply','待回复','red'),O('replied','Replied','已回复','blue'),O('notacc','Not accepted','业主不接受','amber'),O('closed','Closed','已关闭','green',{done:true})]}),
+      F('cldate','Closed on','关闭日期','date'),F('ref','Follows','接续意见','text')]}),
     F('sheet','Datasheet','数据表文件','files'),F('links','Related records','关联记录','link',{hide:true}),F('remarks','Remarks','备注','long')
   ], roles:{title:'en', title2:'zh', no:'regNo', start:'submitted', finish:'approved', status:'status'}, view:'table'},
 
