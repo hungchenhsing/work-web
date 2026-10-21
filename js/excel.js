@@ -9,7 +9,7 @@ var IMP_SYN = {
   actualStart:['actualsubmission','实际提交日期','submissiondate','actualstart','实际开始'], progress:['progress','完成率','%'], status:['status','状态'], explanation:['explanation','解释说明'],
   remarks:['remarks','备注','comments','意见'], contacts:['contacts','对接人','contact','owner','主责人','responsible','负责人'], type:['type','类型'], ownerResult:['ownerresult','业主结果'], extNote:['externalnote','对外备注']
 };
-var SPECIAL = [['','— ignore —','— 忽略 —'],['__phase','提交阶段 → start/finish dates','提交阶段 → 开始/结束日期'],['__task','Task / Document (EN / 中 together)','任务/文件（中英合并）'],['__actual','Actual dates range (a – b)','实际日期区间（a – b）'],['__ext','External (Yes/No)','对外（是/否）'],['__parent','Parent No. (makes it a sub-item)','上级编号（设为子项）'],['__star','Key ★ (Yes/No)','重点（是/否）']];
+var SPECIAL = [['','— ignore —','— 忽略 —'],['__phase','提交阶段 → start/finish dates','提交阶段 → 开始/结束日期'],['__task','Task / Document (EN / 中 together)','任务/文件（中英合并）'],['__actual','Actual dates range (a – b)','实际日期区间（a – b）'],['__ext','External (Yes/No)','对外（是/否）'],['__parent','Parent No. (makes it a sub-item)','上级编号（设为子项）'],['__star','Key ★ (Yes/No)','重点（是/否）'],['__act','Action: Delete / Merge into <No.>','操作：删除 / 并入 <编号>']];
 function guessField(reg, header){
   var n = normH(header); if(!n) return '';
   if(/提交阶段|submissionphase|^phase$/.test(n)) return '__phase';
@@ -17,6 +17,7 @@ function guessField(reg, header){
   if(/^对外$|^external$|^external对外$|^对外external$|^业主可见$|^ownercansee$|^ownercansee业主可见$/.test(n)) return '__ext';
   if(/^重点$|^key$|^key重点$|^重点key$|^★/.test(n)) return '__star';
   if(/parent|上级|父项/.test(n)) return '__parent';
+  if(/^action|^操作|^处理方式|^處理方式/.test(n)) return '__act';   // v3.4.4
   var best = '', bl = 0;
   dataFields(reg).forEach(function(f){ [f.key, f.en, f.zh].concat(IMP_SYN[f.key] || []).forEach(function(s){ s = normH(s); if(!s) return; if((n === s || (s.length >= 2 && n.indexOf(s) >= 0)) && s.length > bl){ best = f.key; bl = s.length; } }); });
   if(/实际提交|actualsubmission/.test(n) && fieldOf(reg, 'actualStart') && fieldOf(reg, 'actualEnd')) return '__actual';
@@ -75,8 +76,9 @@ function importModal(m){
   h += '<div class="fg" style="margin-top:10px"><label class="fl">' + L('Match existing records by', '按此字段匹配已有记录') + '<select class="in" id="impMatch"><option value="">' + esc(T('Do not match — always add new', '不匹配，全部新增')) + '</option>' + dataFields(reg).filter(function(f){ return f.type === 'text'; }).map(function(f){ return '<option value="' + esc(f.key) + '"' + (m.matchKey === f.key ? ' selected' : '') + '>' + esc(T1(f.en, f.zh)) + '</option>'; }).join('') + '</select></label></div>';
   h += '<div class="impsum card"><b>' + L('Preview', '预览') + '</b> · ' + L(plan.adds.length + ' new', '新增 ' + plan.adds.length) + ' · ' + L(plan.updates.length + ' updated', '更新 ' + plan.updates.length) + (plan.skipped ? ' · ' + L(plan.skipped + ' empty rows skipped', '跳过 ' + plan.skipped + ' 个空行') : '') +
     (plan.newOpts.length ? '<div class="note">' + L('New options that will be added: ', '将自动新增的选项：') + esc(plan.newOpts.slice(0, 30).join(', ')) + (plan.newOpts.length > 30 ? '…' : '') + '</div>' : '') +
-    (plan.warn.length ? '<div class="note err">' + esc(plan.warn.slice(0, 8).join(' · ')) + '</div>' : '') + '<div class="note">' + L('Matched records are updated; empty cells never overwrite existing values; nothing is deleted. Every change is recorded and can be undone.', '已匹配的记录会被更新；空单元格不会覆盖原值；不会删除任何记录。所有修改都会被记录，可撤销。') + '</div></div>';
-  return {title:L('Import Excel', '导入 Excel') + ' · ' + esc(regName(reg)), wide:true, html:h, foot:'<button type="button" class="btn pri" data-act="impRun"' + (plan.adds.length + plan.updates.length ? '' : ' disabled') + '>' + L('Import now', '立即导入') + '</button><button type="button" class="btn" data-act="mclose">' + L('Cancel', '取消') + '</button>'};
+    (plan.acts.length ? '<div class="impacts"><b>' + L('Deleted or merged', '删除或合并') + ' (' + plan.acts.length + ')</b>' + plan.acts.map(function(x){ return '<div class="note">' + esc(recNo(reg, x.rec) + ' ' + (recTitle(reg, x.rec) || '')) + ' → ' + (x.del ? '<b class="err">' + L('delete', '删除') + '</b>' : L('merge into ', '并入 ') + '<b>' + esc(recNo(reg, x.into)) + '</b>') + '</div>'; }).join('') + '</div>' : '') +
+    (plan.warn.length ? '<div class="note err">' + esc(plan.warn.slice(0, 12).join(' · ')) + '</div>' : '') + '<div class="note">' + (plan.acts.length ? L('Matched records are updated; empty cells never overwrite existing values. Rows marked Delete or Merge into are removed after their sub-items, files and links move to the record they merge into; restore them from the Change log.', '已匹配的记录会被更新；空单元格不会覆盖原值。标为「删除」或「并入」的行，其子项、文件和关联先移到并入的记录，然后删除；可在修改记录中恢复。') : L('Matched records are updated; empty cells never overwrite existing values; nothing is deleted. Every change is recorded and can be undone.', '已匹配的记录会被更新；空单元格不会覆盖原值；不会删除任何记录。所有修改都会被记录，可撤销。')) + '</div></div>';
+  return {title:L('Import Excel', '导入 Excel') + ' · ' + esc(regName(reg)), wide:true, html:h, foot:'<button type="button" class="btn pri" data-act="impRun"' + (plan.adds.length + plan.updates.length + plan.acts.length ? '' : ' disabled') + '>' + L('Import now', '立即导入') + '</button><button type="button" class="btn" data-act="mclose">' + L('Cancel', '取消') + '</button>'};
 }
 var LEGACY_PH = {'PH-01':['2026-08-17','2026-08-30'],'PH-02':['2026-09-01','2026-09-15'],'PH-03':['2026-09-16','2026-09-30'],'PH-04':['2026-10-01','2026-10-15'],'PH-05':['2026-10-16','2026-10-31']};
 /* submission phases: PH-01…PH-05 as agreed, then every half month (1st–15th, 16th–month end) with no end date */
@@ -129,7 +131,7 @@ function impPlan(m, reg, apply){
   };
   var byKey = {}, mk = m.matchKey, ro = rolesOf(reg);
   if(mk) recsOf(reg.id).forEach(function(r){ var v = String(r.d[mk] || '').trim().toUpperCase(); if(v) byKey[v] = r; });
-  var seen = {};
+  var seen = {}, acts = [];
   rows.forEach(function(row, ri){
     var d = {};
     m.map.forEach(function(k, i){
@@ -140,6 +142,7 @@ function impPlan(m, reg, apply){
       if(k === '__ext'){ var e = String(raw || '').trim(); if(e) d.ext = /^(y|yes|true|1|是|对外|可见|业主可见)/i.test(e); return; }
       if(k === '__parent'){ var pv = String(raw == null ? '' : raw).trim(); if(pv) d.__parentNo = pv; return; }
       if(k === '__star'){ var st = String(raw || '').trim(); if(st) d.star = /^(y|yes|true|1|是|★|重点)/i.test(st); return; }
+      if(k === '__act'){ var ac = impAction(raw); if(ac) d.__act = ac; return; }
       var f = fieldOf(reg, k); if(!f) return;
       var v = impConvert(reg, f, raw, ctx); if(v !== undefined) d[k] = v;
     });
@@ -148,9 +151,22 @@ function impPlan(m, reg, apply){
     var kv = mk && d[mk] ? String(d[mk]).trim().toUpperCase() : '';
     if(kv && seen[kv]){ warn.push(T('Row ', '第 ') + (ri + 2) + T(': duplicate ', ' 行：重复 ') + d[mk]); return; } if(kv) seen[kv] = 1;
     var ex = kv ? byKey[kv] : null;
+    /* v3.4.4: Action column — Delete, or Merge into another record (by the matching number) */
+    if(d.__act){ var a = d.__act, rn = (ri + 2);
+      if(a.bad){ warn.push(T('Row ' + rn + ': unknown action “' + a.bad + '”', '第 ' + rn + ' 行：无法识别的操作「' + a.bad + '」')); return; }
+      if(!ex){ warn.push(T('Row ' + rn + ': no record to ', '第 ' + rn + ' 行：没有可') + (a.del ? T('delete', '删除的记录') : T('merge', '合并的记录'))); return; }
+      if(a.del){ var why = impDelBlock(reg, ex); if(why){ warn.push(recNo(reg, ex) + T(' is not deleted: ', ' 不删除：') + why); return; } acts.push({rec:ex, del:true}); return; }
+      var tg = byKey[String(a.into).trim().toUpperCase()];
+      if(!tg || tg.id === ex.id){ warn.push(T('Row ' + rn + ': nothing called ', '第 ' + rn + ' 行：找不到 ') + a.into); return; }
+      var mb = mergeBlock(reg, tg, ex); if(mb){ warn.push(recNo(reg, ex) + T(' is not merged: ', ' 不合并：') + mb); return; }
+      acts.push({rec:ex, into:tg}); return; }
     if(ex) updates.push({rec:ex, d:d}); else adds.push(d);
   });
-  return {adds:adds, updates:updates, skipped:skipped, newOpts:newOpts, warn:warn, draftOpts:draftOpts, draftTree:draftTree, draftLists:draftLists};
+  /* a record that is deleted or merged is not also a merge target */
+  var going = {}; acts.forEach(function(x){ going[x.rec.id] = 1; });
+  acts = acts.filter(function(x){ if(x.into && going[x.into.id]){ warn.push(recNo(reg, x.rec) + T(': ', '：') + recNo(reg, x.into) + T(' is merged or deleted itself', ' 本身也要合并或删除')); return false; } return true; });
+  updates = updates.filter(function(u){ return !going[u.rec.id]; });
+  return {adds:adds, updates:updates, acts:acts, skipped:skipped, newOpts:newOpts, warn:warn, draftOpts:draftOpts, draftTree:draftTree, draftLists:draftLists};
 }
 async function impRun(){
   var m = S.modal, reg = getReg(m.reg); if(!reg || !canWrite(reg)) return;
@@ -164,6 +180,7 @@ async function impRun(){
     }
     var ro = rolesOf(reg), pre = String(reg.d.prefix || 'REC').toUpperCase(), used = {}, nmax = 0, re = new RegExp('^' + pre.replace(/[^A-Z0-9]/g, '') + '-(\\d+)$', 'i');
     recsOf(reg.id).forEach(function(r){ var v = r.d[ro.no]; if(v){ used[String(v).toUpperCase()] = 1; var mm = re.exec(v); if(mm) nmax = Math.max(nmax, +mm[1]); } });
+    nmax = Math.max(nmax, +reg.d.noHigh || 0);
     var newRecs = plan.adds.map(function(d){
       if(ro.no && (!d[ro.no] || used[String(d[ro.no]).toUpperCase()] || /^\d+$/.test(String(d[ro.no])))){ d[ro.no] = pre + '-' + String(++nmax).padStart(3, '0'); }
       if(ro.no) used[String(d[ro.no]).toUpperCase()] = 1;
@@ -178,9 +195,16 @@ async function impRun(){
     var ups = [], dch = [];
     plan.updates.forEach(function(u){ var p = {}; Object.keys(u.d).forEach(function(k){ if(!same(u.rec.d[k], u.d[k])) p[k] = u.d[k]; }); if(Object.keys(p).length){ ups.push({id:u.rec.id, patch:p}); if(p[ro.start] !== undefined || p[ro.finish] !== undefined) dch.push({id:u.rec.id, was:planOf(reg, u.rec)}); } });   // v3.4: dates moved by the import
     var ur = ups.length ? await STORE.patchRecs(ups, function(a, b){ m.progress = T('Updating records… ', '正在更新记录… ') + a + ' / ' + b; renderModal(); }) : {ok:0, failed:0};
-    var uok = ur.ok, ufail = ur.failed;
+    var uok = ur.ok, ufail = ur.failed, ndel = 0, nmer = 0;
+    /* v3.4.4: deletes, then merges (grouped by the record they go into) */
+    if(plan.acts.length){ m.progress = T('Deleting and merging…', '正在删除与合并…'); renderModal(); await noHighKeep(reg);
+      for(var ai = 0; ai < plan.acts.length; ai++){ var x = plan.acts[ai]; if(x.del && getRec(x.rec.id) && !impDelBlock(reg, getRec(x.rec.id))){ try{ await STORE.deleteRec(x.rec.id); ndel++; }catch(e){ ufail++; } } }
+      var byT = {}; plan.acts.forEach(function(x){ if(x.into) (byT[x.into.id] = byT[x.into.id] || []).push(x.rec.id); });
+      var tids = Object.keys(byT);
+      for(var ti = 0; ti < tids.length; ti++){ var keep = getRec(tids[ti]); if(!keep) continue; var mres = await mergeRun(reg, mergePlan(reg, keep, byT[tids[ti]].map(getRec).filter(Boolean))); nmer += mres.merged; }
+    }
     closeModal();
-    toast(T('Imported: ' + res.ok + ' added, ' + uok + ' updated', '导入完成：新增 ' + res.ok + '，更新 ' + uok) + (res.failed + ufail ? T(', ' + (res.failed + ufail) + ' failed', '，失败 ' + (res.failed + ufail)) : '') +
+    toast(T('Imported: ' + res.ok + ' added, ' + uok + ' updated', '导入完成：新增 ' + res.ok + '，更新 ' + uok) + (ndel ? T(', ' + ndel + ' deleted', '，删除 ' + ndel) : '') + (nmer ? T(', ' + nmer + ' merged', '，合并 ' + nmer) : '') + (res.failed + ufail ? T(', ' + (res.failed + ufail) + ' failed', '，失败 ' + (res.failed + ufail)) : '') +
       (res.renumbered ? T(' · ' + res.renumbered + ' numbers were already used and were given the next free ones', ' · ' + res.renumbered + ' 个编号已被使用，已改为下一个可用编号') : ''));
     if(dch.length && typeof depAfterBatch === 'function') depAfterBatch(dch);
   }catch(e){ m.step = 'map'; renderModal(); toast(errText(e)); }

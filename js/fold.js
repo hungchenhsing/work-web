@@ -31,14 +31,8 @@ function treeCellHtml(f, v){
 }
 
 /* ---------- the outline ---------- */
-/* which folders are open (kept in this browser). Until someone opens or closes one: a tree with sub-levels (like the
-   turnover packages) starts closed, a one-level tree (like a WBS list of areas) starts open, so it reads like grouping */
-function oOpen(reg){
-  var o = LS.get('ww.oOpen.' + reg.id, null); if(o && typeof o === 'object') return o;
-  var tf = rf(reg, 'tree'), ns = treeNodes(tf), d = {};
-  if(tf && !ns.some(function(n){ return n.parent; })) ns.map(function(n){ return n.id; }).concat(['__none']).forEach(function(id){ d[id] = 1; });
-  return d;
-}
+/* which folders are open (kept in this browser); every folder starts closed */
+function oOpen(reg){ var o = LS.get('ww.oOpen.' + reg.id, {}); return o && typeof o === 'object' ? o : {}; }
 function oOpenSet(reg, ids, on){ var o = oOpen(reg); ids.forEach(function(id){ if(on) o[id] = 1; else delete o[id]; }); LS.set('ww.oOpen.' + reg.id, o); }
 /* a search or filter other than the package is on: folders with matches open by themselves */
 function oFiltered(reg){ var f = rfil(reg.id); return !!(f.q || Object.keys(f.fx || {}).some(function(k){ return f.fx[k] && f.fx[k].length; }) || f.from || f.to || f.od || f.due || f.star || f.ext || f.cmo); }
@@ -66,7 +60,12 @@ function oStats(reg, recs){
   return {n:recs.length, dn:dn, od:od, pct:ps.length ? Math.round(ps.reduce(function(a, b){ return a + b; }, 0) / ps.length) : null, s:isFinite(s) ? s : null, e:isFinite(e) ? e : null};
 }
 function oLabel(k){ return (k.n.code ? k.n.code + ' ' : '') + nm(k.n); }
-function oCount(k){ var sub = k.kids.length; return L(k.all.length + (k.all.length === 1 ? ' item' : ' items'), k.all.length + ' 项') + (sub ? ' · ' + L(sub + (sub === 1 ? ' sub-folder' : ' sub-folders'), sub + ' 个子目录') : ''); }
+/* "8 items · 56 sub-items": items inside another item are counted apart (v3.4.4) */
+function oCount(k){
+  var sub = k.kids.length, ids = {}; k.all.forEach(function(r){ ids[r.id] = 1; });
+  var inner = k.all.filter(function(r){ return r.d.parent && ids[r.d.parent]; }).length, top = k.all.length - inner;
+  return L(top + (top === 1 ? ' item' : ' items'), top + ' 项') + (inner ? ' · ' + L(inner + (inner === 1 ? ' sub-item' : ' sub-items'), inner + ' 个子项') : '') + (sub ? ' · ' + L(sub + (sub === 1 ? ' sub-folder' : ' sub-folders'), sub + ' 个子目录') : '');
+}
 function oToggle(reg, k, open, cls){
   if(!k.all.length && !k.kids.length) return '<span class="cx0" aria-hidden="true"></span>';
   return '<button type="button" class="' + (cls || 'cx') + ' otog" data-act="oTog" data-v="' + esc(k.id) + '" aria-expanded="' + open + '" aria-label="' + esc((open ? T('Close ', '收起 ') : T('Open ', '展开 ')) + oLabel(k)) + '">' + (open ? '▾' : '▸') + '</button>';
@@ -97,7 +96,7 @@ function oTableBody(reg, list, cols, ed){
         return '<td></td>';
       }).join('') + (canSchemaEdit(reg) ? '<td></td>' : '') + '</tr>';
     },
-    items:function(items, depth){ items = sortRecs(reg, items); items.forEach(function(r){ vis.push(r.id); }); out += hierRows(reg, items, cols, ed, depth); }
+    items:function(items, depth){ out += hierRows(reg, sortRecs(reg, items), cols, ed, depth, vis); }
   });
   O_VIS[reg.id] = vis;
   if(!list.length) out += '<tr><td colspan="' + span + '" class="empty">' + (recsOf(reg.id).length ? L('No items match the filters.', '没有符合筛选条件的记录。') : L('No items yet.', '还没有记录。')) + '</td></tr>';
@@ -109,7 +108,7 @@ function oCards(reg, list){
   oWalk(reg, oTree(reg, list), {
     folder:function(k, depth, open){ var st = oStats(reg, k.all);
       out += '<div class="ofc" style="margin-left:' + (depth * 14) + 'px">' + oToggle(reg, k, open, 'ofcb') + '<span class="ofct"><b>' + esc(oLabel(k)) + '</b><span class="muted">' + oCount(k) + ' · ' + st.dn + '/' + st.n + '</span></span>' + (st.pct != null ? pbar(st.pct) : '') + '</div>'; },
-    items:function(items, depth){ items = sortRecs(reg, items); out += '<div class="ofci" style="margin-left:' + (depth * 14) + 'px">' + items.map(function(r){ vis.push(r.id); return recCard(reg, r); }).join('') + '</div>'; }
+    items:function(items, depth){ out += '<div class="ofci" style="margin-left:' + (depth * 14) + 'px">' + cardsHier(reg, items, vis) + '</div>'; }
   });
   O_VIS[reg.id] = vis;
   return out;

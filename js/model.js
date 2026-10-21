@@ -167,6 +167,7 @@ function nextNo(reg){
   var k = rolesOf(reg).no; if(!k) return '';
   var pre = String(reg.d.prefix || 'REC').toUpperCase(), max = 0, re = new RegExp('^' + pre.replace(/[^A-Z0-9]/g, '') + '-(\\d+)$', 'i');
   recsOf(reg.id).forEach(function(r){ var m = re.exec(r.d[k] || ''); if(m) max = Math.max(max, +m[1]); });
+  max = Math.max(max, +reg.d.noHigh || 0);   // v3.4.4: numbers of records merged away are not given out again
   return pre + '-' + String(max + 1).padStart(3, '0');
 }
 function blankData(reg, extra){
