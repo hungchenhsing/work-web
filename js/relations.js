@@ -109,6 +109,7 @@ function depApply(m, all){
 DECK_MODALS.depShift = depShiftModal;
 
 /* ---------- the record's "Schedule links" block ---------- */
+function depLock(title){ return '<span class="deplock" title="' + esc(title || T('In a register only you can see', '在「只限本人」台账中')) + '">' + uic('lock', 12) + '</span>'; }
 function depItemBtn(r){ var g = getReg(r.reg); return '<button type="button" class="lnk deplnk" data-act="openRec" data-id="' + esc(r.id) + '">' + recIcon(r) + ' <span class="mono">' + esc(recNo(g, r)) + '</span> ' + esc(recTitle(g, r) || '—') + '</button>'; }
 function depHtml(reg, rec, ed){
   if(!hasDates(reg) || isLibRec(rec) || isDeckRec(rec)) return '';
@@ -117,9 +118,9 @@ function depHtml(reg, rec, ed){
   var h = '<div class="deps"><h3 class="fsec">' + L('Schedule links', '前后关系') + '</h3><div class="depg"><div class="deph">' + L('Starts after', '前置事项') + ' <span class="note">' + L('starts the day after each of these finishes, plus the gap', '每项完成的次日（再加间隔天数）才开始') + '</span></div>';
   ps.forEach(function(x){
     var pr = getRec(x.id), pg = pr && getReg(pr.reg);
-    if(!pr || !pg){ h += '<div class="deprow"><span class="muted">' + L('An item you cannot see (private or deleted)', '无法查看的事项（私有或已删除）') + '</span>' + (ed ? '<button type="button" class="ib" data-act="depDel" data-v="' + esc(x.id) + '" aria-label="' + esc(T('Remove', '移除')) + '">' + uic('x', 13) + '</button>' : '') + '</div>'; return; }
-    var pp = planOf(pg, pr), req = pp ? pp.f + 1 + x.lag : null, bad = p && req != null && p.s < req;
-    h += '<div class="deprow' + (bad ? ' bad' : '') + '">' + depItemBtn(pr) + '<span class="mono muted depd">' + (pp ? L('finishes ', '完成 ') + esc(n2d(pp.f)) : L('no dates', '未设日期')) + '</span>' +
+    if(!pr || !pg){ h += '<div class="deprow"><span class="muted">' + L('An item you cannot see (private or deleted) — if it is private, its owner’s changes can still move this item', '无法查看的事项（私有或已删除）— 若是私有事项，其负责人修改时仍可能顺延本项') + '</span>' + (ed ? '<button type="button" class="ib" data-act="depDel" data-v="' + esc(x.id) + '" aria-label="' + esc(T('Remove', '移除')) + '">' + uic('x', 13) + '</button>' : '') + '</div>'; return; }
+    var pp = planOf(pg, pr), req = pp ? pp.f + 1 + x.lag : null, bad = p && req != null && p.s < req, priv = isPrivate(pg) && !(isPrivate(reg) && pg.id === reg.id);
+    h += '<div class="deprow' + (bad ? ' bad' : '') + '">' + (priv ? depLock(T('Only you can see this item. Colleagues see “an item you cannot see”.', '只有你能看到此事项，同事看到的是「无法查看的事项」。')) : '') + depItemBtn(pr) + '<span class="mono muted depd">' + (pp ? L('finishes ', '完成 ') + esc(n2d(pp.f)) : L('no dates', '未设日期')) + '</span>' +
       '<label class="deplag">' + L('gap', '间隔') + ' <input class="in mono" type="number" step="1" min="-365" max="365" value="' + x.lag + '" data-deplag="' + esc(x.id) + '" data-fk="deplag:' + esc(x.id) + '" aria-label="' + esc(T('Gap in days after ', '间隔天数：') + recLabel(pr)) + '"' + (ed ? '' : ' disabled') + '> ' + L('days', '天') + '</label>' +
       (ed ? '<button type="button" class="ib" data-act="depDel" data-v="' + esc(x.id) + '" aria-label="' + esc(T('Remove ', '移除 ') + recLabel(pr)) + '">' + uic('x', 13) + '</button>' : '') + '</div>';
   });
@@ -139,7 +140,7 @@ function depAfterSet(rec){ var set = {}, q = [rec]; set[rec.id] = 1; while(q.len
 function depCands(m){
   var src = getRec(m.rec), q = (m.q || '').trim().toLowerCase(), have = {}, bad = src ? depAfterSet(src) : {}, out = [];
   depList(src).forEach(function(x){ have[x.id] = 1; });
-  allRegs().filter(hasDates).forEach(function(g){ if(m.reg && m.reg !== g.id) return; if(src && isPrivate(g) && g.id !== src.reg) return;   // others could not see it
+  allRegs().filter(hasDates).forEach(function(g){ if(m.reg && m.reg !== g.id) return;
     recsOf(g.id).forEach(function(r){ if(!src || bad[r.id] || have[r.id]) return;
     var t = (recNo(g, r) + ' ' + (r.d[rolesOf(g).title] || '') + ' ' + (r.d[rolesOf(g).title2] || '') + ' ' + (r.d.docNo || '')).toLowerCase(); if(q && t.indexOf(q) < 0) return;
     var p = planOf(g, r); out.push({r:r, g:g, p:p, s:(q && t.indexOf(q) === 0 ? 0 : 1) + (g.id === src.reg ? 0 : 2)}); }); });
@@ -148,14 +149,16 @@ function depCands(m){
 }
 function depPickModal(m){
   var src = getRec(m.rec); if(!src) return {title:'', html:''};
-  m.sel = m.sel || {}; var c = depCands(m), nsel = Object.keys(m.sel).filter(function(k){ return m.sel[k]; }).length, regs = allRegs().filter(function(g){ return hasDates(g) && (!isPrivate(g) || g.id === src.reg); });
+  m.sel = m.sel || {}; var c = depCands(m), nsel = Object.keys(m.sel).filter(function(k){ return m.sel[k]; }).length, regs = allRegs().filter(hasDates), sg = getReg(src.reg), hidden = function(g){ return isPrivate(g) && !(sg && isPrivate(sg) && g.id === sg.id); };
+  var nPriv = Object.keys(m.sel).filter(function(k){ var r = m.sel[k] && getRec(k); return r && hidden(getReg(r.reg)); }).length;
   var h = '<p class="note" style="margin-top:0">' + L('Choose what has to finish before ', '选择在 ') + '<b>' + esc(recLabel(src)) + '</b>' + L(' can start. Items that already come after it are not offered (that would be a loop).', ' 开始之前必须完成的事项。已经排在它后面的事项不会列出（否则会形成循环）。') + '</p>' +
     '<div class="row lpf"><label class="search" style="flex:1 1 240px">' + uic('search', 15) + '<input id="dpq" type="search" data-fk="dpq" placeholder="' + esc(T('Search number or title', '搜索编号或名称')) + '" value="' + esc(m.q || '') + '" autocomplete="off"></label>' +
     '<select class="in" id="dpreg" style="width:auto" aria-label="' + esc(T('Register', '台账')) + '"><option value="">' + esc(T('All registers', '全部台账')) + '</option>' + regs.map(function(g){ return '<option value="' + esc(g.id) + '"' + (m.reg === g.id ? ' selected' : '') + '>' + esc(regName(g)) + '</option>'; }).join('') + '</select></div>' +
     '<div class="lpl">' + (c.list.length ? c.list.map(function(it){ var r = it.r, g = it.g, on = !!m.sel[r.id], st = statusOpt(g, r);
-      return '<label class="lpi' + (on ? ' on' : '') + '"><input type="checkbox" data-dpsel="' + esc(r.id) + '" data-fk="dpsel:' + esc(r.id) + '"' + (on ? ' checked' : '') + '><span class="rlic">' + recIcon(r) + '</span><span class="lpt"><span class="mono">' + esc(recNo(g, r)) + '</span> ' + esc(recTitle(g, r) || '—') + '</span>' + (st ? optChip(st) : '') +
+      return '<label class="lpi' + (on ? ' on' : '') + '"><input type="checkbox" data-dpsel="' + esc(r.id) + '" data-fk="dpsel:' + esc(r.id) + '"' + (on ? ' checked' : '') + '><span class="rlic">' + recIcon(r) + '</span><span class="lpt">' + (hidden(g) ? depLock() : '') + '<span class="mono">' + esc(recNo(g, r)) + '</span> ' + esc(recTitle(g, r) || '—') + '</span>' + (st ? optChip(st) : '') +
         '<span class="mono muted" style="font-size:12px;white-space:nowrap">' + (it.p ? esc(md(n2d(it.p.s)) + ' → ' + md(n2d(it.p.f))) : esc(T('no dates', '未设日期'))) + '</span><span class="rlreg">' + esc(regName(g)) + '</span></label>'; }).join('') : '<div class="note" style="padding:10px">' + L('Nothing found.', '没有找到。') + '</div>') +
-    (c.total > c.list.length ? '<div class="note" style="padding:8px">' + L('Showing 80 of ' + c.total + ' — search to narrow down.', '显示 ' + c.total + ' 项中的 80 项，请搜索缩小范围。') + '</div>' : '') + '</div>';
+    (c.total > c.list.length ? '<div class="note" style="padding:8px">' + L('Showing 80 of ' + c.total + ' — search to narrow down.', '显示 ' + c.total + ' 项中的 80 项，请搜索缩小范围。') + '</div>' : '') + '</div>' +
+    (nPriv ? '<p class="depnote">' + depLock() + ' ' + L(nPriv + ' of the chosen items are in a register only you can see. Colleagues will see “an item you cannot see” here, and this item may move later when you change it.', '所选事项中有 ' + nPriv + ' 项在「只限本人」台账。同事在这里会看到「无法查看的事项」；你修改它时，本项可能会被顺延。') + '</p>' : '');
   return {title:L('Add predecessors', '添加前置事项'), wide:true, html:h, foot:'<button type="button" class="btn" data-act="mclose">' + L('Cancel', '取消') + '</button><button type="button" class="btn pri" data-act="depGo"' + (nsel ? '' : ' disabled') + '>' + L('Add ' + (nsel || ''), '添加 ' + (nsel || '')) + '</button>'};
 }
 DECK_MODALS.depPick = depPickModal;

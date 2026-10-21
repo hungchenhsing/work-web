@@ -1279,3 +1279,6 @@ svg.gdeps path.mk{fill:var(--muted);stroke:none} svg.gdeps path.mk.bad{fill:var(
 .nlprev{border:1px solid var(--line);border-radius:var(--r-m);padding:8px 12px;margin-top:10px;background:var(--surface2)}
 .nlprev ul{margin:6px 0 0 18px;padding:0;font-size:13px}
 .nlprev li{margin:0 0 3px}
+.deplock{display:inline-flex;align-items:center;color:var(--muted);margin-right:4px}
+.lpi .deplock{margin-right:2px}
+.depnote{margin:10px 0 0;padding:8px 10px;border-radius:var(--r-m);background:var(--surface2);border-left:3px solid var(--warn);font-size:13px}
