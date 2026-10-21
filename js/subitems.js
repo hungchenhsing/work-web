@@ -22,7 +22,7 @@ function hierSplit(reg, items, sortFn, opts){
   });
   items.concat(extra).forEach(function(r){ var p = r.d.parent; if(p && p !== r.id && ids[p]) (kids[p] = kids[p] || []).push(r); else roots.push(r); });
   if(sortFn){ roots = sortFn(roots); Object.keys(kids).forEach(function(k){ kids[k] = sortFn(kids[k]); }); }
-  return {roots:roots, kids:kids, ids:ids, ctx:ctx, open:function(id){ return !!forced[id] || !!S.rexp[id]; }};
+  return {roots:roots, kids:kids, ids:ids, ctx:ctx, open:function(id){ return !!forced[id] || !!S.rexp[id]; }, forced:function(id){ return !!forced[id]; }};
 }
 
 /* ---------- under another item ---------- */
@@ -30,9 +30,11 @@ function isUnder(rec, anc){ var p = parentRec(rec), g = 0; while(p && g++ < 12){
 /* patches that put recs under par (null = top level). The package follows the new item, for their sub-items too.
    An item is never put under itself or under one of its own sub-items. */
 function underPatches(reg, recs, par){
-  var tf = rf(reg, 'tree'), out = [], seen = {};
+  var tf = rf(reg, 'tree'), out = [], seen = {}, chosen = {};
+  recs.forEach(function(r){ if(r) chosen[r.id] = 1; });
   recs.forEach(function(r){
     if(!r || seen[r.id] || (par && (r.id === par.id || isUnder(par, r)))) return;
+    if(par && (function(){ var a = parentRec(r), g = 0; while(a && g++ < 12){ if(chosen[a.id]) return true; a = parentRec(a); } return false; })()) return;   // it comes along under its own selected item
     var p = {};
     if((r.d.parent || null) !== (par ? par.id : null)) p.parent = par ? par.id : null;
     if(tf && par && !same(r.d[tf.key], par.d[tf.key])) p[tf.key] = par.d[tf.key] === undefined ? null : clone(par.d[tf.key]);
@@ -49,12 +51,14 @@ function setRecsUndo(list, msg){
   var undo = list.map(function(x){ var old = {}; Object.keys(x.patch).forEach(function(k){ old[k] = x.rec.d[k] === undefined ? null : clone(x.rec.d[k]); }); return {id:x.rec.id, old:old}; });
   return setRecs(list).then(function(res){ if(res && res.ok){ S.lastUndo = {list:undo}; toast(msg + (res.failed ? ' · ' + T(res.failed + ' failed', '失败 ' + res.failed) : ''), {act:'quickUndo', label:T('Undo', '撤销')}); } return res; });
 }
+/* bulk delete takes the sub-items along (innermost first), like deleting one item does */
+function bulkDelIds(ids){ var out = [], seen = {}; ids.forEach(function(id){ var r = getRec(id); if(!r) return; descendantsOf(r).reverse().forEach(function(k){ if(!seen[k.id]){ seen[k.id] = 1; out.push(k.id); } }); if(!seen[id]){ seen[id] = 1; out.push(id); } }); return out; }
 function bulkSelRecs(reg){ return Object.keys(S.sel).filter(function(id){ return S.sel[id]; }).map(getRec).filter(function(r){ return r && r.reg === reg.id; }); }
 /* the bulk bar: put the selected items under one item, take them out again, merge them */
 function subBulk(reg){
   var sel = bulkSelRecs(reg); if(!sel.length) return '';
   return '<button type="button" class="btn sm" data-act="putUnder">' + uic('layers', 13) + ' ' + L('Put under an item…', '归到某一项下…') + '</button>' +
-    (sel.some(function(r){ return parentRec(r); }) ? '<button type="button" class="btn sm" data-act="putTop">' + L('Make top level', '设为顶层') + '</button>' : '') +
+    (sel.some(function(r){ return r.d.parent; }) ? '<button type="button" class="btn sm" data-act="putTop">' + L('Make top level', '设为顶层') + '</button>' : '') +
     (sel.length > 1 ? '<button type="button" class="btn sm" data-act="mergeOpen">' + L('Merge…', '合并…') + '</button>' : '');
 }
 function putUnderCands(reg, m){
@@ -86,6 +90,7 @@ function mergeBlock(reg, keeper, dup){
   if(dup.id === keeper.id) return '';
   if(isUnder(keeper, dup)) return T('the item to keep is one of its sub-items', '要保留的那一项是它的子项');
   if(((STORE && STORE.fb) || []).some(function(f){ return f.item_id === dup.id; })) return T('it has review comments — move them first', '它有审查意见，请先处理');
+  if(typeof docTrnHistory === 'function' && docTrnHistory(dup).length) return T('it was sent in a transmittal', '它已随传递单发出');
   return '';
 }
 /* the keeper takes the duplicates' sub-items, files, links, predecessors and any text it does not have yet;
@@ -94,7 +99,13 @@ function mergePlan(reg, keeper, dups){
   var kd = keeper.d, kp = {}, dupIds = {}, tf = rf(reg, 'tree'), patches = [], skip = [];
   dups = dups.filter(function(d){ var why = mergeBlock(reg, keeper, d); if(why){ skip.push({rec:d, why:why}); return false; } return d.id !== keeper.id; });
   dups.forEach(function(d){ dupIds[d.id] = 1; });
+  var ro = rolesOf(reg);
   dataFields(reg).forEach(function(f){
+    /* a field the keeper has left empty takes the first value a duplicate has */
+    if(['text', 'number', 'percent', 'date', 'select'].indexOf(f.type) >= 0 && f.key !== ro.no && (!tf || f.key !== tf.key) && isEmpty(kd[f.key]) && !(f.type === 'percent' && f.auto)){
+      var dv = dups.map(function(d){ return d.d[f.key]; }).filter(function(v){ return !isEmpty(v); })[0]; if(dv !== undefined) kp[f.key] = clone(dv); }
+    if(f.type === 'sub'){ var rows = asArr(kd[f.key]).slice(), n0 = rows.length; dups.forEach(function(d){ asArr(d.d[f.key]).forEach(function(x){ if(x) rows.push(clone(x)); }); }); if(rows.length !== n0) kp[f.key] = rows; }
+    if(f.type === 'link'){ var lv = asArr(kd[f.key]).filter(function(id){ return !dupIds[id]; }); dups.forEach(function(d){ asArr(d.d[f.key]).forEach(function(id){ if(id && id !== keeper.id && !dupIds[id] && lv.indexOf(id) < 0) lv.push(id); }); }); if(!same(lv, asArr(kd[f.key]))) kp[f.key] = lv; }
     if(f.type === 'files'){ var cur = asArr(kd[f.key]).slice(), have = {}; cur.forEach(function(x){ have[x.path || x.name] = 1; });
       dups.forEach(function(d){ asArr(d.d[f.key]).forEach(function(x){ var k = x && (x.path || x.name); if(k && !have[k]){ cur.push(x); have[k] = 1; } }); });
       if(cur.length !== asArr(kd[f.key]).length) kp[f.key] = cur; }
@@ -105,10 +116,10 @@ function mergePlan(reg, keeper, dups){
   /* the keeper's own links and predecessors that point at a duplicate are dropped (they would point at nothing) */
   var rel = asArr(kd.rel).filter(function(x){ return x && !dupIds[x.to]; }), rk = {}; rel.forEach(function(x){ rk[x.to + ':' + (x.t || 'rel')] = 1; });
   dups.forEach(function(d){ asArr(d.d.rel).forEach(function(x){ if(!x || !x.to || x.to === keeper.id || dupIds[x.to]) return; var k = x.to + ':' + (x.t || 'rel'); if(!rk[k]){ rel.push(clone(x)); rk[k] = 1; } }); });
-  if(rel.length !== asArr(kd.rel).length) kp.rel = rel;
+  if(!same(rel, asArr(kd.rel))) kp.rel = rel;
   var dep = asArr(kd.dep).filter(function(x){ return x && !dupIds[x.id]; });
   dups.forEach(function(d){ asArr(d.d.dep).forEach(function(x){ if(x && x.id && x.id !== keeper.id && !dupIds[x.id] && !dep.some(function(y){ return y && y.id === x.id; })) dep.push(clone(x)); }); });
-  if(dep.length !== asArr(kd.dep).length) kp.dep = dep;
+  if(!same(dep, asArr(kd.dep))) kp.dep = dep;
   var byId = {}; function add(r, p){ if(!Object.keys(p).length) return; if(byId[r.id]) Object.assign(byId[r.id].patch, p); else { byId[r.id] = {rec:r, patch:p}; patches.push(byId[r.id]); } }
   add(keeper, kp);
   /* the duplicates' sub-items go under the keeper (their own sub-items follow it into its package) */
@@ -118,6 +129,8 @@ function mergePlan(reg, keeper, dups){
     if(dupIds[r.id] || r.id === keeper.id) return; var p = {};
     var rr = asArr(r.d.rel); if(rr.some(function(x){ return x && dupIds[x.to]; })){ var seen = {}; p.rel = rr.map(function(x){ return x && dupIds[x.to] ? Object.assign({}, x, {to:keeper.id}) : x; }).filter(function(x){ if(!x) return false; var k = x.to + ':' + (x.t || 'rel'); if(seen[k] || x.to === r.id) return false; seen[k] = 1; return true; }); }
     var dd = asArr(r.d.dep); if(dd.some(function(x){ return x && dupIds[x.id]; })){ var sd = {}; p.dep = dd.map(function(x){ return x && dupIds[x.id] ? Object.assign({}, x, {id:keeper.id}) : x; }).filter(function(x){ if(!x || x.id === r.id || sd[x.id]) return false; sd[x.id] = 1; return true; }); }
+    var rg = getReg(r.reg); if(rg) dataFields(rg).forEach(function(f){ if(f.type !== 'link') return; var v = asArr(r.d[f.key]); if(!v.some(function(id){ return dupIds[id]; })) return;
+      var nv = []; v.forEach(function(id){ var t = dupIds[id] ? keeper.id : id; if(t !== r.id && nv.indexOf(t) < 0) nv.push(t); }); p[f.key] = nv; });
     add(r, p);
   });
   return {keeper:keeper, dups:dups, skip:skip, patches:patches};
@@ -142,7 +155,7 @@ function mergeModal(m){
   var reg = getReg(m.reg); if(!reg) return {title:'', html:''};
   var recs = (m.ids || []).map(getRec).filter(Boolean), keep = getRec(m.keep) || recs[0];
   var pl = keep ? mergePlan(reg, keep, recs.filter(function(r){ return r.id !== keep.id; })) : null;
-  var h = '<p class="note" style="margin-top:0">' + L('Choose the item to keep. The others are merged into it: their sub-items, files, links, predecessors and any remarks it does not have yet move across, then they are deleted (you can restore them from the Change log).', '选择要保留的一项。其他几项会并入它：它们的子项、文件、关联、前置事项和它还没有的说明文字都移过来，然后删除（可在修改记录中恢复）。') + '</p><div class="lpl">' +
+  var h = '<p class="note" style="margin-top:0">' + L('Choose the item to keep. The others are merged into it: their sub-items, files, links, predecessors and remarks move across, and fields it has left empty take their values; then they are deleted (you can restore them from the Change log).', '选择要保留的一项。其他几项会并入它：它们的子项、文件、关联、前置事项和说明文字移过来，它空着的字段取它们的值；然后删除（可在修改记录中恢复）。') + '</p><div class="lpl">' +
     recs.map(function(r){ var on = keep && r.id === keep.id, sk = pl && pl.skip.filter(function(x){ return x.rec.id === r.id; })[0];
       return '<label class="lpi' + (on ? ' on' : '') + '"><input type="radio" name="mkeep" data-mkeep="' + esc(r.id) + '"' + (on ? ' checked' : '') + '><span class="mono muted">' + esc(recNo(reg, r)) + '</span><span class="lpt">' + esc(recTitle(reg, r) || '—') + (recTitle2(reg, r) ? ' <span class="muted">' + esc(recTitle2(reg, r)) + '</span>' : '') + (sk ? '<span class="note err"> · ' + esc(T('stays: ', '保留不动：') + sk.why) + '</span>' : on ? '' : '<span class="note"> → ' + esc(T('merged and deleted', '并入后删除')) + '</span>') + '</span>' + (childrenOf(r).length ? '<span class="chip c-grey">' + L(childrenOf(r).length + (childrenOf(r).length === 1 ? ' sub-item' : ' sub-items'), childrenOf(r).length + ' 个子项') + '</span>' : '') + '</label>'; }).join('') + '</div>';
   var n = pl ? pl.dups.length : 0;
@@ -162,6 +175,7 @@ function impDelBlock(reg, r){
   if(childrenOf(r).length) return T('it has sub-items', '它有子项');
   if(dataFields(reg).some(function(f){ return f.type === 'files' && asArr(r.d[f.key]).length; })) return T('it has files', '它有文件');
   if(((STORE && STORE.fb) || []).some(function(f){ return f.item_id === r.id; })) return T('it has review comments', '它有审查意见');
+  if(typeof docTrnHistory === 'function' && docTrnHistory(r).length) return T('it was sent in a transmittal', '它已随传递单发出');
   return '';
 }
 
@@ -230,7 +244,7 @@ function fcModal(m){
   var ch = fcChoices(reg, m), pl = fcPlan(reg, m), ro = rolesOf(reg), tops = treeNodes(tf).filter(function(n){ return !n.parent || !treeNode(tf, n.parent); });
   function depth(n){ var d = 0, p = n.parent, g = 0; while(p && treeNode(tf, p) && g++ < 20){ d++; p = treeNode(tf, p).parent; } return d; }
   function inSub(id, r){ var p = treePath(tf, r.d[tf.key]); return p.some(function(x){ return x.id === id; }); }
-  var h = '<p class="note" style="margin-top:0">' + L('Each sub-folder can become an item that holds its items as sub-items, go into an item that is already there, or be dissolved (its items go one level up). Nothing changes until you press Turn into items; Undo puts everything back.', '每个子目录可以变成一个事项（原来的内容成为它的子项）、放进已有的某一项，或者拆掉（内容上移一层）。按「改成事项」之前不会改动任何数据；可以撤销。') + '</p>' +
+  var h = '<p class="note" style="margin-top:0">' + L('Each sub-folder can become an item that holds its items as sub-items, go into an item that is already there, or be dissolved (its items go one level up). Nothing changes until you press Turn into items; Undo puts everything back. Saved views that pick one of these sub-folders are switched to where its items go; a public link that picks one needs its package chosen again.', '每个子目录可以变成一个事项（原来的内容成为它的子项）、放进已有的某一项，或者拆掉（内容上移一层）。按「改成事项」之前不会改动任何数据；可以撤销。保存的视图如果选了这些子目录，会改成内容所去的文件包；公开链接如果选了子目录，需要重新选择文件包。') + '</p>' +
     '<div class="tbl-wrap" style="max-height:56vh"><table class="tbl fcv"><thead><tr><th>' + L('Sub-folder', '子目录') + '</th><th>' + L('Items', '事项') + '</th><th>' + L('Becomes', '改成') + '</th></tr></thead><tbody>' +
     fcSubs(reg).map(function(n){ var c = ch[n.id], top = !treeNode(tf, n.parent).parent || !treeNode(tf, treeNode(tf, n.parent).parent), cnt = recsOf(reg.id).filter(function(r){ return r.d[tf.key] === n.id; }).length;
       var pkSel = '<select class="in sm" data-fcpkg="' + esc(n.id) + '" aria-label="' + esc(T('Package', '文件包')) + '">' + tops.map(function(t){ return '<option value="' + esc(t.id) + '"' + ((c.pkg || n.parent) === t.id ? ' selected' : '') + '>' + esc(treeLabel(t)) + '</option>'; }).join('') + '</select>';
@@ -256,27 +270,44 @@ async function fcGo(){
   var m = S.modal, reg = m && getReg(m.reg), tf = reg && rf(reg, 'tree'); if(!tf || !canSchemaEdit(reg) || m.busy) return;
   var pl = fcPlan(reg, m); if(pl.err.length) return;
   var oldFields = clone(fieldsOf(reg)), undo = pl.patches.map(function(x){ var old = {}; Object.keys(x.patch).forEach(function(k){ old[k] = x.rec.d[k] === undefined ? null : clone(x.rec.d[k]); }); return {id:x.rec.id, old:old}; });
+  var oldViews = {team:clone(reg.d.views || null), mine:clone(myPrefs()['v:' + reg.id] || null)};
   m.busy = true; renderModal();
+  var u = {reg:reg.id, created:[], list:undo, fields:oldFields, views:oldViews};
   try{
     if(pl.creates.length){ var cr = await STORE.createRecs(pl.creates.map(function(c){ return {id:c.id, reg:reg.id, d:c.d}; }));
-      if(cr && cr.failed){ for(var i = 0; i < pl.creates.length; i++) if(getRec(pl.creates[i].id)) await STORE.deleteRec(pl.creates[i].id); throw new Error(T('Could not create the new items — nothing was changed.', '无法新建事项，未做任何修改。')); } }
-    if(pl.patches.length) await setRecs(pl.patches);
+      u.created = pl.creates.map(function(c){ return c.id; }).filter(getRec);
+      if(cr && cr.failed) throw new Error(T('Some new items could not be created.', '部分新事项无法建立。')); }
+    var res = pl.patches.length ? await setRecs(pl.patches) : null;
+    if(res && res.failed) throw new Error(T(res.failed + ' items could not be moved.', res.failed + ' 个事项无法移动。'));
     var fs = clone(fieldsOf(reg)); fs.forEach(function(f){ if(f.key === tf.key) f.tree = pl.tree; });
     await STORE.patchReg(reg.id, {fields:fs});
-    var fl = rfil(reg.id); if(fl.node && fl.node !== 'all' && fl.node !== 'none' && pl.gone[fl.node]) fl.node = 'all';
-    S.foldUndo = {reg:reg.id, created:pl.creates.map(function(c){ return c.id; }), list:undo, fields:oldFields};
-    S.modal = null; renderAll();
-    toast(T('Done: ' + pl.creates.length + ' new items, ' + Object.keys(pl.gone).length + ' sub-folders removed', '完成：新建 ' + pl.creates.length + ' 个事项，移除 ' + Object.keys(pl.gone).length + ' 个子目录'), {act:'foldUndo', label:T('Undo', '撤销')});
-  }catch(e){ m.busy = false; renderModal(); toast(errText(e)); }
+  }catch(e){
+    /* anything half done is put back */
+    S.foldUndo = u; await foldUndo(true);
+    m.busy = false; renderModal(); toast(errText(e) + ' ' + T('Nothing was changed.', '已全部复原。')); return;
+  }
+  /* the list, saved views that picked a removed sub-folder now pick where its items went */
+  function newNode(id){ var d = pl.D[id]; if(!d) return 'all'; if(d.rec){ var r = getRec(d.rec); return r && r.d[tf.key] ? r.d[tf.key] : 'all'; } return d.node || 'all'; }
+  var fl = rfil(reg.id); if(fl.node && pl.gone[fl.node]) fl.node = newNode(fl.node);
+  function remap(list){ var ch = false; list = asArr(list).map(function(x){ if(x && x.st && x.st.f && pl.gone[x.st.f.node]){ x = clone(x); x.st.f.node = newNode(x.st.f.node); ch = true; } return x; }); return ch ? list : null; }
+  var tv = remap(reg.d.views); if(tv) await STORE.patchReg(reg.id, {views:tv}).catch(function(){});
+  var mv = remap(myPrefs()['v:' + reg.id]); if(mv) await savePref('v:' + reg.id, mv);
+  S.foldUndo = u; S.modal = null; renderAll();
+  toast(T('Done: ' + pl.creates.length + ' new items, ' + Object.keys(pl.gone).length + ' sub-folders removed', '完成：新建 ' + pl.creates.length + ' 个事项，移除 ' + Object.keys(pl.gone).length + ' 个子目录'), {act:'foldUndo', label:T('Undo', '撤销')});
 }
-async function foldUndo(){
+async function foldUndo(quiet){
   var u = S.foldUndo, reg = u && getReg(u.reg); if(!reg) return; S.foldUndo = null;
   try{
     await STORE.patchReg(reg.id, {fields:u.fields});
+    if(u.views && !same(reg.d.views || null, u.views.team)) await STORE.patchReg(reg.id, {views:u.views.team}).catch(function(){});
+    if(u.views && !same(myPrefs()['v:' + reg.id] || null, u.views.mine)) await savePref('v:' + reg.id, u.views.mine);
     var list = u.list.filter(function(x){ return getRec(x.id); }).map(function(x){ return {id:x.id, patch:x.old}; });
     if(list.length) await STORE.patchRecs(list);
-    for(var i = 0; i < u.created.length; i++){ var r = getRec(u.created[i]); if(r && !childrenOf(r).length) await STORE.deleteRec(r.id); }
-    renderAll(); toast(T('Undone', '已撤销'));
+    /* the new items go, innermost first (one may sit inside another) */
+    var made = {}; u.created.forEach(function(id){ made[id] = 1; });
+    for(var i = u.created.length - 1; i >= 0; i--){ var r = getRec(u.created[i]); if(r && !childrenOf(r).some(function(k){ return !made[k.id]; })) await STORE.deleteRec(r.id); }
+    var fl = rfil(reg.id); if(fl.node && fl.node !== 'all' && fl.node !== 'none' && !treeNode(rf(reg, 'tree'), fl.node)) fl.node = 'all';
+    renderAll(); if(!quiet) toast(T('Undone', '已撤销'));
   }catch(e){ toast(errText(e)); }
 }
 
@@ -291,7 +322,7 @@ document.addEventListener('click', function(e){
   if(act === 'putUnder'){ var ids = bulkSelRecs(reg).map(function(r){ return r.id; }); if(ids.length){ openModal({kind:'putUnder', reg:reg.id, ids:ids, q:''}); setTimeout(function(){ var i = document.getElementById('puq'); if(i) i.focus(); }, 30); } }
   else if(act === 'putUnderGo'){ var m = S.modal, par = getRec(el.dataset.v); if(!m || !par) return; var recs = (m.ids || []).map(getRec).filter(Boolean), list = underPatches(reg, recs, par); closeModal(); S.sel = {}; rexpSet(par.id, true);
     setRecsUndo(list, T(recs.length + ' now under ', recs.length + ' 项已归到 ') + recNo(reg, par)).then(function(){ renderMain(); }); }
-  else if(act === 'putTop'){ var sel = bulkSelRecs(reg).filter(function(r){ return parentRec(r); }); S.sel = {}; setRecsUndo(underPatches(reg, sel, null), T(sel.length + ' moved to the top level', sel.length + ' 项已设为顶层')).then(function(){ renderMain(); }); }
+  else if(act === 'putTop'){ var sel = bulkSelRecs(reg).filter(function(r){ return r.d.parent; }); S.sel = {}; setRecsUndo(underPatches(reg, sel, null), T(sel.length + ' moved to the top level', sel.length + ' 项已设为顶层')).then(function(){ renderMain(); }); }
   else if(act === 'mergeOpen'){ var ms = bulkSelRecs(reg); if(ms.length > 1) openModal({kind:'merge', reg:reg.id, ids:ms.map(function(r){ return r.id; }), keep:ms[0].id}); }
   else if(act === 'mergeGo'){ var mm = S.modal; if(!mm || mm.kind !== 'merge') return; var recs2 = (mm.ids || []).map(getRec).filter(Boolean), keep = getRec(mm.keep) || recs2[0], pl = mergePlan(reg, keep, recs2.filter(function(r){ return r.id !== keep.id; }));
     closeModal(); S.sel = {};

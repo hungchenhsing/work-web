@@ -1332,3 +1332,5 @@ svg.gdeps path.mk{fill:var(--muted);stroke:none} svg.gdeps path.mk.bad{fill:var(
 .fcv .note{margin-top:4px}
 .impacts{display:flex;flex-direction:column;gap:2px;max-height:180px;overflow:auto;padding:6px 0;border-top:1px solid var(--line2)}
 @media (max-width:700px){ .fcv .fcc input.in.sm{width:100%} .fcv .fcc select.fcinto{max-width:100%} }
+.cx.cxf{cursor:default;opacity:.55;border-color:transparent}
+.rcx:disabled{cursor:default;opacity:.7}

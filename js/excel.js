@@ -17,7 +17,7 @@ function guessField(reg, header){
   if(/^对外$|^external$|^external对外$|^对外external$|^业主可见$|^ownercansee$|^ownercansee业主可见$/.test(n)) return '__ext';
   if(/^重点$|^key$|^key重点$|^重点key$|^★/.test(n)) return '__star';
   if(/parent|上级|父项/.test(n)) return '__parent';
-  if(/^action|^操作|^处理方式|^處理方式/.test(n)) return '__act';   // v3.4.4
+  if(/^(action|操作|处理方式|處理方式)+$/.test(n)) return '__act';   // v3.4.4: "Action 操作" (not "Action items" / "Action by")
   var best = '', bl = 0;
   dataFields(reg).forEach(function(f){ [f.key, f.en, f.zh].concat(IMP_SYN[f.key] || []).forEach(function(s){ s = normH(s); if(!s) return; if((n === s || (s.length >= 2 && n.indexOf(s) >= 0)) && s.length > bl){ best = f.key; bl = s.length; } }); });
   if(/实际提交|actualsubmission/.test(n) && fieldOf(reg, 'actualStart') && fieldOf(reg, 'actualEnd')) return '__actual';
@@ -195,16 +195,16 @@ async function impRun(){
     var ups = [], dch = [];
     plan.updates.forEach(function(u){ var p = {}; Object.keys(u.d).forEach(function(k){ if(!same(u.rec.d[k], u.d[k])) p[k] = u.d[k]; }); if(Object.keys(p).length){ ups.push({id:u.rec.id, patch:p}); if(p[ro.start] !== undefined || p[ro.finish] !== undefined) dch.push({id:u.rec.id, was:planOf(reg, u.rec)}); } });   // v3.4: dates moved by the import
     var ur = ups.length ? await STORE.patchRecs(ups, function(a, b){ m.progress = T('Updating records… ', '正在更新记录… ') + a + ' / ' + b; renderModal(); }) : {ok:0, failed:0};
-    var uok = ur.ok, ufail = ur.failed, ndel = 0, nmer = 0;
+    var uok = ur.ok, ufail = ur.failed, ndel = 0, nmer = 0, nkept = 0;
     /* v3.4.4: deletes, then merges (grouped by the record they go into) */
     if(plan.acts.length){ m.progress = T('Deleting and merging…', '正在删除与合并…'); renderModal(); await noHighKeep(reg);
-      for(var ai = 0; ai < plan.acts.length; ai++){ var x = plan.acts[ai]; if(x.del && getRec(x.rec.id) && !impDelBlock(reg, getRec(x.rec.id))){ try{ await STORE.deleteRec(x.rec.id); ndel++; }catch(e){ ufail++; } } }
+      for(var ai = 0; ai < plan.acts.length; ai++){ var x = plan.acts[ai]; if(!x.del || !getRec(x.rec.id)) continue; if(impDelBlock(reg, getRec(x.rec.id))){ nkept++; continue; } try{ await STORE.deleteRec(x.rec.id); ndel++; }catch(e){ ufail++; } }
       var byT = {}; plan.acts.forEach(function(x){ if(x.into) (byT[x.into.id] = byT[x.into.id] || []).push(x.rec.id); });
       var tids = Object.keys(byT);
-      for(var ti = 0; ti < tids.length; ti++){ var keep = getRec(tids[ti]); if(!keep) continue; var mres = await mergeRun(reg, mergePlan(reg, keep, byT[tids[ti]].map(getRec).filter(Boolean))); nmer += mres.merged; }
+      for(var ti = 0; ti < tids.length; ti++){ var keep = getRec(tids[ti]); if(!keep) continue; var mres = await mergeRun(reg, mergePlan(reg, keep, byT[tids[ti]].map(getRec).filter(Boolean))); nmer += mres.merged; nkept += (mres.skip || []).length; }
     }
     closeModal();
-    toast(T('Imported: ' + res.ok + ' added, ' + uok + ' updated', '导入完成：新增 ' + res.ok + '，更新 ' + uok) + (ndel ? T(', ' + ndel + ' deleted', '，删除 ' + ndel) : '') + (nmer ? T(', ' + nmer + ' merged', '，合并 ' + nmer) : '') + (res.failed + ufail ? T(', ' + (res.failed + ufail) + ' failed', '，失败 ' + (res.failed + ufail)) : '') +
+    toast(T('Imported: ' + res.ok + ' added, ' + uok + ' updated', '导入完成：新增 ' + res.ok + '，更新 ' + uok) + (ndel ? T(', ' + ndel + ' deleted', '，删除 ' + ndel) : '') + (nmer ? T(', ' + nmer + ' merged', '，合并 ' + nmer) : '') + (nkept ? T(', ' + nkept + ' left as they were (they gained sub-items, files or comments)', '，' + nkept + ' 项保留未动（有了子项、文件或意见）') : '') + (res.failed + ufail ? T(', ' + (res.failed + ufail) + ' failed', '，失败 ' + (res.failed + ufail)) : '') +
       (res.renumbered ? T(' · ' + res.renumbered + ' numbers were already used and were given the next free ones', ' · ' + res.renumbered + ' 个编号已被使用，已改为下一个可用编号') : ''));
     if(dch.length && typeof depAfterBatch === 'function') depAfterBatch(dch);
   }catch(e){ m.step = 'map'; renderModal(); toast(errText(e)); }
