@@ -44,7 +44,9 @@ function regName(reg){ return reg ? T1(reg.d.en, reg.d.zh) : ''; }
 function regNameL(reg){ return reg ? L(reg.d.en || '', reg.d.zh || '') : ''; }
 
 /* fields */
-function fieldsOf(reg){ return (reg && reg.d.fields) || []; }
+function fieldsOf(reg){ var fs = (reg && reg.d.fields) || []; return lkHidden() ? fs.filter(function(f){ return !(f && f.type === 'calc' && f.calc && f.calc.op === 'lk'); }) : fs; }
+/* v3.4: lookup fields read other registers — not on public pages or in the Owner's view */
+function lkHidden(){ return !!(STORE && (STORE.mode === 'public' || (STORE.me && STORE.me.role === 'owner'))); }
 function dataFields(reg){ return fieldsOf(reg).filter(function(f){ return f.type !== 'section'; }); }
 function fieldOf(reg, key){ return fieldsOf(reg).filter(function(f){ return f.key === key; })[0] || null; }
 /* registers whose records reach the Owner only when marked “Owner can see” (ext): published registers and the document library */
@@ -60,7 +62,7 @@ function treePath(f, id){ var out = [], n = treeNode(f, id), g = 0; while(n && g
 function treeDesc(f, id){ var set = {}; (function w(x){ set[x] = 1; treeKids(f, x).forEach(function(k){ w(k.id); }); })(id); return set; }
 function treeDfs(f, cb){ (function w(pid, d){ treeKids(f, pid).forEach(function(n){ cb(n, d); w(n.id, d + 1); }); })('', 0); }
 function treeLabel(n){ return n ? (n.code ? n.code + ' ' : '') + nm(n) : ''; }
-function newKey(reg, base){ var k = slug(base) || 'field', i = 1, out = k; while(fieldOf(reg, out) || ['id','star','ext','base','parent','ms'].indexOf(out) >= 0){ out = k + '_' + (++i); } return out; }
+function newKey(reg, base){ var k = slug(base) || 'field', i = 1, out = k; while(fieldOf(reg, out) || ['id','star','ext','base','parent','ms','dep','rel'].indexOf(out) >= 0){ out = k + '_' + (++i); } return out; }
 
 /* values */
 function num(v){ if(v === '' || v == null) return null; var n = typeof v === 'number' ? v : parseFloat(String(v).replace(/,/g, '')); return isNaN(n) ? null : n; }
@@ -73,6 +75,7 @@ function calcVal(op, a, b){
 function val(rec, f){
   if(!rec || !f) return null;
   var d = rec.d || {};
+  if(f.type === 'calc' && f.calc && f.calc.op === 'lk') return typeof lkCalc === 'function' && rec.id ? lkCalc(rec, f).v : null;
   if(f.type === 'calc' && f.calc) return calcVal(f.calc.op, d[f.calc.a], d[f.calc.b]);
   if(f.type === 'percent' && f.auto){ var c = calcVal(f.auto.op || 'pct', d[f.auto.a], d[f.auto.b]); if(c != null) return clamp(c, 0, 100); }
   return d[f.key];
@@ -88,10 +91,12 @@ function textOf(reg, f, rec, raw){
     case 'check': return v ? '✓' : '';
     case 'percent': return Math.round(+v) + '%';
     case 'number': return String(v) + (f.unit ? ' ' + f.unit : '');
-    case 'calc': return (f.calc && f.calc.op === 'pct') ? v + '%' : String(v);
+    case 'calc': if(f.calc && f.calc.op === 'lk') return rec && typeof lkCalc === 'function' ? lkCalc(rec, f).t : String(v); return (f.calc && f.calc.op === 'pct') ? v + '%' : String(v);
     case 'files': return asArr(v).map(function(x){ return x.name || ''; }).join(', ');
     case 'link': return asArr(v).map(function(id){ var r = getRec(id); return r ? recLabel(r) : ''; }).filter(Boolean).join(', ');
     case 'sub': return asArr(v).length + ' ' + T('rows', '行');
+    case 'dep': return typeof depText === 'function' ? depText(v) : '';   // v3.4 change log: predecessors
+    case 'rel': return asArr(v).map(function(x){ var r = x && getRec(x.to); return r ? recLabel(r) : '?'; }).join(', ');
     default: return String(v);
   }
 }
@@ -208,7 +213,7 @@ function multiPatches(reg, conv){
 }
 /* v3.3 · record templates (reg.d.tpls): what a new item starts with; sub-table rows get new ids each time */
 function regTpls(reg){ return asArr(reg && reg.d.tpls).filter(function(t){ return t && t.id && t.d; }); }
-function tplData(t){ var d = clone(t.d || {}); Object.keys(d).forEach(function(k){ if(Array.isArray(d[k]) && d[k].length && isPlainObj(d[k][0]) && hasOwn(d[k][0], '_id')) d[k] = d[k].map(function(r){ return Object.assign({}, r, {_id:uid('s')}); }); }); return d; }
+function tplData(t){ var d = clone(t.d || {}); Object.keys(d).forEach(function(k){ if(Array.isArray(d[k]) && d[k].length && isPlainObj(d[k][0]) && hasOwn(d[k][0], '_id')) d[k] = d[k].map(function(r){ var o = Object.assign({}, r, {_id:uid('s')}); delete o.lk; return o; }); }); return d; }   // v3.4: not the item an action was turned into
 function tplKeyOk(reg, f){ var ro = rolesOf(reg); return f && ['files','link','calc','section'].indexOf(f.type) < 0 && f.key !== ro.no && !(f.type === 'sub' && f.kind === 'comments'); }   // review comments belong to the item they were made on
 function tplDefaultOn(reg, f){ var ro = rolesOf(reg); return tplKeyOk(reg, f) && ['date','percent'].indexOf(f.type) < 0 && f.key !== ro.status && f.key !== ro.progress && !(f.type === 'sub' && isActionField(f)); }   // a meeting's action items belong to that meeting
 var REG_FLAGS = ['mig33', 'whoPeople', 'pkgMig', 'migCm'];
@@ -261,7 +266,9 @@ function setRec(rec, patch, opts){
   peopleAfterSave(reg, rec, old, changed);
   return p.catch(function(){});
 }
-function quickUndo(){ var u = S.lastUndo; if(!u) return; var rec = getRec(u.id); S.lastUndo = null; if(rec) STORE.patchRec(rec.id, u.old, u.now ? Object.assign({}, rec.d, u.now) : null).then(function(){ toast(T('Undone', '已撤销')); }).catch(function(e){ toast(errText(e)); }); }
+function quickUndo(){ var u = S.lastUndo; if(!u) return; S.lastUndo = null;
+  if(u.list){ STORE.patchRecs(u.list.filter(function(x){ return getRec(x.id); }).map(function(x){ return {id:x.id, patch:x.old}; })).then(function(){ toast(T('Undone', '已撤销')); }).catch(function(e){ toast(errText(e)); }); return; }   // v3.4: several items moved together
+  var rec = getRec(u.id); if(rec) STORE.patchRec(rec.id, u.old, u.now ? Object.assign({}, rec.d, u.now) : null).then(function(){ toast(T('Undone', '已撤销')); }).catch(function(e){ toast(errText(e)); }); }
 function createRec(reg, extra, open){
   if(!canWrite(reg)) return Promise.resolve(null);
   var id = uid('r'), d = blankData(reg, extra); S.delAsk = false;
@@ -392,6 +399,7 @@ function groupRecs(reg, list, key){
 function sortValue(reg, rec, key){
   var f = fieldOf(reg, key); if(!f) return '';
   var v = val(rec, f);
+  if(f.type === 'calc' && f.calc && f.calc.op === 'lk') return lkSort(rec, f);
   if(f.type === 'number' || f.type === 'percent' || f.type === 'calc') return num(v) == null ? -1e15 : num(v);
   if(f.type === 'date') return d2n(v) == null ? 1e9 : d2n(v);
   if(f.type === 'select'){ var o = optOf(f, asArr(v)[0]); return o ? optsOf(f).indexOf(o) : 1e6; }

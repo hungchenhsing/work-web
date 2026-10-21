@@ -310,7 +310,7 @@ function cellHtml(reg, f, rec, opts){
     case 'tree': var n = treeNode(f, v); return n ? '<span class="tn"><span class="mono">' + esc(n.code || '') + '</span> ' + esc(nm(n)) + '</span>' : '<span class="muted">—</span>';
     case 'percent': if(v == null || v === '') return '<span class="muted">—</span>'; return pbar(v, isAutoNow(rec, f) ? '<span class="auto" title="' + esc(T('Calculated from quantities', '按工程量自动计算')) + '">ƒ</span>' : '');
     case 'number': return v == null || v === '' ? '<span class="muted">—</span>' : '<span class="mono">' + esc(Number(v).toLocaleString()) + (f.unit ? ' <span class="muted">' + esc(f.unit) + '</span>' : '') + '</span>';
-    case 'calc': return v == null ? '<span class="muted">—</span>' : (f.calc && f.calc.op === 'pct' ? pbar(v) : '<span class="mono">' + esc(v) + '</span>');
+    case 'calc': if(f.calc && f.calc.op === 'lk') return lkCell(reg, f, rec); return v == null ? '<span class="muted">—</span>' : (f.calc && f.calc.op === 'pct' ? pbar(v) : '<span class="mono">' + esc(v) + '</span>');
     case 'date':
       if(!v) return '<span class="muted">—</span>';
       var od = rolesOf(reg).finish === f.key && isOverdue(reg, rec);
@@ -322,8 +322,8 @@ function cellHtml(reg, f, rec, opts){
       return ls.length ? '<span class="chip c-teal">' + uic('link', 12) + ' ' + ls.length + '</span>' : '<span class="muted">—</span>';
     case 'sub': var rows = asArr(v); if(!rows.length) return '<span class="muted">—</span>'; if(f.kind === 'comments' && typeof cmCountHtml === 'function') return cmCountHtml(f, rows.filter(isPlainObj)); var open = f.key === 'actions' ? rows.filter(function(x){ return !x.done; }).length : null; return '<span class="mono muted">' + rows.length + (open != null ? ' · ' + open + ' ' + T('open', '未完成') : '') + '</span>';
     case 'url': return v ? '<a href="' + esc(/^https?:/i.test(v) ? v : 'https://' + v) + '" target="_blank" rel="noopener">' + uic('link', 13) + ' ' + esc(String(v).replace(/^https?:\/\//, '').slice(0, 28)) + '</a>' : '<span class="muted">—</span>';
-    case 'long': return v ? '<span class="clamp">' + esc(v) + '</span>' : '<span class="muted">—</span>';
-    default: if(isEmpty(v)) return '<span class="muted">—</span>'; var ch = f.type === 'text' ? contactHref(f, v) : ''; return ch ? '<a class="ctl" href="' + esc(ch) + '">' + esc(v) + '</a>' : '<span class="clamp">' + esc(v) + '</span>';
+    case 'long': return v ? '<span class="clamp">' + numLink(v, rec && rec.id) + '</span>' : '<span class="muted">—</span>';
+    default: if(isEmpty(v)) return '<span class="muted">—</span>'; var ch = f.type === 'text' ? contactHref(f, v) : ''; return ch ? '<a class="ctl" href="' + esc(ch) + '">' + esc(v) + '</a>' : '<span class="clamp">' + (f.type === 'text' && rec && f.key !== rolesOf(reg).no ? numLink(v, rec.id) : esc(v)) + '</span>';
   }
 }
 function canInline(f){ return ['text','number','percent','date','url','long'].indexOf(f.type) >= 0; }
@@ -408,18 +408,21 @@ function carryHtml(reg, rec, f, ed){
         '<td><input type="checkbox" data-act="carryDone" data-id="' + esc(x.rec.id) + '" data-k="' + esc(f.key) + '" data-row="' + esc(x.row._id || '') + '"' + (ed && canWrite(reg) ? '' : ' disabled') + ' aria-label="' + esc(T('Mark done', '标记完成')) + '"></td></tr>'; }).join('') +
     '</tbody></table><p class="note">' + L('Ticking one marks it done in the meeting that raised it.', '勾选后会在提出它的那次会议中标记为完成。') + '</p></div>';
 }
+function c0lk(r){ return typeof nlChip === 'function' ? nlChip(r) : ''; }
 function subEditor(reg, f, rec, ed){
   var rows = asArr(rec.d[f.key]), cols = f.cols || [];
   var h = '<div class="subwrap"><table class="subt"><thead><tr>' + cols.map(function(c){ return '<th>' + L(c.en, c.zh) + '</th>'; }).join('') + (ed ? '<th></th>' : '') + '</tr></thead><tbody>';
+  var act = isActionField(f) ? actionCols(f) : null, nlOk = act && ed && typeof nlTargets === 'function' && nlTargets().length;
   rows.forEach(function(r, i){
+    var lkc = act && c0lk(r);
     h += '<tr>' + cols.map(function(c){
       var v = r[c.key], a = ' data-sub="' + esc(f.key) + '" data-row="' + esc(r._id) + '" data-col="' + esc(c.key) + '" aria-label="' + esc(T1(c.en || c.key, c.zh) + ' ' + (i + 1)) + '"' + (ed ? '' : ' disabled');
       if(c.type === 'check') return '<td class="tc"><input type="checkbox"' + a + (v ? ' checked' : '') + '></td>';
-      if(c.type === 'long') return '<td><textarea class="in" rows="2"' + a + ' data-fk="sub:' + esc(f.key + ':' + r._id + ':' + c.key) + '">' + esc(v || '') + '</textarea></td>';
+      if(c.type === 'long') return '<td><textarea class="in" rows="2"' + a + ' data-fk="sub:' + esc(f.key + ':' + r._id + ':' + c.key) + '">' + esc(v || '') + '</textarea>' + (lkc && c.key === act.tk ? lkc : '') + '</td>';
       if(c.type === 'select'){ var vs = asArr(v).filter(function(x){ return x !== '' && x != null; });
         return '<td><button type="button" class="pickbtn' + (c.multi ? ' multi' : '') + '" data-act="subPick"' + a + '>' + (vs.length ? vs.map(function(x){ var o = optOf(c, x); return c.list === 'people' ? '<span class="ppl">' + esc(o ? nm(o) : x) + '</span>' : o ? optChip(o, x) : esc(x); }).join(' ') : '<span class="muted">—</span>') + '</button></td>'; }
-      return '<td><input class="in" type="' + (c.type === 'date' ? 'date' : c.type === 'number' ? 'number' : 'text') + '"' + a + ' value="' + esc(v == null ? '' : v) + '" data-fk="sub:' + esc(f.key + ':' + r._id + ':' + c.key) + '"></td>';
-    }).join('') + (ed ? '<td class="tc"><button type="button" class="ib" data-act="subDel" data-sub="' + esc(f.key) + '" data-row="' + esc(r._id) + '" title="' + esc(T('Remove row', '删除行')) + '">' + uic('x', 14) + '</button></td>' : '') + '</tr>';
+      return '<td><input class="in" type="' + (c.type === 'date' ? 'date' : c.type === 'number' ? 'number' : 'text') + '"' + a + ' value="' + esc(v == null ? '' : v) + '" data-fk="sub:' + esc(f.key + ':' + r._id + ':' + c.key) + '">' + (lkc && c.key === act.tk ? lkc : '') + '</td>';
+    }).join('') + (ed ? '<td class="tc nowrap">' + (nlOk && !r.lk && String(r[act.tk] || '').trim() ? '<button type="button" class="ib" data-act="nlRow" data-id="' + esc(rec.id) + '" data-sub="' + esc(f.key) + '" data-row="' + esc(r._id) + '" title="' + esc(T('New linked item from this action', '用此待办新增关联项目')) + '" aria-label="' + esc(T('New linked item from action ', '用此待办新增关联项目 ') + (i + 1)) + '">' + uic('link', 14) + '</button>' : '') + '<button type="button" class="ib" data-act="subDel" data-sub="' + esc(f.key) + '" data-row="' + esc(r._id) + '" title="' + esc(T('Remove row', '删除行')) + '">' + uic('x', 14) + '</button></td>' : '') + '</tr>';
   });
   if(!rows.length) h += '<tr><td colspan="' + (cols.length + 1) + '" class="note">' + L('No rows yet', '还没有内容') + '</td></tr>';
   return h + '</tbody></table>' + (ed ? '<button type="button" class="btn sm" data-act="subAdd" data-sub="' + esc(f.key) + '">' + uic('plus', 13) + ' ' + L('Add row', '添加一行') + '</button>' : '') + '</div>';
@@ -472,6 +475,7 @@ function renderDrawer(){
     (ed && !lib && !trn && reg.d.kind !== 'decks' ? '<button type="button" data-act="tplSave">' + uic('layers', 14) + ' ' + L('Save as a template…', '存成模板…') + '</button>' : '') +
     (ed && !lib && !trn ? '<button type="button" data-act="dtab" data-v="subs">' + uic('list', 14) + ' ' + L('Sub-items…', '子项…') + '</button>' : '') +
     (ed ? '<button type="button" data-act="linkOpen" data-id="' + esc(rec.id) + '">' + uic('link', 14) + ' ' + L('Link to…', '关联到…') + '</button>' : '') +
+    (!lib && reg.d.kind !== 'decks' && typeof nlTargets === 'function' && nlTargets().length ? '<button type="button" data-act="nlOpen" data-id="' + esc(rec.id) + '">' + uic('plus', 14) + ' ' + L('New linked item…', '新增关联项目…') + '</button>' : '') +
     (reg.d.meeting ? '<button type="button" data-act="printMom">' + uic('print', 14) + ' ' + L('Print minutes', '打印纪要') + '</button>' : '') +
     '<button type="button" data-act="dtab" data-v="history">' + uic('hist', 14) + ' ' + L('History', '修改记录') + '</button>' +
     (canSchemaEdit(reg) ? '<button type="button" data-act="fieldsOpen" data-v="' + esc(reg.id) + '">' + uic('gear', 14) + ' ' + L('Fields of this register', '本台账字段') + '</button>' : '') +
@@ -519,14 +523,14 @@ function fieldInput(reg, f, rec, ed){
   switch(f.type){
     case 'text': case 'url': var chf = f.type === 'text' ? contactHref(f, v) : '', inp = '<input class="in" type="' + (f.type === 'url' ? 'url' : chf.indexOf('mailto:') === 0 ? 'email' : chf ? 'tel' : 'text') + '"' + a + ' value="' + esc(v == null ? '' : v) + '">';
       return chf ? '<div class="inu">' + inp + '<a class="btn sm" href="' + esc(chf) + '">' + (chf.indexOf('tel:') === 0 ? L('Call', '拨打') : L('Email', '发邮件')) + '</a></div>' : inp;
-    case 'long': return '<textarea class="in" rows="' + (f.key === 'minutes' ? 8 : 3) + '"' + a + '>' + esc(v || '') + '</textarea>';
+    case 'long': return '<textarea class="in" rows="' + (f.key === 'minutes' ? 8 : 3) + '"' + a + '>' + esc(v || '') + '</textarea>' + menChips(v, rec.id, f.key);
     case 'number': return '<div class="inu"><input class="in" type="number" step="any"' + a + ' value="' + esc(v == null ? '' : v) + '">' + (f.unit ? '<span class="muted">' + esc(f.unit) + '</span>' : '') + '</div>';
     case 'percent': if(isAutoNow(rec, f)) return '<div class="ro">' + pbar(val(rec, f)) + ' <span class="note">' + L('calculated from quantities', '按工程量计算') + '</span></div>'; return '<input class="in" type="number" min="0" max="100" step="5"' + a + ' value="' + esc(v == null ? '' : v) + '">';
     case 'date': return '<input class="in" type="date"' + a + ' value="' + esc(v || '') + '">';
     case 'check': return '<label class="chk"><input type="checkbox"' + a + (v ? ' checked' : '') + '>' + L('Yes', '是') + '</label>';
     case 'select': return '<button type="button" class="pickbtn in"' + (ed ? ' data-act="pick" data-id="' + esc(rec.id) + '" data-k="' + esc(f.key) + '"' : ' disabled') + '>' + (isEmpty(v) ? '<span class="muted">' + L('Choose…', '选择…') + '</span>' : cellHtml(reg, f, rec)) + '</button>';
     case 'tree': return '<button type="button" class="pickbtn in"' + (ed ? ' data-act="pickTree" data-id="' + esc(rec.id) + '" data-k="' + esc(f.key) + '"' : ' disabled') + '>' + (v ? esc(treePath(f, v).map(treeLabel).join(' › ')) : '<span class="muted">' + L('Choose…', '选择…') + '</span>') + '</button>';
-    case 'calc': return '<div class="ro">' + cellHtml(reg, f, rec) + '</div>';
+    case 'calc': if(f.calc && f.calc.op === 'lk') return lkDrawer(reg, f, rec); return '<div class="ro">' + cellHtml(reg, f, rec) + '</div>';
     case 'files': return libShow(reg) && !isLibRec(rec) && (dataFields(reg).filter(function(x){ return x.type === 'files'; })[0] || {}).key === f.key ? docGridHtml(rec, ed) + (asArr(v).length ? '<div class="note" style="margin-top:6px">' + L('Attached directly:', '直接附加：') + '</div>' + fileList(reg, f, rec, ed) : '') : fileList(reg, f, rec, ed);
     case 'link': return linkList(reg, f, rec, ed);
     case 'sub': return subEditor(reg, f, rec, ed) + (isActionField(f) && reg.d.meeting ? carryHtml(reg, rec, f, ed) : '');
@@ -550,13 +554,13 @@ function drawerForm(reg, rec, ed, skip){
     if(!sc.fs.length) return;
     if(sc.h) h += '<h3 class="fsec full">' + L(sc.h.en, sc.h.zh) + '</h3>';
     sc.fs.forEach(function(f){
-      var wide = ['long','sub','files','link'].indexOf(f.type) >= 0 || f.key === ro.title || f.key === ro.title2;
+      var wide = ['long','sub','files','link'].indexOf(f.type) >= 0 || isLk(f) || f.key === ro.title || f.key === ro.title2;
       h += '<div class="fl' + (wide ? ' full' : '') + '" role="group" aria-label="' + esc(T1(f.en || f.key, f.zh)) + '"><span class="flab">' + L(f.en, f.zh) + (f.help ? ' <span class="note">' + esc(f.help) + '</span>' : '') + '</span>' + fieldInput(reg, f, rec, ed) + '</div>';
     });
   });
   h += '</div>';
   if(folded || S.dAll) h += '<button type="button" class="lnk dmore" data-act="dAll">' + (S.dAll ? L('Hide empty fields', '收起空字段') : L('Show ' + folded + ' more fields', '显示另外 ' + folded + ' 个字段')) + '</button>';
-  h += baseInfo(reg, rec);
+  h += (typeof depHtml === 'function' ? depHtml(reg, rec, ed) : '') + baseInfo(reg, rec);
   h += '<div class="note" style="margin-top:14px">' + L('Created', '创建') + ' ' + esc(fmtTime(rec.ca)) + ' · ' + L('last change', '最后修改') + ' ' + esc(fmtTime(rec.ua)) + (canSchemaEdit(reg) ? ' · <button type="button" class="lnk" data-act="fieldsOpen" data-v="' + esc(reg.id) + '">' + L('Add or change fields', '增删 / 修改字段') + '</button>' : '') + '</div>';
   return h;
 }
@@ -621,7 +625,7 @@ function auditRowHtml(a, opts){
   var diff = '';
   if(a.action === 'update' && reg && a._light) diff = '<div class="diff"><div><span class="dk">' + esc((a.keys || []).map(function(k){ var f = fieldOf(reg, k); return f ? T1(f.en, f.zh) : k; }).join(', ')) + '</span></div></div>';
   else if(a.action === 'update' && reg){
-    diff = '<div class="diff">' + (a.keys || []).map(function(k){ var f = fieldOf(reg, k) || (k === 'parent' ? {key:k, en:'Belongs to', zh:'上级', type:'link'} : {key:k, en:({star:'Key', ext:'External', ms:'Milestone', baseStart:'Baseline start', baseFinish:'Baseline finish'})[k] || k, zh:({star:'重点', ext:'对外', ms:'里程碑', baseStart:'基准开始', baseFinish:'基准结束'})[k] || '', type: k === 'star' || k === 'ext' || k === 'ms' ? 'check' : 'text'});
+    diff = '<div class="diff">' + (a.keys || []).map(function(k){ var f = fieldOf(reg, k) || (k === 'parent' ? {key:k, en:'Belongs to', zh:'上级', type:'link'} : k === 'dep' ? {key:k, en:'Starts after', zh:'前置事项', type:'dep'} : k === 'rel' ? {key:k, en:'Related', zh:'相关', type:'rel'} : {key:k, en:({star:'Key', ext:'External', ms:'Milestone', baseStart:'Baseline start', baseFinish:'Baseline finish'})[k] || k, zh:({star:'重点', ext:'对外', ms:'里程碑', baseStart:'基准开始', baseFinish:'基准结束'})[k] || '', type: k === 'star' || k === 'ext' || k === 'ms' ? 'check' : 'text'});
       var ov = textOf(reg, f, null, (a.old || {})[k]), nv = textOf(reg, f, null, (a.new || {})[k]);
       if(f.type === 'sub' || f.type === 'files' || f.type === 'link'){ ov = textOf(reg, f, null, (a.old || {})[k]) || '—'; nv = textOf(reg, f, null, (a.new || {})[k]) || '—'; }
       if(f.type === 'long'){ ov = String(ov).slice(0, 80); nv = String(nv).slice(0, 80); }
@@ -648,7 +652,7 @@ function drawerComments(reg, rec){
 
 /* ---------------- modal ---------------- */
 function openModal(m){ S.modal = m; renderModal(); }
-function closeModal(){ S.modal = null; renderModal(); }
+function closeModal(){ var m = S.modal; S.modal = null; renderModal(); if(m && typeof m.onClose === 'function') m.onClose(); }   // v3.4: a modal can tidy up when it is dismissed
 function renderModal(){
   var root = $('#modal-root'), m = S.modal;
   if(!m){ root.innerHTML = ''; return; }

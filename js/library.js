@@ -74,6 +74,7 @@ function relIndex(){
       asArr(r.d.rel).forEach(function(x){ if(!x || !x.to || x.to === r.id) return; var t = REL_T[x.t] ? x.t : 'rel'; add(r.id, {id:x.to, t:t, dir:'out', host:r.id}); add(x.to, {id:r.id, t:t, dir:'in', host:r.id}); });
       var reg = getReg(r.reg); if(!reg) return;
       dataFields(reg).forEach(function(f){ if(f.type !== 'link') return; asArr(r.d[f.key]).forEach(function(id){ if(!id || id === r.id) return; add(r.id, {id:id, t:'rel', dir:'out', host:r.id, field:f}); add(id, {id:r.id, t:'rel', dir:'in', host:r.id, field:f}); }); });
+      if(typeof menScan === 'function' && reg.d.kind !== 'decks') menScan(r, reg, add);   // v3.4: numbers written in its text
     });
     return m;
   });
@@ -87,7 +88,7 @@ function addRels(src, ids, t){
   ids.forEach(function(id){ if(!id || id === src.id || cur.some(function(x){ return x.to === id && (x.t || 'rel') === t; })) return; cur.push({to:id, t:t}); n++; });
   return n ? setRec(src, {rel:cur}, {silent:true}) : Promise.resolve();
 }
-function canUnlink(e){ var host = getRec(e.host); return !!host && canWrite(getReg(host.reg)); }
+function canUnlink(e){ if(e.t === 'men') return false; var host = getRec(e.host); return !!host && canWrite(getReg(host.reg)); }   // a mention goes away with the text
 function removeRel(rec, e){
   var host = getRec(e.host); if(!host || !canWrite(getReg(host.reg))) return Promise.resolve();
   var other = e.dir === 'out' ? e.id : rec.id;
@@ -98,12 +99,12 @@ function removeRel(rec, e){
 function recFiles(rec){
   var out = [], reg = rec && getReg(rec.reg); if(!reg) return out;
   dataFields(reg).forEach(function(f){ if(f.type === 'files') asArr(rec.d[f.key]).forEach(function(x){ out.push({x:x, f:f, doc:null}); }); });
-  if(!isLibRec(rec)) relsOf(rec).forEach(function(e){ var d = getRec(e.id); if(d && isLibRec(d)){ var x = curFile(d); if(x && !out.some(function(o){ return o.x.path === x.path; })) out.push({x:x, f:{en:docTitle(d), zh:docTitle(d)}, doc:d}); } });
+  if(!isLibRec(rec)) relsOf(rec).forEach(function(e){ if(e.t === 'men') return; var d = getRec(e.id); if(d && isLibRec(d)){ var x = curFile(d); if(x && !out.some(function(o){ return o.x.path === x.path; })) out.push({x:x, f:{en:docTitle(d), zh:docTitle(d)}, doc:d}); } });
   return out;
 }
 
 /* ---------------- pieces shown in a record ---------------- */
-function docsOf(rec){ var seen = {}; return relsOf(rec).map(function(e){ return getRec(e.id); }).filter(function(d){ if(!d || !isLibRec(d) || seen[d.id]) return false; seen[d.id] = 1; return true; }); }
+function docsOf(rec){ var seen = {}; return relsOf(rec).filter(function(e){ return e.t !== 'men'; }).map(function(e){ return getRec(e.id); }).filter(function(d){ if(!d || !isLibRec(d) || seen[d.id]) return false; seen[d.id] = 1; return true; }); }
 /* the documents linked to a record, as thumbnails, with add / take photo / link buttons */
 function docGridHtml(rec, ed){
   var docs = docsOf(rec);
@@ -131,7 +132,7 @@ function relatedPanel(rec, ed){
 }
 /* compact strip at the top of a record's details */
 function relStrip(rec, ed){
-  var es = relsOf(rec).filter(function(e){ return getRec(e.id); });
+  var es = relsOf(rec).filter(function(e){ return e.t !== 'men' && getRec(e.id); });
   if(!es.length && !ed) return '';
   return '<div class="rels">' + es.slice(0, 8).map(function(e){ var o = getRec(e.id), lib = isLibRec(o), x = lib ? curFile(o) : null, u = x && isImg(x) ? STORE.fileUrl(x.path) : null, g = getReg(o.reg);
       return '<button type="button" class="rchip" data-act="openRec" data-id="' + esc(o.id) + '" title="' + esc(relLabel(e) + ' · ' + recLabel(o)) + '">' + (u ? '<img src="' + esc(u) + '" alt="">' : lib ? '<b class="rext">' + esc(x ? extOf(x) : 'DOC') + '</b>' : recIcon(o)) + '<span>' + esc(lib ? docTitle(o) : recNo(g, o) || recTitle(g, o) || (isDeckRec(o) ? o.d.no : '')) + '</span>' + (e.t !== 'rel' ? '<i>' + esc(relLabel(e)) + '</i>' : '') + '</button>'; }).join('') +

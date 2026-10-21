@@ -76,7 +76,14 @@ function cmCard(reg, rec, f, x, ed){
     '<label class="cmt">' + lab('Comment', '意见内容') + '<textarea class="in" rows="2"' + a('cmt') + ' placeholder="' + esc(T('What the reviewer asked', '审查方的意见')) + '">' + esc(x.cmt || '') + '</textarea></label>' +
     '<div class="cmr"><label class="cmt">' + lab('Our reply', '我方回复') + '<textarea class="in" rows="2"' + a('rep') + ' placeholder="' + esc(T('Our answer', '我方的答复')) + '">' + esc(x.rep || '') + '</textarea></label>' +
       '<label class="cmf">' + lab('Reply date', '回复日期') + '<input class="in" type="date"' + a('rdate') + ' value="' + esc(x.rdate || '') + '"></label></div>' +
-    (ed && x.st === 'notacc' ? '<div class="cmfoot"><button type="button" class="btn sm" data-act="cmFollow" data-v="' + esc(id) + '">' + uic('plus', 12) + ' ' + L('New comment that follows this one', '新增接续意见') + '</button></div>' : '') + '</article>';
+    cmFoot(reg, rec, f, x, ed) + '</article>';
+}
+/* v3.4: follow-up, a new linked item made from this comment, numbers it mentions */
+function cmFoot(reg, rec, f, x, ed){
+  var id = x._id, nl = typeof nlChip === 'function' ? nlChip(x) : '', men = typeof menChips === 'function' ? menChips((x.cmt || '') + '\n' + (x.rep || ''), rec.id) : '';
+  var h = (ed && x.st === 'notacc' ? '<button type="button" class="btn sm" data-act="cmFollow" data-v="' + esc(id) + '">' + uic('plus', 12) + ' ' + L('New comment that follows this one', '新增接续意见') + '</button>' : '') +
+    (ed && !x.lk && x.st !== 'closed' && String(x.cmt || '').trim() && typeof nlTargets === 'function' && nlTargets().length ? '<button type="button" class="btn sm" data-act="nlRow" data-id="' + esc(rec.id) + '" data-sub="' + esc(f.key) + '" data-row="' + esc(id) + '">' + uic('link', 12) + ' ' + L('New linked item…', '新增关联项目…') + '</button>' : '') + nl + men;
+  return h ? '<div class="cmfoot">' + h + '</div>' : '';
 }
 
 /* ---------------- paste several ---------------- */
@@ -145,7 +152,7 @@ function viewComments(reg, list){
   h += '<div class="card tbl-wrap"><table class="tbl cmtbl"><thead><tr><th>' + L('No.', '编号') + '</th><th>' + L(rf(reg, 'title') ? rf(reg, 'title').en : 'Item', rf(reg, 'title') ? rf(reg, 'title').zh : '项目') + '</th><th>' + L('Rev.', '版本') + '</th><th>#</th><th style="min-width:260px">' + L('Comment', '意见内容') + '</th><th>' + L('Date', '日期') + '</th><th style="min-width:220px">' + L('Our reply', '我方回复') + '</th><th>' + L('Replied', '回复日期') + '</th><th>' + L('Status', '状态') + '</th><th>' + L('Days', '天数') + '</th></tr></thead><tbody>' +
     all.map(function(e){ var x = e.x, o = optOf(sf, x.st || 'open'), d = cmDays(x);
       return '<tr class="cmrow" data-act="cmOpen" data-id="' + esc(e.rec.id) + '" data-v="' + esc(x._id) + '"><td class="mono"><button type="button" class="lnk mono" data-act="cmOpen" data-id="' + esc(e.rec.id) + '" data-v="' + esc(x._id) + '" data-fk="cmo:' + esc(x._id) + '" aria-label="' + esc(T('Open comment #' + (x.no || '') + ' on ' + recNo(reg, e.rec), '打开 ' + recNo(reg, e.rec) + ' 的意见 #' + (x.no || ''))) + '">' + esc(recNo(reg, e.rec)) + '</button></td><td>' + esc(recTitle(reg, e.rec) || '—') + '</td><td class="mono">' + esc(x.rev || '—') + ((x.rev || '') !== e.cur ? ' <span class="muted" title="' + esc(T('Not the current revision', '非当前版本')) + '">↺</span>' : '') + '</td><td class="mono">' + esc(x.no || '') + '</td>' +
-        '<td class="cmtx">' + esc(x.cmt || '') + '</td><td class="mono nowrap">' + esc(x.cdate || '') + '</td><td class="cmtx">' + esc(x.rep || '') + '</td><td class="mono nowrap">' + esc(x.rdate || '') + '</td><td>' + (o ? chip(o.color, esc(nm(o))) : '') + '</td><td class="mono' + (d != null && d > 14 && x.st !== 'closed' ? ' od' : '') + '">' + (d == null ? '' : d) + '</td></tr>'; }).join('') + '</tbody></table></div>';
+        '<td class="cmtx">' + numLink(x.cmt || '', e.rec.id) + '</td><td class="mono nowrap">' + esc(x.cdate || '') + '</td><td class="cmtx">' + numLink(x.rep || '', e.rec.id) + '</td><td class="mono nowrap">' + esc(x.rdate || '') + '</td><td>' + (o ? chip(o.color, esc(nm(o))) : '') + '</td><td class="mono' + (d != null && d > 14 && x.st !== 'closed' ? ' od' : '') + '">' + (d == null ? '' : d) + '</td></tr>'; }).join('') + '</tbody></table></div>';
   return h;
 }
 function cmExport(reg){

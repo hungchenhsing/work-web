@@ -287,6 +287,7 @@ function ganttHtml(sets, o){
     (o.reg ? '<label class="fl row">' + L('Group', '分组') + '<select class="in" id="ggroup"><option value="none">' + esc(T('None', '不分组')) + '</option>' + groupable(o.reg).map(function(f){ return '<option value="' + esc(f.key) + '"' + (o.group === f.key ? ' selected' : '') + '>' + esc(T1(f.en, f.zh)) + '</option>'; }).join('') + '</select></label>' : '') +
     '<label class="fl row" style="color:var(--asof-ink)">' + L('Status date', '状态日期') + '<input class="in" type="date" id="gAsOf" value="' + esc(n2d(A)) + '"></label>' +
     '<button type="button" class="btn" data-act="gToday">' + L('Go to status date', '跳到状态日期') + '</button>' +
+    (typeof depAny === 'function' && depAny(rows.map(function(x){ return x.rec; })) ? '<label class="chk"><input type="checkbox" id="gDep"' + (depShowArrows() ? ' checked' : '') + '>' + L('Schedule links', '前后关系') + '</label>' : '') +
     '<span class="legend"><span><i class="g-b"></i>' + L('Plan', '计划') + '</span><span><i class="g-g"></i>' + L('Progress', '完成') + '</span><span><i class="g-x"></i>' + L('Delay', '延误') + '</span><span><i style="background:var(--asof);width:3px"></i>' + L('Status date', '状态日期') + '</span>' + (canTeamEdit() ? '<span class="note">' + L('Drag bars to move, drag ends to change dates', '拖动条形移动，拖两端改日期') + '</span>' : '') + '</span></div>';
   if(!rows.length) return h + '<div class="card empty">' + L('Nothing with dates to show.', '没有带日期的记录。') + '</div>';
   var ticks = '', lastM = -1;
@@ -353,6 +354,7 @@ function ganttRow(reg, rec, mn, px, grid, lines, LC, LW, tpl, A){
 }
 function afterGantt(prev){
   var w = $('#gwrap'); if(!w || !S.gm) return;
+  if(typeof depSoon === 'function') depSoon();   // v3.4: arrows between linked bars
   if(prev){ w.scrollLeft = prev[0]; w.scrollTop = prev[1]; return; }
   var x = (asOfN() - S.gm.mn) * S.gm.px - 300; w.scrollLeft = Math.max(0, x); S.gKeep = true;
 }

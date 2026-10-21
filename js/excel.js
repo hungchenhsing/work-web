@@ -175,13 +175,14 @@ async function impRun(){
     plan.updates.forEach(function(u){ if(u.d.__parentNo){ var pid2 = noMap[String(u.d.__parentNo).toUpperCase()]; if(pid2 && pid2 !== u.rec.id) u.d.parent = pid2; } delete u.d.__parentNo; });
     m.progress = T('Adding ' + newRecs.length + ' records…', '正在新增 ' + newRecs.length + ' 条记录…'); renderModal();
     var res = newRecs.length ? await STORE.createRecs(newRecs, function(a, b){ m.progress = T('Adding records… ', '正在新增记录… ') + a + ' / ' + b; renderModal(); }) : {ok:0, failed:0};
-    var ups = [];
-    plan.updates.forEach(function(u){ var p = {}; Object.keys(u.d).forEach(function(k){ if(!same(u.rec.d[k], u.d[k])) p[k] = u.d[k]; }); if(Object.keys(p).length) ups.push({id:u.rec.id, patch:p}); });
+    var ups = [], dch = [];
+    plan.updates.forEach(function(u){ var p = {}; Object.keys(u.d).forEach(function(k){ if(!same(u.rec.d[k], u.d[k])) p[k] = u.d[k]; }); if(Object.keys(p).length){ ups.push({id:u.rec.id, patch:p}); if(p[ro.start] !== undefined || p[ro.finish] !== undefined) dch.push({id:u.rec.id, was:planOf(reg, u.rec)}); } });   // v3.4: dates moved by the import
     var ur = ups.length ? await STORE.patchRecs(ups, function(a, b){ m.progress = T('Updating records… ', '正在更新记录… ') + a + ' / ' + b; renderModal(); }) : {ok:0, failed:0};
     var uok = ur.ok, ufail = ur.failed;
     closeModal();
     toast(T('Imported: ' + res.ok + ' added, ' + uok + ' updated', '导入完成：新增 ' + res.ok + '，更新 ' + uok) + (res.failed + ufail ? T(', ' + (res.failed + ufail) + ' failed', '，失败 ' + (res.failed + ufail)) : '') +
       (res.renumbered ? T(' · ' + res.renumbered + ' numbers were already used and were given the next free ones', ' · ' + res.renumbered + ' 个编号已被使用，已改为下一个可用编号') : ''));
+    if(dch.length && typeof depAfterBatch === 'function') depAfterBatch(dch);
   }catch(e){ m.step = 'map'; renderModal(); toast(errText(e)); }
 }
 
@@ -191,6 +192,7 @@ function regSheet(reg, list){
   var fs = dataFields(reg).filter(function(f){ return f.type !== 'section'; });
   var head = fs.map(function(f){ return f.en + (f.zh && f.zh !== f.en ? ' ' + f.zh : ''); });
   if(reg.d.ownerPublish) head.push('Owner can see 业主可见'); head.push('Key 重点'); head.push('Parent No. 上级编号');
+  var depCol = typeof depList === 'function' && list.some(function(r){ return depList(r).length; }); if(depCol) head.push('Starts after 前置事项');   // v3.4
   var rows = list.map(function(r){
     var row = fs.map(function(f){
       var v = val(r, f);
@@ -202,6 +204,7 @@ function regSheet(reg, list){
       return xlCap(textOf(reg, f, r));
     });
     if(reg.d.ownerPublish) row.push(r.d.ext ? 'Yes' : 'No'); row.push(r.d.star ? 'Yes' : ''); var pr = parentRec(r); row.push(pr ? recNo(reg, pr) : '');
+    if(depCol) row.push(depText(depList(r)));
     return row;
   });
   var ws = XLSX.utils.aoa_to_sheet([head].concat(rows));

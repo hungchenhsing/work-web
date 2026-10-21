@@ -45,7 +45,7 @@ document.addEventListener('click', function(e){
     case 'star': setRec(rec, {star:!rec.d.star}, {silent:true}); break;
     case 'msTog': setRec(rec, {ms:!rec.d.ms}); break;
     case 'printMom': printMinutes(rec); break;
-    case 'dupRec': (function(){ var d = clone(rec.d); var ro = rolesOf(drReg); if(ro.no) d[ro.no] = nextNo(drReg); dataFields(drReg).forEach(function(f){ if(f.type === 'files' || (f.type === 'sub' && f.kind === 'comments')) delete d[f.key]; });   // review comments belong to the item they were made on
+    case 'dupRec': (function(){ var d = clone(rec.d); var ro = rolesOf(drReg); if(ro.no) d[ro.no] = nextNo(drReg); dataFields(drReg).forEach(function(f){ if(f.type === 'files' || (f.type === 'sub' && f.kind === 'comments')) delete d[f.key]; else if(f.type === 'sub' && Array.isArray(d[f.key])) d[f.key] = d[f.key].map(function(x){ if(x && typeof x === 'object'){ x = Object.assign({}, x); delete x.lk; } return x; }); });   // review comments belong to the item they were made on
       if(typeof isTrnReg === 'function' && isTrnReg(drReg)){ d.status = 'draft'; delete d.pub; delete d.date; delete d._trn; d.items = asArr(d.items).map(function(it){ return {_id:uid('t'), rid:it.rid, no:it.no, docNo:it.docNo, title:it.title, title2:it.title2, rev:it.rev, files:asArr(it.files).map(function(f){ return {path:f.path, name:f.name, size:f.size, type:f.type}; })}; }); } var id = uid('r'); STORE.createRec({id:id, reg:drReg.id, d:d}).then(function(){ openRec(id); toast(T('Duplicated', '已复制')); }).catch(function(er){ toast(errText(er)); }); })(); break;
     case 'delAsk': S.delAsk = true; renderDrawer(); (function(){ var c = $('.dconf [data-act="delNo"]'); if(c) c.focus(); })(); break;
     case 'delNo': S.delAsk = false; renderDrawer(); break;
@@ -163,10 +163,10 @@ document.addEventListener('click', function(e){
     case 'fmDel': (function(){ var m = S.modal, f = m.d.fields[+v], n = recsOf(m.reg).filter(function(r){ return !isEmpty(r.d[f.key]); }).length; if(n && !confirm(T(n + ' records have a value in this field. Hide the field? (The data is kept.)', n + ' 条记录在此字段有值。确定移除该字段？（数据会保留）'))) return; m.d.fields.splice(+v, 1); Object.keys(m.d.roles).forEach(function(r){ if(m.d.roles[r] === f.key) delete m.d.roles[r]; }); m.exp = null; renderModal(); })(); break;
     case 'fmAdd': (function(){ var m = S.modal, rg = getReg(m.reg), type = ($('#fmNewType') || {}).value || 'text', name = (($('#fmNewName') || {}).value || '').trim(); if(!name){ toast(T('Type a name for the new field', '请输入新字段名称')); return; }
       var zh = /[一-鿿]/.test(name) && !/[A-Za-z]{3,}/.test(name), tmp = {d:{fields:m.d.fields}}, key = newKey(tmp, zh ? 'f' + (m.d.fields.length + 1) : name);
-      var f = F(key, zh ? name : name, zh ? name : '', type); if(type === 'select') f.opts = []; if(type === 'sub') f.cols = [F('item','Item','事项','text'),F('d','Date','日期','date')]; if(type === 'calc') f.calc = {op:'pct', a:'', b:''}; if(type === 'tree') f.tree = [];
+      var f = F(key, zh ? name : name, zh ? name : '', type); if(type === 'select') f.opts = []; if(type === 'sub') f.cols = [F('item','Item','事项','text'),F('d','Date','日期','date')]; if(type === 'calc') f.calc = {op:'pct', a:'', b:''}; if(type === 'lookup'){ f.type = 'calc'; f.calc = {op:'lk', dir:'in', reg:'', via:'', fn:'count', of:''}; } if(type === 'tree') f.tree = [];
       m.d.fields.push(f); m.exp = m.d.fields.length - 1; renderModal(); setTimeout(function(){ var b = $('.mbody'); if(b) b.scrollTop = b.scrollHeight; }, 20); })(); break;
     case 'fmSave': (function(){ var m = S.modal, rg = getReg(m.reg), fs = m.d.fields;
-      for(var i = 0; i < fs.length; i++){ if(!fs[i].en && !fs[i].zh){ toast(T('Every field needs a name', '每个字段都需要名称')); return; } if(fs[i].type === 'select' && !fs[i].list){ var bad = cleanOpts(fs[i].opts || []); if(bad){ toast(T1(fs[i].en, fs[i].zh) + ': ' + bad); return; } } }
+      for(var i = 0; i < fs.length; i++){ if(!fs[i].en && !fs[i].zh){ toast(T('Every field needs a name', '每个字段都需要名称')); return; } if(isLk(fs[i]) && lkProblem(fs[i])){ toast(T1(fs[i].en, fs[i].zh) + ': ' + lkProblem(fs[i])); m.exp = i; renderModal(); return; } if(fs[i].type === 'select' && !fs[i].list){ var bad = cleanOpts(fs[i].opts || []); if(bad){ toast(T1(fs[i].en, fs[i].zh) + ': ' + bad); return; } } }
       Object.keys(m.d.roles).forEach(function(r){ if(!m.d.roles[r]) delete m.d.roles[r]; });
       var bad1 = fs.filter(function(f){ return f.multi && (m.d.roles.status === f.key || m.d.roles.kind === f.key); })[0];
       if(bad1){ toast(T1(bad1.en || bad1.key, bad1.zh) + ': ' + T('a status (or kind) field takes one value — untick Several', '状态（或类别）字段只能有一个值，请取消「多选」')); return; }
@@ -229,7 +229,8 @@ function selIds(reg){ return Object.keys(S.sel).filter(function(id){ var r = S.s
 function bulkApply(reg, f, value){
   var ids = selIds(reg); if(!ids.length || !f) return;
   var v = value; if(f.type === 'select' && f.multi && v != null) v = [v]; if(v == null) v = f.type === 'select' && f.multi ? [] : '';
-  setRecs(ids.map(function(id){ return {rec:getRec(id), patch:mk(f.key, clone(v))}; }), null, {check:true}).then(function(res){ if(res && res.cancelled){ renderMain(); return; } var n = ids.length - ((res && res.skipped) || 0); toast(T('Updated ' + n, '已更新 ' + n + ' 项') + (res && res.failed ? T(' · ' + res.failed + ' not saved', ' · ' + res.failed + ' 项未保存') : '') + (res && res.skipped ? T(' · ' + res.skipped + ' skipped: ', ' · ' + res.skipped + ' 项未改：') + res.note : '')); S.bulkF = null; renderMain(); });
+  var ro0 = rolesOf(reg), dch = (f.key === ro0.start || f.key === ro0.finish) ? ids.map(function(id){ var r = getRec(id); return {id:id, was:r ? planOf(reg, r) : null}; }) : null;   // v3.4: followers of moved items
+  setRecs(ids.map(function(id){ return {rec:getRec(id), patch:mk(f.key, clone(v))}; }), null, {check:true}).then(function(res){ if(res && res.cancelled){ renderMain(); return; } var n = ids.length - ((res && res.skipped) || 0); toast(T('Updated ' + n, '已更新 ' + n + ' 项') + (res && res.failed ? T(' · ' + res.failed + ' not saved', ' · ' + res.failed + ' 项未保存') : '') + (res && res.skipped ? T(' · ' + res.skipped + ' skipped: ', ' · ' + res.skipped + ' 项未改：') + res.note : '')); S.bulkF = null; renderMain(); if(dch && typeof depAfterBatch === 'function') depAfterBatch(dch); });
 }
 function fxPick(reg, key, anchor){
   var fd = fieldOf(reg, key), f = rfil(reg.id);
@@ -273,7 +274,7 @@ function commitEdit(cancel, byKey){
         renderMain(); return; }
       v = nv; }
     if(f.type === 'number') v = num(v); else if(f.type === 'percent') v = v === '' ? null : clamp(Math.round(+v || 0), 0, 100);
-    if(f.type === 'date' && (f.key === rolesOf(reg).start || f.key === rolesOf(reg).finish)) setRec(rec, dateFix(reg, rec, f.key, v));
+    if(f.type === 'date' && (f.key === rolesOf(reg).start || f.key === rolesOf(reg).finish)) datesSet(reg, rec, dateFix(reg, rec, f.key, v));
     else setRec(rec, mk(f.key, v));
   }
   renderMain();
@@ -318,7 +319,7 @@ document.addEventListener('keydown', function(e){
 });
 
 /* ---------------- typing (no full re-render while typing in drafts) ---------------- */
-var qT, SEARCH_IDS = ['gq', 'fq', 'fileq', 'cmvQ', 'cmPasteT'];
+var qT, SEARCH_IDS = ['gq', 'fq', 'fileq', 'cmvQ', 'cmPasteT', 'dpq', 'lpq', 'nlq'];
 /* some browsers send no input event after the last composition step: send one so the search sees the chosen characters */
 document.addEventListener('compositionend', function(e){ var t = e.target; if(t && SEARCH_IDS.indexOf(t.id) >= 0) setTimeout(function(){ t.dispatchEvent(new Event('input', {bubbles:true})); }, 0); });
 document.addEventListener('input', function(e){
@@ -344,7 +345,9 @@ function fmSet(d, el){
   else if(k === 'ext') f.ext = el.checked;
   else if(k === 'multi'){ f.multi = el.checked; if(f.def != null) f.def = f.multi ? asArr(f.def).slice(0, 1) : asArr(f.def)[0]; }
   else if(k === 'def'){ var dv = el.type === 'checkbox' ? (el.checked || undefined) : el.value; if(dv === '' || dv == null) delete f.def; else if(f.type === 'number' || f.type === 'percent') f.def = +dv; else if(f.type === 'select' && f.multi) f.def = [dv]; else f.def = dv; }
-  else if(k === 'type'){ delete f.def; f.type = el.value; if(f.type === 'select' && !f.list && !f.opts) f.opts = []; if(f.type === 'tree' && !f.tree) f.tree = []; if(f.type === 'sub' && !f.cols) f.cols = [F('item','Item','事项','text')]; if(f.type === 'calc' && !f.calc) f.calc = {op:'pct', a:'', b:''}; m.exp = +p[0]; renderModal(); }
+  else if(k === 'type' && el.value === 'lookup'){ delete f.def; delete f.multi; f.type = 'calc'; f.calc = {op:'lk', dir:'in', reg:'', via:'', fn:'count', of:''}; m.exp = +p[0]; renderModal(); }
+  else if(k === 'lk'){ f.calc = f.calc || {op:'lk'}; var lk = p[2]; f.calc[lk] = el.value; if(lk === 'dir' || lk === 'reg'){ f.calc.via = ''; f.calc.of = ''; } if(lk === 'fn' && !lkNeedsField(el.value)) f.calc.of = ''; renderModal(); }
+  else if(k === 'type'){ delete f.def; if(isLk(f)) delete f.calc; f.type = el.value; if(f.type === 'select' && !f.list && !f.opts) f.opts = []; if(f.type === 'tree' && !f.tree) f.tree = []; if(f.type === 'sub' && !f.cols) f.cols = [F('item','Item','事项','text')]; if(f.type === 'calc' && !f.calc) f.calc = {op:'pct', a:'', b:''}; m.exp = +p[0]; renderModal(); }
   else if(k === 'list'){ delete f.def; f.list = el.value || undefined; if(!f.list && !f.opts) f.opts = []; renderModal(); }
   else if(k === 'autoA' || k === 'autoB'){ f.auto = f.auto || {op:'pct'}; f.auto[k === 'autoA' ? 'a' : 'b'] = el.value; if(!f.auto.a || !f.auto.b){ if(!f.auto.a && !f.auto.b) delete f.auto; } }
   else if(k === 'calcOp' || k === 'calcA' || k === 'calcB'){ f.calc = f.calc || {}; f.calc[k === 'calcOp' ? 'op' : k === 'calcA' ? 'a' : 'b'] = el.value; }
@@ -380,8 +383,8 @@ document.addEventListener('change', function(e){
   if(el.dataset.act === 'extTog' && rec){ setRec(rec, {ext:el.checked}, {silent:true}); return; }
   if((d = el.dataset.df) && rec){ var rg = getReg(rec.reg), f = fieldOf(rg, d), v = el.type === 'checkbox' ? el.checked : el.value;
     if(f.type === 'number') v = num(v); if(f.type === 'percent') v = v === '' ? null : clamp(Math.round(+v || 0), 0, 100);
-    if(f.type === 'date' && (d === rolesOf(rg).start || d === rolesOf(rg).finish)) setRec(rec, dateFix(rg, rec, d, v)); else setRec(rec, mk(d, v)); return; }
-  if(el.dataset.gd){ var gr = getRec(el.dataset.gd), grg = gr && getReg(gr.reg); if(gr) setRec(gr, dateFix(grg, gr, el.dataset.k, el.value)); return; }
+    if(f.type === 'date' && (d === rolesOf(rg).start || d === rolesOf(rg).finish)) datesSet(rg, rec, dateFix(rg, rec, d, v)); else setRec(rec, mk(d, v)); return; }
+  if(el.dataset.gd){ var gr = getRec(el.dataset.gd), grg = gr && getReg(gr.reg); if(gr) datesSet(grg, gr, dateFix(grg, gr, el.dataset.k, el.value)); return; }
   if(el.dataset.sub && rec){ var col = el.dataset.col, vv = el.type === 'checkbox' ? el.checked : el.value; subSet(rec, el.dataset.sub, el.dataset.row, col, vv); return; }
   if(el.dataset.up && rec){ upload(rec, el.dataset.up, el.files); el.value = ''; return; }
   if((d = el.dataset.cfg)){ var p = {}; p[d] = el.value; STORE.saveCfg(p).then(function(){ toast(T('Saved', '已保存')); }).catch(function(er){ toast(errText(er)); }); return; }
@@ -454,7 +457,7 @@ function endDrag(e){
   if(!d.moved) return; S.suppressOpen = Date.now(); S.gKeep = true;
   if(!d.dd){ renderMain(); return; }
   var ro = rolesOf(d.reg), o = {}; if(ro.start) o[ro.start] = n2d(d.ns); if(ro.finish) o[ro.finish] = n2d(d.nf);
-  setRec(d.rec, o);
+  datesSet(d.reg, d.rec, o);
 }
 document.addEventListener('pointerup', endDrag);
 document.addEventListener('pointercancel', endDrag);
