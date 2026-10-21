@@ -21,12 +21,12 @@ function viewRegister(reg){
   if(typeof cmField === 'function' && cmField(reg)) views.push(['comments','list','Comments','意见']);
   var h;
   h = regHead(reg, list, all, ed) + regFilters(reg, views, v);
-  var body, vis = detSplit(reg, list).shown, note = detNote(reg, list);   // v3.4.2: items in detail folders folded away (still counted above and exported)
-  if(v === 'board') body = note + viewBoard(reg, vis);
-  else if(v === 'gantt') body = note + ganttHtml([{reg:reg, items:vis}], {reg:reg, group:S.rg[reg.id + ':g'] || (ro.tree || 'none')});
+  var body;
+  if(v === 'board') body = viewBoard(reg, list);
+  else if(v === 'gantt') body = ganttHtml([{reg:reg, items:list}], {reg:reg, group:S.rg[reg.id + ':g'] || (ro.tree || 'none')});
   else if(v === 'matrix') body = viewMatrix(reg, list);
   else if(v === 'comments') body = viewComments(reg, list);
-  else body = note + viewTable(reg, vis);
+  else body = viewTable(reg, list);
   var tf = rf(reg, 'tree');
   if(tf && (v === 'table' || v === 'board')) h += '<div class="withtree">' + treePanel(reg, tf) + '<div class="wt-main">' + body + '</div></div>';
   else h += body;
@@ -41,11 +41,11 @@ function treePanel(reg, tf){
   var none = base.filter(function(r){ return !treeNode(tf, r.d[tf.key]); }).length;
   var te = !!(S.treeEdit && S.treeEdit[reg.id]) && canSchemaEdit(reg);
   var h = '<aside class="tree card' + (te ? ' editing' : '') + '"><div class="th"><b>' + L(tf.en, tf.zh) + '</b><span class="row" style="gap:2px">' + (canSchemaEdit(reg) ? '<button type="button" class="btn sm' + (te ? ' on' : '') + '" data-act="treeEdit">' + (te ? L('Done', '完成') : L('Edit', '编辑')) + '</button>' : '') + (te ? '' : '<button type="button" class="ib" data-act="treeTog" aria-expanded="true" aria-label="' + esc(T('Fold the list', '收起')) + '" title="' + esc(T('Fold the list', '收起')) + '">' + uic('left', 14) + '</button>') + '</span></div>';
-  if(te) h += '<p class="note" style="margin:0 6px 6px">' + L('＋ adds a sub-level, ✎ renames, ↑↓ reorders, × deletes, “detail” folds a folder’s items out of the list until shown. Changes save at once and are in the change log.', '＋ 添加下级，✎ 改名，↑↓ 排序，× 删除，「细项」让该目录的事项默认在列表中收起。修改即时保存并记入修改记录。') + '</p>';
+  if(te) h += '<p class="note" style="margin:0 6px 6px">' + L('＋ adds a sub-level, ✎ renames, ↑↓ reorders, × deletes. Changes save at once and are in the change log.', '＋ 添加下级，✎ 改名，↑↓ 排序，× 删除。修改即时保存并记入修改记录。') + '</p>';
   h += '<button type="button" class="tnode' + (f.node === 'all' || !f.node ? ' on' : '') + '" data-act="tnode" data-v="all"><span>' + L('All', '全部') + '</span><span class="mono muted">' + base.length + '</span></button>';
   treeRows(reg, tf, te).forEach(function(x){ var n = x.n, d = x.d;
-    if(te){ h += '<div class="tnode te" style="padding-left:' + (10 + d * 14) + 'px"><span class="tlab"><span class="mono muted">' + esc(n.code || '') + '</span> ' + esc(nm(n)) + ' <span class="mono muted">' + (cnt[n.id] || 0) + '</span></span><span class="tacts"><button type="button" class="ib detb" data-act="tnDet" data-v="' + esc(n.id) + '" aria-pressed="' + !!n.det + '" title="' + esc(T('Detail folder: fold its items out of the list until shown', '细项目录：其中的事项默认在列表中收起')) + '">' + L('detail', '细项') + '</button><button type="button" class="ib" data-act="tnAdd" data-v="' + esc(n.id) + '" title="' + esc(T('Add sub-level', '添加下级')) + '">＋</button><button type="button" class="ib" data-act="tnRen" data-v="' + esc(n.id) + '" title="' + esc(T('Rename', '改名')) + '">✎</button><button type="button" class="ib" data-act="tnMove" data-v="' + esc(n.id) + '" data-d="-1" title="' + esc(T('Up', '上移')) + '">↑</button><button type="button" class="ib" data-act="tnMove" data-v="' + esc(n.id) + '" data-d="1" title="' + esc(T('Down', '下移')) + '">↓</button><button type="button" class="ib" data-act="tnDel" data-v="' + esc(n.id) + '" title="' + esc(T('Delete', '删除')) + '">×</button></span></div>'; return; }
-    h += '<div class="trow" style="padding-left:' + (d * 14) + 'px">' + treeFoldBtn(reg, x) + '<button type="button" class="tnode' + (f.node === n.id ? ' on' : '') + '" data-act="tnode" data-v="' + esc(n.id) + '"><span><span class="mono muted">' + esc(n.code || '') + '</span> ' + esc(nm(n)) + detTag(n) + '</span><span class="mono muted">' + (cnt[n.id] || 0) + '</span></button></div>'; });
+    if(te){ h += '<div class="tnode te" style="padding-left:' + (10 + d * 14) + 'px"><span class="tlab"><span class="mono muted">' + esc(n.code || '') + '</span> ' + esc(nm(n)) + ' <span class="mono muted">' + (cnt[n.id] || 0) + '</span></span><span class="tacts"><button type="button" class="ib" data-act="tnAdd" data-v="' + esc(n.id) + '" title="' + esc(T('Add sub-level', '添加下级')) + '">＋</button><button type="button" class="ib" data-act="tnRen" data-v="' + esc(n.id) + '" title="' + esc(T('Rename', '改名')) + '">✎</button><button type="button" class="ib" data-act="tnMove" data-v="' + esc(n.id) + '" data-d="-1" title="' + esc(T('Up', '上移')) + '">↑</button><button type="button" class="ib" data-act="tnMove" data-v="' + esc(n.id) + '" data-d="1" title="' + esc(T('Down', '下移')) + '">↓</button><button type="button" class="ib" data-act="tnDel" data-v="' + esc(n.id) + '" title="' + esc(T('Delete', '删除')) + '">×</button></span></div>'; return; }
+    h += '<div class="trow" style="padding-left:' + (d * 14) + 'px">' + treeFoldBtn(reg, x) + '<button type="button" class="tnode' + (f.node === n.id ? ' on' : '') + '" data-act="tnode" data-v="' + esc(n.id) + '"><span><span class="mono muted">' + esc(n.code || '') + '</span> ' + esc(nm(n)) + '</span><span class="mono muted">' + (cnt[n.id] || 0) + '</span></button></div>'; });
   if(te) h += '<button type="button" class="btn sm" data-act="tnAdd" data-v="" style="margin:8px 6px">＋ ' + L('Add top-level category', '新增顶层分类') + '</button>';
   if(none) h += '<button type="button" class="tnode' + (f.node === 'none' ? ' on' : '') + '" data-act="tnode" data-v="none"><span class="muted">' + L('Unclassified', '未分类') + '</span><span class="mono muted">' + none + '</span></button>';
   return h + '</aside>';
@@ -119,12 +119,13 @@ function regFilters(reg, views, v){
 /* ---------------- table ---------------- */
 function tableCols(reg){ var pick = S.rcols[reg.id]; var ds = dataFields(reg); if(pick && pick.length) return ds.filter(function(f){ return pick.indexOf(f.key) >= 0; }); return ds.filter(function(f){ return !f.hide; }); }
 function viewTable(reg, list){
-  var ed = canWrite(reg), cols = tableCols(reg), gk = S.rg[reg.id] || (reg.d.group && fieldOf(reg, reg.d.group) ? reg.d.group : 'none'), ro = rolesOf(reg);
-  if(window.innerWidth < 720) return viewCards(reg, list);
+  var ed = canWrite(reg), cols = tableCols(reg), gsel = oTableGroup(reg), oOn = oActive(reg, gsel), gk = gsel === '@tree' || gsel === '@flat' ? 'none' : gsel, ro = rolesOf(reg), tfo = rf(reg, 'tree');
+  if(window.innerWidth < 720) return viewCards(reg, list, oOn);
   list = sortRecs(reg, list);
   var s = S.rs[reg.id] || {k: ro.no || '', d:1};
   var selIds = Object.keys(S.sel).filter(function(id){ return S.sel[id] && getRec(id) && getRec(id).reg === reg.id; });
-  var h = '<div class="tbar"><label class="fl row">' + L('Group', '分组') + '<select class="in" id="rgroup"><option value="none">' + esc(T('None', '不分组')) + '</option>' + groupable(reg).map(function(f){ return '<option value="' + esc(f.key) + '"' + (gk === f.key ? ' selected' : '') + '>' + esc(T1(f.en, f.zh)) + '</option>'; }).join('') + '</select></label>' +
+  var h = '<div class="tbar"><label class="fl row">' + L('Group', '分组') + '<select class="in" id="rgroup">' + (tfo ? '<option value="@tree"' + (gsel === '@tree' ? ' selected' : '') + '>' + esc(T(T1(tfo.en, tfo.zh) + ' levels', T1(tfo.en, tfo.zh) + '层级')) + '</option><option value="@flat"' + (gsel === '@flat' ? ' selected' : '') + '>' + esc(T('None (flat list)', '不分组（平铺）')) + '</option>' : '<option value="none">' + esc(T('None', '不分组')) + '</option>') + groupable(reg).filter(function(f){ return !tfo || f.key !== tfo.key; }).map(function(f){ return '<option value="' + esc(f.key) + '"' + (gk === f.key ? ' selected' : '') + '>' + esc(T1(f.en, f.zh)) + '</option>'; }).join('') + '</select></label>' +
+    (oOn ? '<span class="row" style="gap:4px"><button type="button" class="btn sm" data-act="oAll" data-v="1">' + L('Open all', '全部展开') + '</button><button type="button" class="btn sm" data-act="oAll" data-v="0">' + L('Close all', '全部收起') + '</button></span>' : '') +
     '<button type="button" class="btn" data-act="colsPick">' + L('Columns', '列') + ' ▾</button>' +
     '<div class="seg dseg" role="group" aria-label="' + esc(T('Row height', '行高')) + '"><button type="button" data-act="dense" data-v="0" aria-pressed="' + !uiPref('dense', false) + '">' + L('Comfortable', '舒适') + '</button><button type="button" data-act="dense" data-v="1" aria-pressed="' + !!uiPref('dense', false) + '">' + L('Compact', '紧凑') + '</button></div>' +
     '<span class="note hint">' + L('Click a cell to edit · click the No. for all fields', '点单元格直接编辑 · 点编号查看全部字段') + '</span></div>';
@@ -141,27 +142,28 @@ function viewTable(reg, list){
     var fc = f.key === ro.no ? ' class="no"' : f.key === ro.title ? ' class="tt"' : '';
     return '<th' + fc + ' style="' + (fieldW(f) ? 'min-width:' + fieldW(f) + 'px' : '') + '"><button type="button" class="thb" data-act="sort" data-v="' + esc(f.key) + '">' + L(f.en, f.zh) + (sorted ? (s.d > 0 ? ' ↑' : ' ↓') : '') + '</button></th>';
   }).join('') + (canSchemaEdit(reg) ? '<th class="addcol"><button type="button" class="ib" data-act="fieldsOpen" data-v="' + esc(reg.id) + '" title="' + esc(T('Add a field', '添加字段')) + '">' + uic('plus', 14) + '</button></th>' : '') + '</tr>';
-  var body = '', groups = gk === 'none' ? [{k:'all', items:list}] : groupRecs(reg, list, gk), span = cols.length + (ed ? 1 : 0) + (canSchemaEdit(reg) ? 1 : 0);
+  var body = '', groups = oOn ? [] : gk === 'none' ? [{k:'all', items:list}] : groupRecs(reg, list, gk), span = cols.length + (ed ? 1 : 0) + (canSchemaEdit(reg) ? 1 : 0);
+  if(oOn) body = oTableBody(reg, list, cols, ed); else delete O_VIS[reg.id];
   groups.forEach(function(g){
     if(gk !== 'none'){ var colp = !!S.gcol[reg.id + g.k], dn = g.items.filter(function(x){ return isDone(reg, x); }).length;
       body += '<tr class="grp"><td colspan="' + span + '"><button type="button" class="glb" data-act="gcol" data-v="' + esc(reg.id + g.k) + '">' + (colp ? '▸' : '▾') + ' ' + (g.color ? '<span class="sw c-' + esc(g.color) + '"></span>' : '') + '<b>' + esc(g.label) + '</b> <span class="muted mono">' + (rf(reg, 'status') ? dn + '/' : '') + g.items.length + '</span></button>' + (ed && g.set ? ' <button type="button" class="btn sm" data-act="grpAdd" data-v="' + esc(JSON.stringify(g.set)) + '">+ ' + L('Add here', '在此新增') + '</button>' : '') + '</td></tr>';
       if(colp) return; }
     body += hierRows(reg, g.items, cols, ed);
   });
-  if(!list.length) body += '<tr><td colspan="' + span + '" class="empty">' + (recsOf(reg.id).length ? L('No items match the filters.', '没有符合筛选条件的记录。') : L('No items yet.', '还没有记录。')) + '</td></tr>';
+  if(!list.length && !oOn) body += '<tr><td colspan="' + span + '" class="empty">' + (recsOf(reg.id).length ? L('No items match the filters.', '没有符合筛选条件的记录。') : L('No items yet.', '还没有记录。')) + '</td></tr>';
   if(ed) body += '<tr class="qadd"><td colspan="' + span + '"><input class="in" id="qadd" data-fk="qadd:' + esc(reg.id) + '" placeholder="' + esc(T('+ Type a title and press Enter to add', '+ 输入标题后按 Enter 新增')) + '"></td></tr>';
   var vkey = 'tbl:' + reg.id, rowsA = vwSplit(body, 'tr'), long = rowsA.length > VW_MIN;
   var cg = long ? '<colgroup>' + (ed ? '<col style="width:34px">' : '') + cols.map(function(f){ return '<col style="width:' + colWidth(reg, f) + 'px">'; }).join('') + (canSchemaEdit(reg) ? '<col style="width:40px">' : '') + '</colgroup>' : '';
   var tw = long ? (ed ? 34 : 0) + cols.reduce(function(s0, f){ return s0 + colWidth(reg, f); }, 0) + (canSchemaEdit(reg) ? 40 : 0) : 0;
   return h + '<div class="card tbl-wrap"' + (long ? ' data-vw="' + esc(vkey) + '"' : '') + '><table class="tbl' + (long ? ' vwt' : '') + (uiPref('dense', false) ? ' dense' : '') + '"' + (long ? ' style="min-width:' + tw + 'px"' : '') + '>' + cg + '<thead>' + th + '</thead><tbody data-vwb="' + esc(vkey) + '">' + vwHtml(vkey, rowsA, 'tr', span) + '</tbody></table></div>';
 }
-function hierRows(reg, items, cols, ed){
+function hierRows(reg, items, cols, ed, base){
   var ids = {}, kids = {}, roots = [], all = kidsIndex(reg.id), out = '';
   items.forEach(function(r){ ids[r.id] = 1; });
   items.forEach(function(r){ var p = r.d.parent; if(p && p !== r.id && ids[p]) (kids[p] = kids[p] || []).push(r); else roots.push(r); });
   (function w(list, depth){ list.forEach(function(r){
     var k = kids[r.id] || [], tot = all[r.id] || [], open = !!S.rexp[r.id];
-    var hh = {depth:depth, kids:tot, open:open, orphan: depth === 0 && r.d.parent && !ids[r.d.parent] ? getRec(r.d.parent) : null};
+    var hh = {depth:depth, base:base || 0, kids:tot, open:open, orphan: depth === 0 && r.d.parent && !ids[r.d.parent] ? getRec(r.d.parent) : null};
     out += lzRow(function(){ return tableRow(reg, r, cols, ed, hh); });
     if(open && depth < 6){ if(k.length) w(k, depth + 1); if(ed) out += '<tr class="kadd"><td colspan="' + (cols.length + (ed ? 1 : 0) + (canSchemaEdit(reg) ? 1 : 0)) + '"><input class="in" data-kadd="' + esc(r.id) + '" data-fk="kadd:' + esc(r.id) + '" placeholder="' + esc(T('+ Add a sub-item under ', '+ 在此项下新增子项：') + recNo(reg, r) + T(' (Enter)', '（按 Enter）')) + '" style="margin-left:' + (28 + (depth + 1) * 22) + 'px"></td></tr>'; }
   }); })(roots, 0);
@@ -177,8 +179,8 @@ function tableRow(reg, r, cols, ed, h){
       inner = f.type === 'long' ? '<textarea class="in ie" data-ie="1" data-fk="ie" rows="3">' + esc(v) + '</textarea>' : '<input class="in ie" data-ie="1" data-fk="ie" type="' + (f.type === 'date' ? 'date' : f.type === 'number' || f.type === 'percent' ? 'number' : 'text') + '" value="' + esc(v) + '">';
       return '<td class="editing">' + inner + '</td>';
     }
-    if(f.key === ro.no) return '<td class="no"><button type="button" class="lnk mono" data-act="openRec" data-id="' + esc(r.id) + '">' + esc(r.d[f.key] || '—') + '</button>' + (r.d.star ? ' <span class="kst">★</span>' : '') + (r.d.ext && ownerGated(reg) && !isPrivate(reg) ? ' <span class="oeye" title="' + esc(T('Owner can see', '业主可见')) + '" aria-label="' + esc(T('Owner can see', '业主可见')) + '">' + uic('eye', 12) + '</span>' : '') + (cm ? '<span class="rdot"></span>' : '') + (function(){ var n = relCount(r); return n ? '<button type="button" class="rlk" data-act="openRecTab" data-v="' + esc(r.id) + '" title="' + esc(T(n + ' linked', n + ' 项关联')) + '">' + uic('link', 11) + n + '</button>' : ''; })() + '</td>';
-    if(f.key === ro.title){ var lead = '<span class="ind" style="width:' + (h.depth * 22) + 'px"></span>' + (h.kids.length ? '<button type="button" class="cx" data-act="rexp" data-v="' + esc(r.id) + '" aria-expanded="' + !!h.open + '" title="' + esc(T('Show sub-items', '展开子项')) + '">' + (h.open ? '▾' : '▸') + '</button>' : (h.depth ? '<span class="cx0">└</span>' : ''));
+    if(f.key === ro.no) return '<td class="no"' + (h.base ? ' style="padding-left:' + (10 + h.base * 18) + 'px"' : '') + '><button type="button" class="lnk mono" data-act="openRec" data-id="' + esc(r.id) + '">' + esc(r.d[f.key] || '—') + '</button>' + (r.d.star ? ' <span class="kst">★</span>' : '') + (r.d.ext && ownerGated(reg) && !isPrivate(reg) ? ' <span class="oeye" title="' + esc(T('Owner can see', '业主可见')) + '" aria-label="' + esc(T('Owner can see', '业主可见')) + '">' + uic('eye', 12) + '</span>' : '') + (cm ? '<span class="rdot"></span>' : '') + (function(){ var n = relCount(r); return n ? '<button type="button" class="rlk" data-act="openRecTab" data-v="' + esc(r.id) + '" title="' + esc(T(n + ' linked', n + ' 项关联')) + '">' + uic('link', 11) + n + '</button>' : ''; })() + '</td>';
+    if(f.key === ro.title){ var lead = '<span class="ind" style="width:' + ((h.depth + (h.base && !cols.some(function(c){ return c.key === ro.no; }) ? h.base : 0)) * 22) + 'px"></span>' + (h.kids.length ? '<button type="button" class="cx" data-act="rexp" data-v="' + esc(r.id) + '" aria-expanded="' + !!h.open + '" title="' + esc(T('Show sub-items', '展开子项')) + '">' + (h.open ? '▾' : '▸') + '</button>' : (h.depth ? '<span class="cx0">└</span>' : ''));
       return '<td class="tt' + (ce ? ' ce' : '') + '"' + (ce ? ' data-ce="1" data-id="' + esc(r.id) + '" data-k="' + esc(f.key) + '"' : '') + '><div class="ttw">' + lead + '<div class="ttx">' + (h.orphan ? '<span class="pp">↳ ' + esc(recNo(reg, h.orphan) || recTitle(reg, h.orphan)) + '</span>' : '') + '<span class="tt1" title="' + esc(r.d[f.key] || recTitle(reg, r) || '') + '">' + esc(r.d[f.key] || recTitle(reg, r) || '—') + '</span>' + (recTitle2(reg, r) && !tableCols(reg).some(function(c){ return c.key === ro.title2; }) ? '<span class="tt2" title="' + esc(recTitle2(reg, r)) + '">' + esc(recTitle2(reg, r)) + '</span>' : '') + (ru ? '<button type="button" class="kc" data-act="rexp" data-v="' + esc(r.id) + '">' + L(ru.done + '/' + ru.n + ' sub-items done', ru.n + ' 个子项，已完成 ' + ru.done) + '</button>' : '') + '</div></div></td>'; }
     if(f.key === ro.progress && ru && (r.d[f.key] == null || r.d[f.key] === '') && !isAutoNow(r, f)) return '<td class="t-percent">' + pbar(ru.pct, '<span class="auto" title="' + esc(T('Rolled up from sub-items', '由子项汇总')) + '">Σ</span>') + '</td>';
     var tip = (f.type === 'text' || f.type === 'long') && r.d[f.key] && String(r.d[f.key]).length > 40 ? ' title="' + esc(String(r.d[f.key]).slice(0, 1200)) + '"' : '';
@@ -191,9 +193,9 @@ function bulkInput(reg, f){
   if(f.type === 'check') return '<button type="button" class="btn sm" data-act="bulkSet" data-v="1">' + L('Tick', '勾选') + '</button><button type="button" class="btn sm" data-act="bulkSet" data-v="0">' + L('Untick', '取消勾选') + '</button>';
   return '<input class="in" id="bulkVal" type="' + (f.type === 'date' ? 'date' : f.type === 'number' || f.type === 'percent' ? 'number' : 'text') + '" style="width:160px"><button type="button" class="btn sm pri" data-act="bulkApply">' + L('Apply', '应用') + '</button>';
 }
-function viewCards(reg, list){
+function viewCards(reg, list, oOn){
   list = sortRecs(reg, list); var ro = rolesOf(reg), ed = canWrite(reg);
-  return '<div class="cards">' + list.map(function(r){ return recCard(reg, r); }).join('') + (!list.length ? '<div class="card empty">' + L('No items', '没有记录') + '</div>' : '') + '</div>' + (ed ? '<input class="in" id="qadd" data-fk="qadd:' + esc(reg.id) + '" placeholder="' + esc(T('+ Type a title and press Enter', '+ 输入标题后按 Enter')) + '" style="margin-top:10px;width:100%">' : '');
+  return '<div class="cards' + (oOn ? ' ocards' : '') + '">' + (oOn ? oCards(reg, list) : list.map(function(r){ return recCard(reg, r); }).join('')) + (!list.length ? '<div class="card empty">' + L('No items', '没有记录') + '</div>' : '') + '</div>' + (ed ? '<input class="in" id="qadd" data-fk="qadd:' + esc(reg.id) + '" placeholder="' + esc(T('+ Type a title and press Enter', '+ 输入标题后按 Enter')) + '" style="margin-top:10px;width:100%">' : '');
 }
 function recCard(reg, r, drag){
   var p = planOf(reg, r), od = isOverdue(reg, r), pr = progressOf(reg, r), bf = rf(reg, 'block');
@@ -262,7 +264,7 @@ function viewSchedule(){
   h += '<div class="card filters"><div class="fchips">' + regs.map(function(r){ return '<button type="button" class="fchip" data-act="schedReg" data-v="' + esc(r.id) + '" aria-pressed="' + (pick.indexOf(r.id) >= 0) + '">' + icon(r.d.icon, 13) + ' ' + esc(regName(r)) + '</button>'; }).join('') + '</div>' +
     '<div class="fchips">' + (lists().blocks.opts || []).map(function(o){ return '<button type="button" class="fchip" data-act="schedBlk" data-v="' + esc(o.v) + '" aria-pressed="' + ((S.schedBlk || []).indexOf(o.v) >= 0) + '">' + esc(S.lang === 'zh' ? o.zh || o.v : o.en) + '</button>'; }).join('') + '</div>' +
     '<label class="chk"><input type="checkbox" id="schOpen"' + (S.schOpen ? ' checked' : '') + '>' + L('Hide completed', '隐藏已完成') + '</label></div>';
-  var groups = regs.filter(function(r){ return pick.indexOf(r.id) >= 0; }).map(function(r){ return {reg:r, items:recsOf(r.id).filter(function(x){ if(S.schOpen && isDone(r, x)) return false; if(!rfil(r.id).det && isDetRec(r, x)) return false;   /* v3.4.2: detail items as in the register */ if(S.schedBlk && S.schedBlk.length){ var b = blocksOf(r, x); if(b.length && !b.some(function(v){ return S.schedBlk.indexOf(v) >= 0; })) return false; } return planOf(r, x); })}; });
+  var groups = regs.filter(function(r){ return pick.indexOf(r.id) >= 0; }).map(function(r){ return {reg:r, items:recsOf(r.id).filter(function(x){ if(S.schOpen && isDone(r, x)) return false; if(S.schedBlk && S.schedBlk.length){ var b = blocksOf(r, x); if(b.length && !b.some(function(v){ return S.schedBlk.indexOf(v) >= 0; })) return false; } return planOf(r, x); })}; });
   return h + ganttHtml(groups, {multi:true});
 }
 
@@ -284,9 +286,10 @@ function ganttHtml(sets, o){
   var LW = LC.reduce(function(s, x){ return s + x[3]; }, 0), tpl = LC.map(function(x){ return x[3] + 'px'; }).join(' ');
   var grid = 'width:' + W + 'px;background-size:' + colW + 'px 100%';
   var h = '<div class="tbar"><div class="seg">' + [['day','Day','日'],['week','Week','周'],['month','Month','月']].map(function(z){ return '<button type="button" data-act="gzoom" data-v="' + z[0] + '" aria-pressed="' + (g === z[0]) + '">' + L(z[1], z[2]) + '</button>'; }).join('') + '</div>' +
-    (o.reg ? '<label class="fl row">' + L('Group', '分组') + '<select class="in" id="ggroup"><option value="none">' + esc(T('None', '不分组')) + '</option>' + groupable(o.reg).map(function(f){ return '<option value="' + esc(f.key) + '"' + (o.group === f.key ? ' selected' : '') + '>' + esc(T1(f.en, f.zh)) + '</option>'; }).join('') + '</select></label>' : '') +
+    (o.reg ? '<label class="fl row">' + L('Group', '分组') + '<select class="in" id="ggroup"><option value="none">' + esc(T('None', '不分组')) + '</option>' + groupable(o.reg).map(function(f){ var tl = f.type === 'tree'; return '<option value="' + esc(f.key) + '"' + (o.group === f.key ? ' selected' : '') + '>' + esc(tl ? T(T1(f.en, f.zh) + ' levels', T1(f.en, f.zh) + '层级') : T1(f.en, f.zh)) + '</option>'; }).join('') + '</select></label>' : '') +
     '<label class="fl row" style="color:var(--asof-ink)">' + L('Status date', '状态日期') + '<input class="in" type="date" id="gAsOf" value="' + esc(n2d(A)) + '"></label>' +
     '<button type="button" class="btn" data-act="gToday">' + L('Go to status date', '跳到状态日期') + '</button>' +
+    (o.reg && rf(o.reg, 'tree') && o.group === rf(o.reg, 'tree').key ? '<span class="row" style="gap:4px"><button type="button" class="btn sm" data-act="oAll" data-v="1">' + L('Open all', '全部展开') + '</button><button type="button" class="btn sm" data-act="oAll" data-v="0">' + L('Close all', '全部收起') + '</button></span>' : '') +
     (typeof depAny === 'function' && depAny(rows.map(function(x){ return x.rec; })) ? '<label class="chk"><input type="checkbox" id="gDep"' + (depShowArrows() ? ' checked' : '') + '>' + L('Schedule links', '前后关系') + '</label>' : '') +
     '<span class="legend"><span><i class="g-b"></i>' + L('Plan', '计划') + '</span><span><i class="g-g"></i>' + L('Progress', '完成') + '</span><span><i class="g-x"></i>' + L('Delay', '延误') + '</span><span><i style="background:var(--asof);width:3px"></i>' + L('Status date', '状态日期') + '</span>' + (canTeamEdit() ? '<span class="note">' + L('Drag bars to move, drag ends to change dates', '拖动条形移动，拖两端改日期') + '</span>' : '') + '</span></div>';
   if(!rows.length) return h + '<div class="card empty">' + L('Nothing with dates to show.', '没有带日期的记录。') + '</div>';
@@ -312,20 +315,30 @@ function ganttHtml(sets, o){
       if(grpRow('sched:' + s.reg.id, icon(s.reg.d.icon, 13) + ' ' + esc(regName(s.reg)), its, s.reg, s.reg.d.color)) return;
       its.forEach(function(x){ body += lzRow(function(){ return ganttRow(x.reg, x.rec, mn, px, grid, lines, LC, LW, tpl, A); }, 'div'); }); });
   } else {
-    var reg = o.reg, its = sortByStart(rows);
-    if(o.group && o.group !== 'none'){ groupRecs(reg, its.map(function(x){ return x.rec; }), o.group).forEach(function(gr){ var gi = gr.items.map(function(r){ return {reg:reg, rec:r}; }); if(grpRow(reg.id + ':' + gr.k, esc(gr.label), gi, reg, gr.color, gr.set)) return; gi.forEach(function(x){ body += lzRow(function(){ return ganttRow(reg, x.rec, mn, px, grid, lines, LC, LW, tpl, A); }, 'div'); }); }); }
+    var reg = o.reg, its = sortByStart(rows), tfg = rf(reg, 'tree');
+    if(tfg && o.group === tfg.key && rfil(reg.id).node !== 'none'){
+      /* v3.4.3: the package outline — a sub-folder is one row with its span, ▸ opens it in place */
+      oWalk(reg, oTree(reg, its.map(function(x){ return x.rec; })), {
+        folder:function(k, depth, open){ var st = oStats(reg, k.all), set = {}; if(k.id !== '__none') set[tfg.key] = k.id;
+          body += '<div class="grow ggrp ofg"><div class="gleft" style="width:' + LW + 'px"><div class="gspan" style="padding-left:' + (6 + depth * 16) + 'px">' + oToggle(reg, k, open) + '<span class="oglab"><b>' + esc(oLabel(k)) + '</b> <span class="muted mono">' + st.dn + '/' + st.n + '</span></span>' +
+            (canWrite(reg) && k.id !== '__none' ? '<button type="button" class="btn sm" data-act="grpAdd" data-reg="' + esc(reg.id) + '" data-v="' + esc(JSON.stringify(set)) + '" aria-label="' + esc(T('New item in ', '在此目录新增：') + oLabel(k)) + '">+</button>' : '') + '</div></div>' +
+            '<div class="gt" style="' + grid + '">' + lines + (st.s != null ? '<div class="sum" style="left:' + ((st.s - mn) * px) + 'px;width:' + Math.max(px, (st.e - st.s + 1) * px) + 'px" title="' + esc(oLabel(k) + ' · ' + n2d(st.s) + ' → ' + n2d(st.e)) + '"></div>' : '') + '</div></div>'; },
+        items:function(items, depth){ sortByStart(items.map(function(r){ return {reg:reg, rec:r}; })).forEach(function(x){ body += lzRow(function(){ return ganttRow(reg, x.rec, mn, px, grid, lines, LC, LW, tpl, A, depth); }, 'div'); }); }
+      });
+    }
+    else if(o.group && o.group !== 'none'){ groupRecs(reg, its.map(function(x){ return x.rec; }), o.group).forEach(function(gr){ var gi = gr.items.map(function(r){ return {reg:reg, rec:r}; }); if(grpRow(reg.id + ':' + gr.k, esc(gr.label), gi, reg, gr.color, gr.set)) return; gi.forEach(function(x){ body += lzRow(function(){ return ganttRow(reg, x.rec, mn, px, grid, lines, LC, LW, tpl, A); }, 'div'); }); }); }
     else its.forEach(function(x){ body += lzRow(function(){ return ganttRow(reg, x.rec, mn, px, grid, lines, LC, LW, tpl, A); }, 'div'); });
     if(canWrite(reg)) body += '<div class="grow"><div class="gleft" style="width:' + LW + 'px"><div class="gspan"><input class="in" id="qadd" data-fk="qadd:' + esc(reg.id) + '" data-gantt="1" placeholder="' + esc(T('+ Type a new item and press Enter', '+ 输入新事项后按 Enter')) + '" style="flex:1;min-width:0"></div></div><div class="gt" style="' + grid + '">' + lines + '</div></div>';
   }
   var gkey = 'g:' + (o.multi ? 'sched' : o.reg.id), grows = vwSplit(body, 'div'), ghead = grows.shift() || '';
   return h + '<div class="card gwrap" id="gwrap"' + (grows.length > VW_MIN ? ' data-vw="' + esc(gkey) + '"' : '') + '><div class="gin">' + ghead + '<div class="gbody" data-vwb="' + esc(gkey) + '">' + vwHtml(gkey, grows, 'div') + '</div></div></div>';
 }
-function ganttRow(reg, rec, mn, px, grid, lines, LC, LW, tpl, A){
+function ganttRow(reg, rec, mn, px, grid, lines, LC, LW, tpl, A, ind){
   var p = planOf(reg, rec), ed = canWrite(reg), od = isOverdue(reg, rec), pr = progressOf(reg, rec), fb = openFb(rec.id) > 0, st = statusOpt(reg, rec), ro = rolesOf(reg);
   var left = LC.map(function(c){
     var k = c[0];
     if(k === 'no') return '<div class="gc"><button type="button" class="glb mono" data-act="openRec" data-id="' + esc(rec.id) + '">' + esc(recNo(reg, rec) || '—') + '</button>' + (fb ? '<span class="rdot"></span>' : '') + '</div>';
-    if(k === 'title') return '<div class="gc t' + (rec.d.star ? ' key' : '') + '" data-act="openRec" data-id="' + esc(rec.id) + '"' + (rec.d.parent ? ' style="padding-left:' + (6 + depthOf(rec) * 16) + 'px"' : '') + '>' + (rec.d.parent ? '<span class="cx0">└</span>' : '') + '<span style="min-width:0"><span class="tt">' + esc(recTitle(reg, rec) || '—') + '</span>' + (recTitle2(reg, rec) ? '<span class="ts">' + esc(recTitle2(reg, rec)) + '</span>' : '') + '</span></div>';
+    if(k === 'title') return '<div class="gc t' + (rec.d.star ? ' key' : '') + '" data-act="openRec" data-id="' + esc(rec.id) + '"' + (rec.d.parent || ind ? ' style="padding-left:' + (6 + (rec.d.parent ? depthOf(rec) * 16 : 0) + (ind || 0) * 16) + 'px"' : '') + '>' + (rec.d.parent ? '<span class="cx0">└</span>' : '') + '<span style="min-width:0"><span class="tt">' + esc(recTitle(reg, rec) || '—') + '</span>' + (recTitle2(reg, rec) ? '<span class="ts">' + esc(recTitle2(reg, rec)) + '</span>' : '') + '</span></div>';
     if(k === 'blk'){ var bf = rf(reg, 'block'); return '<div class="gc">' + (bf ? blockChips(rec.d[bf.key], bf) : '') + '</div>'; }
     if(k === 's' || k === 'f'){ var dk = k === 's' ? ro.start : ro.finish, dv = p ? md(n2d(k === 's' ? p.s : p.f)) : '';
       if(ed && dk && S.edit && S.edit.id === rec.id && S.edit.k === dk) return '<div class="gc"><input class="gdi mono" type="date" data-ie="1" data-fk="ie" value="' + esc(rec.d[dk] || '') + '"></div>';

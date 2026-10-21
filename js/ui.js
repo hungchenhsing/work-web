@@ -182,6 +182,8 @@ function stickyCols(){
     if(noFirst){ t.style.setProperty('--sl-no', x + 'px'); x += no.offsetWidth; }
     if(tt) t.style.setProperty('--sl-tt', x + 'px');
     t.classList.toggle('sk-no', !!noFirst); t.classList.toggle('sk-tt', !!tt && x + tt.offsetWidth < t.parentElement.clientWidth * 0.6);
+    /* folder rows of the package outline: how wide their label stays when the table scrolls sideways */
+    if(t.querySelector('tr.ofold')){ var w = t.parentElement; t.style.setProperty('--frz', (t.classList.contains('sk-tt') ? x + tt.offsetWidth - (sel ? sel.offsetWidth : 0) : Math.min(360, w.clientWidth * 0.5)) + 'px'); if(typeof oHs === 'function') oHs(w); }
   });
 }
 

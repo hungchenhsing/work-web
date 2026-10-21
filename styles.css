@@ -1289,9 +1289,24 @@ svg.gdeps path.mk{fill:var(--muted);stroke:none} svg.gdeps path.mk.bad{fill:var(
 .tfold{flex:none;width:22px;height:28px;border:0;background:none;color:var(--muted);cursor:pointer;border-radius:4px;font-size:12px;padding:0}
 .tfold:hover{background:var(--surface2);color:var(--ink)}
 .tfold.sp{display:inline-block;cursor:default}
-.dettag{display:inline-block;margin-left:6px;padding:0 5px;border-radius:8px;font-size:10.5px;line-height:16px;background:var(--surface2);color:var(--muted);font-weight:400;vertical-align:1px}
-.detb[aria-pressed=true]{background:var(--accent-soft);color:var(--accent-ink);font-weight:600}
-.detb{width:auto;padding:0 6px;font-size:11px}
-.detnote{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;margin:0 0 8px;padding:6px 10px;border-radius:var(--r-m);background:var(--surface2);font-size:13px;color:var(--ink2,var(--ink))}
-.detnote.on{border-left:3px solid var(--accent)}
 .tn .tdeep{margin-left:4px;color:var(--muted)}
+.tbl tr.ofold td{background:var(--surface2);border-bottom-color:var(--line);vertical-align:middle}
+.tbl tr.ofold td:has(.ofst){white-space:nowrap}
+.tbl tr.ofold .ofw{display:flex;align-items:center;gap:8px;min-width:0}
+.tbl tr.ofold .ofname{font-weight:600;color:var(--ink);display:inline-flex;align-items:center;gap:5px;min-width:0}
+.tbl tr.ofold .ofcnt{font-size:12px;white-space:nowrap}
+.tbl tr.ofold .ofcode{font-weight:600;color:var(--ink2,var(--ink));min-width:44px}
+.ofadd{margin-left:auto;flex:none}
+.hs .tbl tr.ofold .ofw{position:relative;z-index:1;transform:translateX(var(--hx,0));width:calc(var(--frz,320px) - 14px);box-sizing:border-box;background:var(--surface2);overflow:hidden;box-shadow:0 0 0 6px var(--surface2),1px 0 0 6px var(--line)}
+.hs .tbl tr.ofold .ofname{flex:0 1 auto;overflow:hidden;white-space:nowrap}
+.hs .tbl tr.ofold .ofcnt{flex:0 100 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.ofst{font-size:12.5px}
+.ofg .gspan{display:flex;align-items:center;gap:6px}
+.oglab{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ocards{display:flex;flex-direction:column;gap:8px}
+.ofc{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r-m);background:var(--surface2)}
+.ofc .ofct{flex:1;min-width:0;display:flex;flex-direction:column}
+.ofc .ofct b{font-size:14px}
+.ofc .ofct .muted{font-size:12px}
+.ofcb{flex:none;width:30px;height:30px;border:1px solid var(--line);border-radius:6px;background:var(--surface);cursor:pointer}
+.ofci{display:grid;gap:8px}

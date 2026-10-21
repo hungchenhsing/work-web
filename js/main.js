@@ -377,7 +377,7 @@ document.addEventListener('change', function(e){
   if(el.id === 'oreg'){ S.oreg = el.value; renderMain(); return; }
   if(el.id === 'pubSel'){ S.pubSel = el.value; S.fbFor = null; renderMain(); return; }
   if(el.id === 'bulkField'){ S.bulkF = el.value || null; renderMain(); return; }
-  if(el.id === 'selall'){ S.sel = {}; if(el.checked) detSplit(reg, filteredRecs(reg)).shown.forEach(function(r){ S.sel[r.id] = true; }); renderMain(); return; }   // only the rows on screen
+  if(el.id === 'selall'){ S.sel = {}; if(el.checked) (O_VIS[reg.id] ? O_VIS[reg.id].map(getRec).filter(Boolean) : filteredRecs(reg)).forEach(function(r){ S.sel[r.id] = true; }); renderMain(); return; }   // in the outline: the items in open folders
   if(el.classList.contains('rowsel')){ S.sel[el.dataset.id] = el.checked; S.bulkDel = false; renderMain(); return; }
   if(el.dataset.colk){ var cur = tableCols(reg).map(function(f){ return f.key; }), k = el.dataset.colk, i = cur.indexOf(k); if(el.checked && i < 0) cur.push(k); if(!el.checked && i >= 0) cur.splice(i, 1); var ord = dataFields(reg).map(function(f){ return f.key; }); cur.sort(function(a, b){ return ord.indexOf(a) - ord.indexOf(b); }); S.rcols[S.reg] = cur; saveUI(); renderMain(); return; }
   if(el.dataset.act === 'extTog' && rec){ setRec(rec, {ext:el.checked}, {silent:true}); return; }
