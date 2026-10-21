@@ -422,7 +422,7 @@ function subEditor(reg, f, rec, ed){
       if(c.type === 'select'){ var vs = asArr(v).filter(function(x){ return x !== '' && x != null; });
         return '<td><button type="button" class="pickbtn' + (c.multi ? ' multi' : '') + '" data-act="subPick"' + a + '>' + (vs.length ? vs.map(function(x){ var o = optOf(c, x); return c.list === 'people' ? '<span class="ppl">' + esc(o ? nm(o) : x) + '</span>' : o ? optChip(o, x) : esc(x); }).join(' ') : '<span class="muted">—</span>') + '</button></td>'; }
       return '<td><input class="in" type="' + (c.type === 'date' ? 'date' : c.type === 'number' ? 'number' : 'text') + '"' + a + ' value="' + esc(v == null ? '' : v) + '" data-fk="sub:' + esc(f.key + ':' + r._id + ':' + c.key) + '">' + (lkc && c.key === act.tk ? lkc : '') + '</td>';
-    }).join('') + (ed ? '<td class="tc nowrap">' + (nlOk && !r.lk && String(r[act.tk] || '').trim() ? '<button type="button" class="ib" data-act="nlRow" data-id="' + esc(rec.id) + '" data-sub="' + esc(f.key) + '" data-row="' + esc(r._id) + '" title="' + esc(T('New linked item from this action', '用此待办新增关联项目')) + '" aria-label="' + esc(T('New linked item from action ', '用此待办新增关联项目 ') + (i + 1)) + '">' + uic('link', 14) + '</button>' : '') + '<button type="button" class="ib" data-act="subDel" data-sub="' + esc(f.key) + '" data-row="' + esc(r._id) + '" title="' + esc(T('Remove row', '删除行')) + '">' + uic('x', 14) + '</button></td>' : '') + '</tr>';
+    }).join('') + (ed ? '<td class="tc nowrap">' + (nlOk && !(r.lk && getRec(r.lk)) && String(r[act.tk] || '').trim() ? '<button type="button" class="ib" data-act="nlRow" data-id="' + esc(rec.id) + '" data-sub="' + esc(f.key) + '" data-row="' + esc(r._id) + '" title="' + esc(T('New linked item from this action', '用此待办新增关联项目')) + '" aria-label="' + esc(T('New linked item from action ', '用此待办新增关联项目 ') + (i + 1)) + '">' + uic('link', 14) + '</button>' : '') + '<button type="button" class="ib" data-act="subDel" data-sub="' + esc(f.key) + '" data-row="' + esc(r._id) + '" title="' + esc(T('Remove row', '删除行')) + '">' + uic('x', 14) + '</button></td>' : '') + '</tr>';
   });
   if(!rows.length) h += '<tr><td colspan="' + (cols.length + 1) + '" class="note">' + L('No rows yet', '还没有内容') + '</td></tr>';
   return h + '</tbody></table>' + (ed ? '<button type="button" class="btn sm" data-act="subAdd" data-sub="' + esc(f.key) + '">' + uic('plus', 13) + ' ' + L('Add row', '添加一行') + '</button>' : '') + '</div>';
@@ -480,7 +480,7 @@ function renderDrawer(){
     '<button type="button" data-act="dtab" data-v="history">' + uic('hist', 14) + ' ' + L('History', '修改记录') + '</button>' +
     (canSchemaEdit(reg) ? '<button type="button" data-act="fieldsOpen" data-v="' + esc(reg.id) + '">' + uic('gear', 14) + ' ' + L('Fields of this register', '本台账字段') + '</button>' : '') +
     (ed ? '<hr><button type="button" class="dang" data-act="delAsk">' + uic('trash', 14) + ' ' + (desc ? L('Delete with ' + desc + ' sub-items…', '连同 ' + desc + ' 个子项删除…') : L('Delete…', '删除…')) + '</button>' : '') + '</div></details>';
-  var es = relsOf(rec).filter(function(e){ return getRec(e.id); });
+  var es = relsOf(rec).filter(function(e){ return e.t !== 'men' && getRec(e.id); });
   var chips = (rf(reg, 'block') ? blockChips(rec.d[rf(reg, 'block').key], rf(reg, 'block')) : '') + (isOverdue(reg, rec) ? chip('red', L('Overdue', '逾期')) : '') + (!ed ? chip('grey', L('Read only', '只读')) : '') +
     (ownerGated(reg) && !isPrivate(reg) ? (ed ? '<label class="chip c-violet tog"><input type="checkbox" data-act="extTog"' + (rec.d.ext ? ' checked' : '') + '>' + uic('eye', 12) + ' ' + L('Owner can see', '业主可见') + '</label>' : (rec.d.ext ? chip('violet', uic('eye', 12) + ' ' + L('Owner can see', '业主可见')) : '')) : '') +
     (!lib && !es.length && ed ? '<button type="button" class="rchip add" data-act="linkOpen" data-id="' + esc(rec.id) + '">' + uic('plus', 12) + ' ' + L('Link', '关联') + '</button>' : '');
@@ -658,9 +658,9 @@ function renderModal(){
   if(!m){ root.innerHTML = ''; return; }
   var fk = focusKey(document.activeElement), body;
   try{ body = modalBody(m); }catch(e){ console.error(e); body = {title:'Error', html:esc(e.message)}; }
-  var mb = $('.mbody'), sy = mb ? mb.scrollTop : 0;
+  var mb = $('.mbody'), sy = mb ? mb.scrollTop : 0, lpl = root.querySelector('.lpl'), ly = lpl ? lpl.scrollTop : 0;   // v3.4: pickers keep their list position
   root.innerHTML = '<div class="scrim" data-act="mclose"></div><div class="modal card' + (body.wide ? ' wide' : '') + '" role="dialog" aria-modal="true" aria-label="' + esc(body.title) + '"><div class="mhead"><h2>' + body.title + '</h2><button type="button" class="ib" data-act="mclose" aria-label="Close">' + uic('x', 18) + '</button></div><div class="mbody">' + body.html + '</div>' + (body.foot ? '<div class="mfoot">' + body.foot + '</div>' : '') + '</div>';
-  var nb = $('.mbody'); if(nb) nb.scrollTop = sy;
+  var nb = $('.mbody'); if(nb) nb.scrollTop = sy; var nl = root.querySelector('.lpl'); if(nl && ly) nl.scrollTop = ly;
   if(typeof enhanceDates === 'function') enhanceDates(root);
   restoreFocus(fk);
   if(root.querySelector('.dk-fit') && typeof fitSlides === 'function') fitSlides();

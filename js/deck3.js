@@ -58,7 +58,7 @@ SLIDE_RENDER.summary = function(d, s, box){
 /* ---------------- two-part slide ---------------- */
 function comboPart(x, parent){ var c = Object.assign({}, (x && x.cfg) || {}); if(parent && parent.cfg){ c.msg = parent.cfg.msg; c.side = parent.cfg.side; } return {type:x ? x.type : 'text', cfg:c}; }
 SLIDE_DATA.combo = function(c, ctx){
-  function one(x){ if(!x || !SLIDE_DATA[x.type]) return {err:'x'}; try{ return SLIDE_DATA[x.type](x.cfg || {}, ctx); }catch(e){ console.error(e); return {err:'x'}; } }
+  function one(x){ if(!x || !SLIDE_DATA[x.type]) return {err:'x'}; LK_DECK++; try{ return SLIDE_DATA[x.type](x.cfg || {}, ctx); }catch(e){ console.error(e); return {err:'x'}; } finally { LK_DECK--; } }
   return {split:c.split || '1:1', L:one(c.L), R:one(c.R), tL:c.L && c.L.type, tR:c.R && c.R.type, hL:c.L && c.L.title || null, hR:c.R && c.R.title || null};
 };
 SLIDE_RENDER.combo = function(d, s, box){

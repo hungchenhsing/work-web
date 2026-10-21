@@ -138,7 +138,7 @@ var HW_R = {
 function noteHtml(t){
   var out = '', inList = false;
   function part(x){ return typeof numLink === 'function' ? numLink(x) : esc(x); }   // v3.4: item and document numbers open the record
-  function link(s){ var out = '', at = 0; s = String(s); s.replace(/https?:\/\/[^\s<>"]+/g, function(u, i){ out += part(s.slice(at, i)) + '<a href="' + esc(u) + '" target="_blank" rel="noopener noreferrer">' + esc(u) + '</a>'; at = i + u.length; return u; }); return out + part(s.slice(at)); }
+  function link(s){ var out = '', at = 0; s = String(s); s.replace(/https?:\/\/[^\s<>"'\u3000-\u303f\u4e00-\u9fff\uff00-\uffef]+/g, function(u, i){ out += part(s.slice(at, i)) + '<a href="' + esc(u) + '" target="_blank" rel="noopener noreferrer">' + esc(u) + '</a>'; at = i + u.length; return u; }); return out + part(s.slice(at)); }
   String(t || '').split(/\n/).forEach(function(line){
     var m = /^\s*[-•·*]\s+(.*)$/.exec(line);
     if(m){ if(!inList){ out += '<ul>'; inList = true; } out += '<li>' + link(m[1]) + '</li>'; return; }

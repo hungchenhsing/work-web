@@ -72,7 +72,7 @@ function ownerGapHtml(gaps, ed, strong){
     (ed ? '<button type="button" class="btn sm" data-act="dkSet" data-k="aud" data-v="internal">' + L('Use Internal', '改为内部') + '</button>' +
       gaps.map(function(g){ return '<button type="button" class="btn sm" data-act="reg" data-v="' + esc(g.reg.id) + '" title="' + esc(T('Open the register, tick rows and use “Show to the Owner”', '打开台账，勾选记录后点「对业主显示」')) + '">' + L('Choose records', '选择记录') + (gaps.length > 1 ? ' · ' + esc(regName(g.reg)) : '') + ' →</button>'; }).join('') : '') + '</div>';
 }
-function fieldOk(ctx, reg, f){ if(!ctx.owner) return true; var ro = rolesOf(reg); if(reg.d.kind === 'library' && LIB_OWNER_KEYS.indexOf(f.key) >= 0) return true; return !!f.ext || [ro.title, ro.title2, ro.no].indexOf(f.key) >= 0; }
+function fieldOk(ctx, reg, f){ if(!ctx.owner) return true; if(typeof isLk === 'function' && isLk(f)) return false;   /* v3.4: lookups read other registers */ var ro = rolesOf(reg); if(reg.d.kind === 'library' && LIB_OWNER_KEYS.indexOf(f.key) >= 0) return true; return !!f.ext || [ro.title, ro.title2, ro.no].indexOf(f.key) >= 0; }
 function defCols(reg){ var ro = rolesOf(reg); return [ro.no, ro.title, ro.block, ro.start, ro.finish, ro.progress, ro.status].filter(function(k, i, a){ return k && fieldOf(reg, k) && a.indexOf(k) === i; }); }
 /* a table row's group: a select option, or a package (tree) at level 1 or 2 — bilingual, with a sort order */
 function tblGroup(reg, r, f, lvl){
@@ -328,7 +328,7 @@ function sdCached(type, c, ctx){
   if(type === 'cover') return SLIDE_DATA.cover(c, ctx);   // depends on the deck itself (title, date, presenter)
   if(SD_CACHE.ver !== REC_VER || !SD_CACHE.m) SD_CACHE = {ver:REC_VER, m:new Map()};
   var k = type + '|' + ctx.lang + '|' + ctx.owner + '|' + ctx.asOf + '|' + JSON.stringify(ctx.focus || null) + '|' + JSON.stringify(c), v = SD_CACHE.m.get(k);
-  if(v === undefined){ v = SLIDE_DATA[type](c, ctx); if(v && typeof v === 'object' && ownerNone(c, ctx)) v._on = 1; if(!(v && v.loading)) SD_CACHE.m.set(k, v); }
+  if(v === undefined){ LK_DECK++; try{ v = SLIDE_DATA[type](c, ctx); } finally { LK_DECK--; } if(v && typeof v === 'object' && ownerNone(c, ctx)) v._on = 1; if(!(v && v.loading)) SD_CACHE.m.set(k, v); }
   return v;
 }
 function slideData(deck, s, ctx){ var snap = deck.d.status === 'issued' && deck.d.snap && deck.d.snap[s.id]; if(snap) return snap; try{ return sdCached(s.type, s.cfg || {}, ctx); }catch(e){ console.error(e); return {err:'x'}; } }
@@ -400,8 +400,10 @@ function deckBuild(deck, opts){
   }); } finally { DK_CACHE = outer; DK_STYLE = oldSt; }
 }
 function deckPages(deck, opts){ var out = []; deckBuild(deck, opts).forEach(function(x){ if(x.s.hidden) return; x.pages.forEach(function(h){ out.push({sid:x.s.id, html:h}); }); }); return out; }
-function deckData(deck){ var ctx = dctx(deck), o = {}, outer = DK_CACHE; DK_CACHE = outer || {}; try{ withLang(ctx.lang, function(){ (deck.d.slides || []).forEach(function(s){ if(!SLIDES[s.type]) return; try{ o[s.id] = SLIDE_DATA[s.type](s.cfg || {}, ctx); }catch(e){ console.error(e); o[s.id] = {err:'x'}; }
-  (s.els || []).forEach(function(e){ if(!isDataEl(e)) return; try{ o[elKey(s, e)] = SLIDE_DATA[e.type](e.cfg || {}, ctx); }catch(er){ console.error(er); o[elKey(s, e)] = {err:'x'}; } }); }); }); } finally { DK_CACHE = outer; } return o; }
+/* v3.4: while slide data is worked out, lookups leave out "Only me" items (slides are shared and can be frozen) */
+var LK_DECK = 0;
+function deckData(deck){ var ctx = dctx(deck), o = {}, outer = DK_CACHE; DK_CACHE = outer || {}; LK_DECK++; try{ withLang(ctx.lang, function(){ (deck.d.slides || []).forEach(function(s){ if(!SLIDES[s.type]) return; try{ o[s.id] = SLIDE_DATA[s.type](s.cfg || {}, ctx); }catch(e){ console.error(e); o[s.id] = {err:'x'}; }
+  (s.els || []).forEach(function(e){ if(!isDataEl(e)) return; try{ o[elKey(s, e)] = SLIDE_DATA[e.type](e.cfg || {}, ctx); }catch(er){ console.error(er); o[elKey(s, e)] = {err:'x'}; } }); }); }); } finally { DK_CACHE = outer; LK_DECK--; } return o; }
 
 /* ---------------- fit: scale each content box so it fills its space without overflowing ----------------
    Runs wherever slides are put on screen (editor, thumbnails, present mode, Owner view, PDF window, PowerPoint export). */

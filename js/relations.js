@@ -15,7 +15,7 @@ function hasDates(reg){ var ro = rolesOf(reg); return !!(reg && (ro.start || ro.
 /* predecessor id → [{rec: the follower, lag}] */
 function succIndex(){ return memo('succ', function(){ var m = new Map(); allRecs().forEach(function(r){ depList(r).forEach(function(x){ var a = m.get(x.id); if(!a){ a = []; m.set(x.id, a); } a.push({rec:r, lag:x.lag}); }); }); return m; }); }
 function succsOf(rec){ return rec ? (succIndex().get(rec.id) || []).filter(function(e){ return getRec(e.rec.id) && getReg(e.rec.reg); }) : []; }
-function depActStarted(reg, rec){ var a = actOf(reg, rec); return !!(a && a.s != null); }
+function depActStarted(reg, rec){ var a = actOf(reg, rec); return !!(a && (a.s != null || a.f != null)); }   // an actual start or finish date
 /* the first day this item may start, from its predecessors' finish dates (null: no dated predecessors) */
 function depEarliest(rec, virt){
   var e = null; depList(rec).forEach(function(x){ var pr = getRec(x.id), pg = pr && getReg(pr.reg), pp = pr && pg ? ((virt && virt[pr.id]) || planOf(pg, pr)) : null; if(pp){ var q = pp.f + 1 + x.lag; if(e == null || q > e) e = q; } });
@@ -34,18 +34,18 @@ function depPatch(reg, rec, np){
    read-only or changed in this same edit are not moved: they are returned as blocked. */
 function depPlan(changes){
   var virt = {}, fixed = {}, q = [], moves = [], byId = {}, blocked = [], bseen = {}, cnt = {}, guard = 0;
-  changes.forEach(function(c){ if(!c.rec) return; fixed[c.rec.id] = 1; if(c.now){ virt[c.rec.id] = c.now; if(!c.was || c.now.f > c.was.f) q.push(c.rec.id); } });
+  changes.forEach(function(c){ if(!c.rec) return; fixed[c.rec.id] = 1; if(c.now){ virt[c.rec.id] = c.now; if(!c.was || c.now.f > c.was.f) q.push({id:c.rec.id, path:[c.rec.id]}); } });
   function cur(r){ return virt[r.id] || planOf(getReg(r.reg), r); }
   while(q.length && guard++ < 20000){
-    var pr = getRec(q.shift()), pp = pr && cur(pr); if(!pp) continue;
+    var it = q.shift(), pr = getRec(it.id), pp = pr && cur(pr); if(!pp) continue;
     succsOf(pr).forEach(function(e){
       var s = e.rec, g = getReg(s.reg), sp = cur(s); if(!sp || !hasDates(g)) return;
       var req = pp.f + 1 + e.lag; if(sp.s >= req) return;
-      var why = fixed[s.id] ? 'edited' : !canWrite(g) ? 'ro' : isDone(g, s) ? 'done' : depActStarted(g, s) ? 'started' : '';
+      var why = it.path.indexOf(s.id) >= 0 ? 'loop' : fixed[s.id] ? 'edited' : !canWrite(g) ? 'ro' : isDone(g, s) ? 'done' : depActStarted(g, s) ? 'started' : '';   // a link back to an item already on this chain is a loop: never pushed round
       if(why){ if(!bseen[s.id]){ bseen[s.id] = 1; blocked.push({rec:s, reg:g, why:why, req:req}); } return; }
       if((cnt[s.id] = (cnt[s.id] || 0) + 1) > 60) return;   // links that go round in a circle
       if(!byId[s.id]){ byId[s.id] = {rec:s, reg:g, from:planOf(g, s)}; moves.push(byId[s.id]); }
-      virt[s.id] = {s:req, f:sp.f + (req - sp.s)}; q.push(s.id);
+      virt[s.id] = {s:req, f:sp.f + (req - sp.s)}; q.push({id:s.id, path:it.path.concat(s.id)});
     });
   }
   moves.forEach(function(m){ m.to = virt[m.rec.id]; m.days = m.to.s - m.from.s; m.patch = depPatch(m.reg, m.rec, m.to); });
@@ -56,26 +56,30 @@ function depChange(reg, rec, patch){ return {rec:rec, was:planOf(reg, rec), now:
 function datesSet(reg, rec, patch){
   if(!rec || !canWrite(reg)) return Promise.resolve();
   var plan = depPlan([depChange(reg, rec, patch)]);
-  if(plan.moves.length){ openModal({kind:'depShift', items:[{id:rec.id, patch:clone(patch)}], onClose:depCancelled}); return Promise.resolve(); }
+  if(plan.moves.length){ openModal({kind:'depShift', items:[{id:rec.id, patch:clone(patch)}], onClose:depCancelled}); depFocus(); return Promise.resolve(); }
   return setRec(rec, patch).then(function(){ depWarn([rec.id], plan.blocked); });
 }
 /* after a batch already saved (import, bulk edit): offer to push the followers */
 function depAfterBatch(changes){
   var plan = depPlan(changes.map(function(c){ var r = getRec(c.id), g = r && getReg(r.reg); return r && g ? {rec:r, was:c.was, now:planOf(g, r)} : null; }).filter(Boolean));
-  if(plan.moves.length) openModal({kind:'depShift', batch:true, items:changes.map(function(c){ return {id:c.id, was:c.was}; })});
+  if(plan.moves.length){ openModal({kind:'depShift', batch:true, items:changes.map(function(c){ return {id:c.id, was:c.was}; })}); depFocus(); }
   else depWarn([], plan.blocked);
 }
+function depFocus(){ setTimeout(function(){ var b = document.querySelector('.modal [data-act=depAll]'); if(b) b.focus(); }, 30); }
 function depCancelled(){ S.gKeep = true; renderMain(); renderDrawer(); }
+function depUndoAct(){ return S.lastUndo ? {act:'quickUndo', label:T('Undo', '撤销')} : undefined; }
 function depWarn(ids, blocked){
   var late = ids.map(getRec).filter(function(r){ return r && depLate(r); });
-  if(late.length) toast(T(recLabel(late[0]) + ' starts before its predecessor allows', recLabel(late[0]) + ' 的开始早于前置事项允许的日期'));
-  else if(blocked.length) toast(T(blocked.length + ' following item(s) now start too early but were not moved (done, started or read-only) — shown in red', blocked.length + ' 个后续事项现在开始得太早，但未移动（已完成、已开始或只读）— 以红色显示'));
+  if(late.length){ toast(T(recLabel(late[0]) + ' starts before its predecessor allows', recLabel(late[0]) + ' 的开始早于前置事项允许的日期'), depUndoAct()); return; }
+  if(!blocked.length) return;
+  var why = []; blocked.forEach(function(b){ var w = DEP_WHY[b.why]; if(w && why.indexOf(w) < 0) why.push(w); });
+  toast(T(blocked.length + ' following item(s) now start too early but were not moved (' + why.map(function(w){ return w[0]; }).join('; ') + ') — shown in red', blocked.length + ' 个后续事项现在开始得太早，但未移动（' + why.map(function(w){ return w[1]; }).join('；') + '）— 以红色显示'), depUndoAct());
 }
 function depPlanFor(m){
   if(m.batch) return depPlan(m.items.map(function(i){ var r = getRec(i.id), g = r && getReg(r.reg); return r && g ? {rec:r, was:i.was, now:planOf(g, r)} : null; }).filter(Boolean));
   return depPlan(m.items.map(function(i){ var r = getRec(i.id), g = r && getReg(r.reg); return r && g ? depChange(g, r, i.patch) : null; }).filter(Boolean));
 }
-var DEP_WHY = {done:['done', '已完成'], started:['already started', '已开始'], ro:['you cannot change that register', '你不能修改该台账'], edited:['changed in this same edit', '本次同时修改']};
+var DEP_WHY = {done:['done', '已完成'], started:['already started or finished', '已开始或已完成'], ro:['you cannot change that register', '你不能修改该台账'], edited:['changed in this same edit', '本次同时修改'], loop:['its links go round in a circle', '前后关系形成循环']};
 function depShiftModal(m){
   var plan = depPlanFor(m), n = plan.moves.length, first = getRec(m.items[0] && m.items[0].id), fg = first && getReg(first.reg);
   var lead = m.batch ? L('After these changes, ' + n + ' item(s) that follow would start before their predecessors finish:', '这些修改之后，有 ' + n + ' 个后续事项会在前置事项完成前开始：')
@@ -96,7 +100,7 @@ function depApply(m, all){
   var undo = list.map(function(x){ var o = {}; Object.keys(x.patch).forEach(function(k){ o[k] = x.rec.d[k] === undefined ? null : x.rec.d[k]; }); return {id:x.rec.id, old:o, now:clone(x.patch)}; });
   S.modal = null; renderModal(); S.gKeep = true;
   if(!all){ if(!list.length) return Promise.resolve(); var nm0 = plan.moves.length;
-    return setRec(list[0].rec, list[0].patch).then(function(){ if(nm0) toast(T(nm0 + ' following item(s) now start too early — shown in red', nm0 + ' 个后续事项现在开始得太早 — 以红色显示')); }); }
+    return setRec(list[0].rec, list[0].patch).then(function(){ if(nm0) toast(T(nm0 + ' following item(s) now start too early — shown in red', nm0 + ' 个后续事项现在开始得太早 — 以红色显示'), depUndoAct()); }); }
   return setRecs(list).then(function(res){
     if(!res || !res.ok){ return; }
     S.lastUndo = {list:undo}; toast(T('Moved ' + res.ok + ' item(s)', '已顺延 ' + res.ok + ' 项') + (res.failed ? T(', ' + res.failed + ' failed', '，失败 ' + res.failed) : ''), {act:'quickUndo', label:T('Undo', '撤销')});
@@ -120,6 +124,7 @@ function depHtml(reg, rec, ed){
       (ed ? '<button type="button" class="ib" data-act="depDel" data-v="' + esc(x.id) + '" aria-label="' + esc(T('Remove ', '移除 ') + recLabel(pr)) + '">' + uic('x', 13) + '</button>' : '') + '</div>';
   });
   if(!ps.length) h += '<div class="note">' + L('None', '无') + '</div>';
+  var after = depAfterSet(rec); if(ps.some(function(x){ return after[x.id]; })) h += '<div class="depwarn">' + L('These links go round in a circle (an item comes both before and after this one). Remove one of them; items in the circle are never moved automatically.', '前后关系形成了循环（某事项既在本项之前又在之后）。请移除其中一条；循环中的事项不会被自动顺延。') + '</div>';
   var e0 = p ? depEarliest(rec) : null;
   if(p && e0 != null && p.s < e0) h += '<div class="depwarn">' + L('Starts on ' + n2d(p.s) + ' — its predecessors allow ' + n2d(e0) + ' at the earliest.', '开始日 ' + n2d(p.s) + ' 早于前置事项允许的最早日期 ' + n2d(e0) + '。') + (ed ? ' <button type="button" class="btn sm" data-act="depFix">' + L('Move to ' + n2d(e0), '改到 ' + n2d(e0)) + '</button>' : '') + '</div>';
   if(ed) h += '<button type="button" class="btn sm" data-act="depPick">' + uic('plus', 13) + ' ' + L('Add a predecessor…', '添加前置事项…') + '</button>';
@@ -134,7 +139,8 @@ function depAfterSet(rec){ var set = {}, q = [rec]; set[rec.id] = 1; while(q.len
 function depCands(m){
   var src = getRec(m.rec), q = (m.q || '').trim().toLowerCase(), have = {}, bad = src ? depAfterSet(src) : {}, out = [];
   depList(src).forEach(function(x){ have[x.id] = 1; });
-  allRegs().filter(hasDates).forEach(function(g){ if(m.reg && m.reg !== g.id) return; recsOf(g.id).forEach(function(r){ if(!src || bad[r.id] || have[r.id]) return;
+  allRegs().filter(hasDates).forEach(function(g){ if(m.reg && m.reg !== g.id) return; if(src && isPrivate(g) && g.id !== src.reg) return;   // others could not see it
+    recsOf(g.id).forEach(function(r){ if(!src || bad[r.id] || have[r.id]) return;
     var t = (recNo(g, r) + ' ' + (r.d[rolesOf(g).title] || '') + ' ' + (r.d[rolesOf(g).title2] || '') + ' ' + (r.d.docNo || '')).toLowerCase(); if(q && t.indexOf(q) < 0) return;
     var p = planOf(g, r); out.push({r:r, g:g, p:p, s:(q && t.indexOf(q) === 0 ? 0 : 1) + (g.id === src.reg ? 0 : 2)}); }); });
   out.sort(function(a, b){ return a.s - b.s || (a.p ? a.p.f : 1e9) - (b.p ? b.p.f : 1e9); });
@@ -142,12 +148,12 @@ function depCands(m){
 }
 function depPickModal(m){
   var src = getRec(m.rec); if(!src) return {title:'', html:''};
-  m.sel = m.sel || {}; var c = depCands(m), nsel = Object.keys(m.sel).filter(function(k){ return m.sel[k]; }).length, regs = allRegs().filter(hasDates);
+  m.sel = m.sel || {}; var c = depCands(m), nsel = Object.keys(m.sel).filter(function(k){ return m.sel[k]; }).length, regs = allRegs().filter(function(g){ return hasDates(g) && (!isPrivate(g) || g.id === src.reg); });
   var h = '<p class="note" style="margin-top:0">' + L('Choose what has to finish before ', '选择在 ') + '<b>' + esc(recLabel(src)) + '</b>' + L(' can start. Items that already come after it are not offered (that would be a loop).', ' 开始之前必须完成的事项。已经排在它后面的事项不会列出（否则会形成循环）。') + '</p>' +
     '<div class="row lpf"><label class="search" style="flex:1 1 240px">' + uic('search', 15) + '<input id="dpq" type="search" data-fk="dpq" placeholder="' + esc(T('Search number or title', '搜索编号或名称')) + '" value="' + esc(m.q || '') + '" autocomplete="off"></label>' +
     '<select class="in" id="dpreg" style="width:auto" aria-label="' + esc(T('Register', '台账')) + '"><option value="">' + esc(T('All registers', '全部台账')) + '</option>' + regs.map(function(g){ return '<option value="' + esc(g.id) + '"' + (m.reg === g.id ? ' selected' : '') + '>' + esc(regName(g)) + '</option>'; }).join('') + '</select></div>' +
     '<div class="lpl">' + (c.list.length ? c.list.map(function(it){ var r = it.r, g = it.g, on = !!m.sel[r.id], st = statusOpt(g, r);
-      return '<label class="lpi' + (on ? ' on' : '') + '"><input type="checkbox" data-dpsel="' + esc(r.id) + '"' + (on ? ' checked' : '') + '><span class="rlic">' + recIcon(r) + '</span><span class="lpt"><span class="mono">' + esc(recNo(g, r)) + '</span> ' + esc(recTitle(g, r) || '—') + '</span>' + (st ? optChip(st) : '') +
+      return '<label class="lpi' + (on ? ' on' : '') + '"><input type="checkbox" data-dpsel="' + esc(r.id) + '" data-fk="dpsel:' + esc(r.id) + '"' + (on ? ' checked' : '') + '><span class="rlic">' + recIcon(r) + '</span><span class="lpt"><span class="mono">' + esc(recNo(g, r)) + '</span> ' + esc(recTitle(g, r) || '—') + '</span>' + (st ? optChip(st) : '') +
         '<span class="mono muted" style="font-size:12px;white-space:nowrap">' + (it.p ? esc(md(n2d(it.p.s)) + ' → ' + md(n2d(it.p.f))) : esc(T('no dates', '未设日期'))) + '</span><span class="rlreg">' + esc(regName(g)) + '</span></label>'; }).join('') : '<div class="note" style="padding:10px">' + L('Nothing found.', '没有找到。') + '</div>') +
     (c.total > c.list.length ? '<div class="note" style="padding:8px">' + L('Showing 80 of ' + c.total + ' — search to narrow down.', '显示 ' + c.total + ' 项中的 80 项，请搜索缩小范围。') + '</div>' : '') + '</div>';
   return {title:L('Add predecessors', '添加前置事项'), wide:true, html:h, foot:'<button type="button" class="btn" data-act="mclose">' + L('Cancel', '取消') + '</button><button type="button" class="btn pri" data-act="depGo"' + (nsel ? '' : ' disabled') + '>' + L('Add ' + (nsel || ''), '添加 ' + (nsel || '')) + '</button>'};
@@ -199,7 +205,7 @@ document.addEventListener('click', function(e){
 });
 document.addEventListener('change', function(e){
   var el = e.target, rec = S.open && getRec(S.open), reg = rec && getReg(rec.reg);
-  if(el.dataset && el.dataset.deplag != null && rec && canWrite(reg)){ var id = el.dataset.deplag, lag = depLagOf(el.value); setRec(rec, {dep:depList(rec).map(function(x){ return x.id === id ? {id:id, lag:lag} : x; })}); return; }
+  if(el.dataset && el.dataset.deplag != null && rec && canWrite(reg)){ var id = el.dataset.deplag, lag = depLagOf(el.value); el.value = lag; setRec(rec, {dep:depList(rec).map(function(x){ return x.id === id ? {id:id, lag:lag} : x; })}); return; }
   if(el.dataset && el.dataset.dpsel && S.modal && S.modal.kind === 'depPick'){ S.modal.sel[el.dataset.dpsel] = el.checked; renderModal(); return; }
   if(el.id === 'dpreg' && S.modal && S.modal.kind === 'depPick'){ S.modal.reg = el.value; renderModal(); return; }
   if(el.id === 'gDep'){ LS.set('ww.gdep', el.checked ? 1 : 0); depDraw(); return; }
@@ -225,10 +231,11 @@ function lkRecs(rec, f){
   var c = lkCfg(f), out = [], seen = {};
   if(!rec) return out;
   if(c.dir === 'kids') return childrenOf(rec);
+  var hg = getReg(rec.reg), hp = !!(hg && isPrivate(hg));
   relsOf(rec).forEach(function(e){
     if(e.t === 'men' || e.dir !== c.dir) return;
     if(c.via === 'rel' ? !!e.field : (c.via && !(e.field && e.field.key === c.via))) return;
-    var r = getRec(e.id); if(!r || seen[r.id] || isDeckRec(r) || (c.reg && r.reg !== c.reg) || !getReg(r.reg)) return;
+    var r = getRec(e.id), rg = r && getReg(r.reg); if(!r || !rg || seen[r.id] || isDeckRec(r) || (c.reg && r.reg !== c.reg) || (!hp && isPrivate(rg) && typeof LK_DECK !== 'undefined' && LK_DECK > 0)) return;   // on slides (shared, can be frozen) "Only me" items never count in a team item
     seen[r.id] = 1; out.push(r);
   });
   return out;
@@ -241,7 +248,7 @@ function lkFieldOk(fn, x){
 }
 /* {v: value for sorting / export, t: text, kind: num | pct | date | text, n: items counted, recs, groups (show)} */
 function lkCalc(rec, f){
-  var m = memo('lk', function(){ return new Map(); }), k = rec.id + '|' + f.key; if(m.has(k)) return m.get(k);
+  var m = memo('lk', function(){ return new Map(); }), k = rec.id + '|' + f.key + '|' + S.lang + '|' + (T_DOC ? 1 : 0) + (typeof LK_DECK !== 'undefined' && LK_DECK > 0 ? '|d' : ''); if(m.has(k)) return m.get(k);
   var c = lkCfg(f), rs = lkRecs(rec, f), out = {n:rs.length, recs:rs, v:null, t:'', kind:'num'};
   var doneN = function(){ return rs.filter(function(r){ return isDone(getReg(r.reg), r); }).length; };
   if(c.fn === 'count') out.v = rs.length;
@@ -267,7 +274,8 @@ function lkCalc(rec, f){
   m.set(k, out); return out;
 }
 function lkSort(rec, f){ var r = lkCalc(rec, f); if(r.v == null) return r.kind === 'text' ? '' : -1e15; return r.kind === 'date' ? d2n(r.v) : r.kind === 'text' ? String(r.v).toLowerCase() : +r.v; }
-function lkGroupHtml(gr){ var x = gr.x, h = ['select', 'tree', 'percent', 'check', 'date'].indexOf(x.tf.type) >= 0 ? cellHtml(x.g, x.tf, x.r) : '<span>' + esc(gr.t) + '</span>'; return h + (gr.n > 1 ? '<span class="muted mono">×' + gr.n + '</span>' : ''); }
+function lkShort(t, n){ t = String(t || ''); return t.length > n ? t.slice(0, n - 1) + '…' : t; }
+function lkGroupHtml(gr){ var x = gr.x, h = ['select', 'tree', 'percent', 'check', 'date'].indexOf(x.tf.type) >= 0 ? cellHtml(x.g, x.tf, x.r) : '<span title="' + esc(lkShort(gr.t, 600)) + '">' + esc(lkShort(gr.t, 80)) + '</span>'; return h + (gr.n > 1 ? '<span class="muted mono">×' + gr.n + '</span>' : ''); }
 function lkCell(reg, f, rec){
   var r = lkCalc(rec, f);
   if(r.v == null || r.v === '') return '<span class="muted">—</span>';
@@ -281,7 +289,7 @@ function lkDrawer(reg, f, rec){
   var r = lkCalc(rec, f), c = lkCfg(f), rs = r.recs;
   var h = '<div class="ro lkro"><div class="row">' + lkCell(reg, f, rec) + ' <span class="note">' + esc(lkDescribe(reg, f)) + '</span></div>';
   if(rs.length) h += '<div class="lkl">' + rs.slice(0, 12).map(function(x){ var g = getReg(x.reg), st = statusOpt(g, x), tf = c.of && fieldOf(g, c.of), sv = lkNeedsField(c.fn) && tf ? textOf(g, tf, x) : '';
-    return '<button type="button" class="rchip" data-act="openRec" data-id="' + esc(x.id) + '" title="' + esc(recLabel(x)) + '">' + recIcon(x) + '<span>' + esc(recNo(g, x) || recTitle(g, x) || '—') + '</span>' + (sv ? '<i>' + esc(sv) + '</i>' : st ? '<i>' + esc(nm(st)) + '</i>' : '') + '</button>'; }).join('') + (rs.length > 12 ? '<span class="note">+' + (rs.length - 12) + '</span>' : '') + '</div>';
+    return '<button type="button" class="rchip" data-act="openRec" data-id="' + esc(x.id) + '" title="' + esc(recLabel(x)) + '">' + recIcon(x) + '<span>' + esc(recNo(g, x) || recTitle(g, x) || '—') + '</span>' + (sv ? '<i>' + esc(lkShort(sv, 60)) + '</i>' : st ? '<i>' + esc(nm(st)) + '</i>' : '') + '</button>'; }).join('') + (rs.length > 12 ? '<span class="note">+' + (rs.length - 12) + '</span>' : '') + '</div>';
   return h + '</div>';
 }
 function lkDescribe(reg, f){
@@ -367,7 +375,7 @@ function nlGo(){
   var row = m.row;
   createRec(b.g, b.d).then(function(id){
     if(!id) return; var nr = getRec(id);
-    if(b.rw) S.newBlank = null;   // its title came from the action / comment: keep it even if closed at once
+    S.newBlank = null;   // asked for on purpose (and linked): kept even if closed at once
     if(row && canWrite(b.sg)){ var cur = getRec(b.src.id), f = cur && fieldOf(b.sg, row.k); if(f) setRec(cur, mk(f.key, asArr(cur.d[f.key]).map(function(x){ if(x && x._id === row.id){ x = clone(x); x.lk = id; } return x; })), {silent:true}); }
     toast(T('Added ' + (nr ? recLabel(nr) : '') + ', linked to ' + recLabel(b.src), '已新增 ' + (nr ? recLabel(nr) : '') + '，并关联到 ' + recLabel(b.src)));
   });
@@ -397,19 +405,20 @@ function numIndex(){ return memo('nums', function(){
   var m = new Map(); function add(k, id){ if(!numKeyOk(k)) return; k = k.toUpperCase(); var a = m.get(k); if(!a){ a = []; m.set(k, a); } if(a.indexOf(id) < 0) a.push(id); }
   allRecs().forEach(function(r){ var g = getReg(r.reg); if(!g || g.d.kind === 'decks') return; var n = recNo(g, r); if(n) add(String(n).trim(), r.id); if(typeof r.d.docNo === 'string' && r.d.docNo.trim()) add(r.d.docNo.trim(), r.id); });
   return m; }); }
-var NUM_RE = /[A-Za-z0-9]+(?:[-_.\/][A-Za-z0-9]+)*/g, URL_RE = /https?:\/\/[^\s<>"']+/g;
-/* the numbers found in a text: [{i, len, tok, key, ids}] */
-function numHits(text){
+var NUM_RE = /[A-Za-z0-9]+(?:[-_.\/][A-Za-z0-9]+)*/g, URL_RE = /https?:\/\/[^\s<>"'\u3000-\u303f\u4e00-\u9fff\uff00-\uffef]+/g;
+/* candidate tokens of a text (letters and digits, outside URLs): [{i, len, tok, key}] */
+function numToks(text){
   var out = []; text = String(text || ''); if(!text || !/\d/.test(text)) return out;
-  var idx = numIndex(); if(!idx.size) return out;
   var urls = []; text.replace(URL_RE, function(u, at){ urls.push([at, at + u.length]); return u; });
-  function inUrl(i){ return urls.some(function(u){ return i >= u[0] && i < u[1]; }); }
-  text.replace(NUM_RE, function(tok, at){
-    if(!/\d/.test(tok) || !/[A-Za-z]/.test(tok) || inUrl(at)) return tok;
-    var k = tok.toUpperCase(), ids = idx.get(k);
-    if(ids){ out.push({i:at, len:tok.length, tok:tok, key:k, ids:ids}); return tok; }
-    if(tok.indexOf('/') > 0){ var off = 0; tok.split('/').forEach(function(p){ var ii = idx.get(p.toUpperCase()); if(ii) out.push({i:at + off, len:p.length, tok:p, key:p.toUpperCase(), ids:ii}); off += p.length + 1; }); }   // SW-001/SW-002
-    return tok;
+  text.replace(NUM_RE, function(tok, at){ if(/\d/.test(tok) && /[A-Za-z]/.test(tok) && !urls.some(function(u){ return at >= u[0] && at < u[1]; })) out.push({i:at, len:tok.length, tok:tok, key:tok.toUpperCase()}); return tok; });
+  return out;
+}
+/* the numbers found in a text: [{i, len, tok, key, ids}]; "SW-001/SW-002" counts as two when it is not a number itself */
+function numHits(text){
+  var idx = numIndex(), out = []; if(!idx.size) return out;
+  numToks(text).forEach(function(t){
+    var ids = idx.get(t.key); if(ids){ t.ids = ids; out.push(t); return; }
+    if(t.tok.indexOf('/') > 0){ var off = 0; t.tok.split('/').forEach(function(p){ var ii = idx.get(p.toUpperCase()); if(ii) out.push({i:t.i + off, len:p.length, tok:p, key:p.toUpperCase(), ids:ii}); off += p.length + 1; }); }
   });
   return out;
 }
@@ -428,13 +437,31 @@ function menRecs(text, self){ var seen = {}, out = []; numHits(text).forEach(fun
 function menInner(text, self){ var rs = menRecs(text, self); if(!rs.length) return '';
   return '<span class="note">' + L('Mentions', '提及') + '</span>' + rs.slice(0, 10).map(function(r){ var g = getReg(r.reg), lib = isLibRec(r); return '<button type="button" class="rchip" data-act="openRec" data-id="' + esc(r.id) + '" title="' + esc(recLabel(r)) + '">' + recIcon(r) + '<span>' + esc((lib && r.d.docNo) || recNo(g, r) || recTitle(g, r)) + '</span><i>' + esc(lib ? docTitle(r) : recTitle(g, r) || '') + '</i></button>'; }).join('') + (rs.length > 10 ? '<span class="note">+' + (rs.length - 10) + '</span>' : ''); }
 function menChips(text, self, key){ if(lkHidden()) return ''; var inner = menInner(text, self); return key ? '<div class="menc" data-men="' + esc(key) + '" data-self="' + esc(self || '') + '">' + inner + '</div>' : (inner ? '<div class="menc">' + inner + '</div>' : ''); }
-/* for the Related tab: every text and long-text field and sub-table text of a record */
+/* for the Related tab: the numbers in every text, long-text and sub-table text of a record. The tokens of each record
+   are kept between rebuilds and worked out again only when its texts change. */
+var MEN_CACHE = new Map();
+/* per register: the text fields and sub-table text columns to read */
+function menFields(reg){ var m = memo('menF', function(){ return new Map(); }), x = m.get(reg.id); if(x) return x;
+  var ro = rolesOf(reg); x = {keys:[], subs:[]};
+  dataFields(reg).forEach(function(f){ if(f.key === ro.no || f.key === 'docNo') return; if(f.type === 'text' || f.type === 'long') x.keys.push(f.key);
+    else if(f.type === 'sub'){ var cs = (f.cols || []).filter(function(c){ return c.type === 'text' || c.type === 'long'; }).map(function(c){ return c.key; }); if(cs.length) x.subs.push([f.key, cs]); } });
+  m.set(reg.id, x); return x; }
+function menTexts(r, reg){
+  var mf = menFields(reg), texts = [];
+  mf.keys.forEach(function(k){ var v = r.d[k]; if(typeof v === 'string' && v) texts.push(v); });
+  mf.subs.forEach(function(s){ asArr(r.d[s[0]]).forEach(function(x){ if(x && typeof x === 'object') s[1].forEach(function(c){ var v = x[c]; if(typeof v === 'string' && v) texts.push(v); }); }); });
+  return texts;
+}
+function menToks(r, reg){
+  var texts = menTexts(r, reg), c = MEN_CACHE.get(r.id);
+  if(c && c.texts.length === texts.length && c.texts.every(function(t, i){ return t === texts[i]; })) return c.toks;   // unchanged texts are the same strings
+  var toks = []; texts.forEach(function(t){ numToks(t).forEach(function(x){ toks.push([x.key].concat(x.tok.indexOf('/') > 0 ? x.tok.split('/').map(function(p){ return p.toUpperCase(); }) : [])); }); });
+  MEN_CACHE.set(r.id, {texts:texts, toks:toks}); return toks;
+}
 function menScan(r, reg, add){
-  var ro = rolesOf(reg), seen = {}, texts = [];
-  dataFields(reg).forEach(function(f){ if(f.key === ro.no || f.key === 'docNo') return;
-    if(f.type === 'text' || f.type === 'long'){ if(typeof r.d[f.key] === 'string') texts.push(r.d[f.key]); }
-    else if(f.type === 'sub'){ var cs = (f.cols || []).filter(function(c){ return c.type === 'text' || c.type === 'long'; }); asArr(r.d[f.key]).forEach(function(x){ if(x && typeof x === 'object') cs.forEach(function(c){ if(typeof x[c.key] === 'string') texts.push(x[c.key]); }); }); } });
-  texts.forEach(function(t){ numHits(t).forEach(function(h){ h.ids.forEach(function(id){ if(id === r.id || seen[id]) return; seen[id] = 1; add(r.id, {id:id, t:'men', dir:'out', host:r.id}); add(id, {id:r.id, t:'men', dir:'in', host:r.id}); }); }); });
+  var idx = numIndex(), seen = {}; if(!idx.size) return;
+  menToks(r, reg).forEach(function(t){ var ids = idx.get(t[0]), list = ids ? [ids] : t.slice(1).map(function(k){ return idx.get(k); }).filter(Boolean);
+    list.forEach(function(a){ a.forEach(function(id){ if(id === r.id || seen[id]) return; seen[id] = 1; add(r.id, {id:id, t:'men', dir:'out', host:r.id}); add(id, {id:r.id, t:'men', dir:'in', host:r.id}); }); }); });
 }
 function numPickModal(m){
   var ids = numVisible(numIndex().get(m.key) || [], m.self);

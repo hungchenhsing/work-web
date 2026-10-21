@@ -48,7 +48,7 @@ function viewFiles(){
 /* ================= Owner plan (internal) ================= */
 function ownerRegs(){ return allRegs().filter(function(r){ return r.d.ownerPublish && !isPrivate(r); }); }
 function ownerSnapshot(reg){
-  var fields = dataFields(reg).filter(function(f){ return f.ext && ['files','sub','link'].indexOf(f.type) < 0; });
+  var fields = dataFields(reg).filter(function(f){ return f.ext && ['files','sub','link'].indexOf(f.type) < 0 && !isLk(f); });   // v3.4: lookups read other registers
   var list = sortRecs(reg, recsOf(reg.id).filter(function(r){ return r.d.ext && matchRec(reg, r); }));
   var tf = rf(reg, 'tree'), groups = tf ? groupRecs(reg, list, tf.key) : [{k:'all', label:'', items:list}];
   return {reg:{id:reg.id, en:reg.d.en, zh:reg.d.zh}, fields:fields.map(function(f){ return {key:f.key, en:f.en, zh:f.zh, type:f.type}; }),
@@ -271,7 +271,7 @@ function fieldManager(m){
       '<input class="in" data-fm="' + i + ':en" data-fk="fm:' + i + ':en" value="' + esc(f.en || '') + '"><input class="in" data-fm="' + i + ':zh" data-fk="fm:' + i + ':zh" value="' + esc(f.zh || '') + '">' +
       '<select class="in" data-fm="' + i + ':type" aria-label="' + esc(T('Type: ', '类型：') + T1(f.en || f.key, f.zh)) + '">' + typeOpts(isLk(f) ? 'lookup' : f.type) + '</select>' +
       (f.type === 'select' ? '<input type="checkbox" data-fm="' + i + ':multi"' + (f.multi ? ' checked' : '') + (!f.multi && (d.roles.status === f.key || d.roles.kind === f.key) ? ' disabled title="' + esc(T('The status (or kind) takes one value', '状态（或类别）只能有一个值')) + '"' : '') + ' aria-label="' + esc(T('Several values: ', '多选：') + T1(f.en || f.key, f.zh)) + '" title="' + esc(T('Allow several values', '允许多选')) + '">' : f.type === 'sub' && (f.cols || []).some(function(c){ return c.multi; }) ? '<span class="note" title="' + esc(T('Some sub-table columns take several values', '部分子表列允许多选')) + '">' + L('cols', '列') + '</span>' : '<span></span>') +
-      (f.type === 'section' ? '<span></span><span></span>' : '<input type="checkbox" data-fm="' + i + ':show"' + (!f.hide ? ' checked' : '') + ' aria-label="Table"><input type="checkbox" data-fm="' + i + ':ext"' + (f.ext ? ' checked' : '') + ' aria-label="Owner">') +
+      (f.type === 'section' ? '<span></span><span></span>' : '<input type="checkbox" data-fm="' + i + ':show"' + (!f.hide ? ' checked' : '') + ' aria-label="Table">' + (isLk(f) ? '<span title="' + esc(T('Lookups are never shown to the Owner', '取值字段不对业主显示')) + '">—</span>' : '<input type="checkbox" data-fm="' + i + ':ext"' + (f.ext ? ' checked' : '') + ' aria-label="Owner">')) +
       '<span class="nowrap"><button type="button" class="btn sm' + (x ? ' on' : '') + '" data-act="fmExp" data-v="' + i + '">' + L('More', '更多') + ' ' + (x ? '▴' : '▾') + '</button><button type="button" class="ib" data-act="fmDel" data-v="' + i + '" title="' + esc(T('Remove field', '删除字段')) + '">' + uic('trash', 14) + '</button></span></div>';
     if(x) h += '<div class="fmx">' + fieldExtra(reg, f, i, d, ls, regs) + '</div>';
   });

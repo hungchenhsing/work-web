@@ -267,7 +267,7 @@ function setRec(rec, patch, opts){
   return p.catch(function(){});
 }
 function quickUndo(){ var u = S.lastUndo; if(!u) return; S.lastUndo = null;
-  if(u.list){ STORE.patchRecs(u.list.filter(function(x){ return getRec(x.id); }).map(function(x){ return {id:x.id, patch:x.old}; })).then(function(){ toast(T('Undone', '已撤销')); }).catch(function(e){ toast(errText(e)); }); return; }   // v3.4: several items moved together
+  if(u.list){ STORE.patchRecs(u.list.filter(function(x){ return getRec(x.id); }).map(function(x){ return {id:x.id, patch:x.old}; })).then(function(res){ toast(res && res.failed ? T(res.failed + ' could not be undone — see the change log', res.failed + ' 项未能撤销 — 请查看修改记录') : T('Undone', '已撤销')); }).catch(function(e){ toast(errText(e)); }); return; }   // v3.4: several items moved together
   var rec = getRec(u.id); if(rec) STORE.patchRec(rec.id, u.old, u.now ? Object.assign({}, rec.d, u.now) : null).then(function(){ toast(T('Undone', '已撤销')); }).catch(function(e){ toast(errText(e)); }); }
 function createRec(reg, extra, open){
   if(!canWrite(reg)) return Promise.resolve(null);

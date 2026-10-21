@@ -82,7 +82,7 @@ function cmCard(reg, rec, f, x, ed){
 function cmFoot(reg, rec, f, x, ed){
   var id = x._id, nl = typeof nlChip === 'function' ? nlChip(x) : '', men = typeof menChips === 'function' ? menChips((x.cmt || '') + '\n' + (x.rep || ''), rec.id) : '';
   var h = (ed && x.st === 'notacc' ? '<button type="button" class="btn sm" data-act="cmFollow" data-v="' + esc(id) + '">' + uic('plus', 12) + ' ' + L('New comment that follows this one', '新增接续意见') + '</button>' : '') +
-    (ed && !x.lk && x.st !== 'closed' && String(x.cmt || '').trim() && typeof nlTargets === 'function' && nlTargets().length ? '<button type="button" class="btn sm" data-act="nlRow" data-id="' + esc(rec.id) + '" data-sub="' + esc(f.key) + '" data-row="' + esc(id) + '">' + uic('link', 12) + ' ' + L('New linked item…', '新增关联项目…') + '</button>' : '') + nl + men;
+    (ed && !(x.lk && getRec(x.lk)) && x.st !== 'closed' && String(x.cmt || '').trim() && typeof nlTargets === 'function' && nlTargets().length ? '<button type="button" class="btn sm" data-act="nlRow" data-id="' + esc(rec.id) + '" data-sub="' + esc(f.key) + '" data-row="' + esc(id) + '">' + uic('link', 12) + ' ' + L('New linked item…', '新增关联项目…') + '</button>' : '') + nl + men;
   return h ? '<div class="cmfoot">' + h + '</div>' : '';
 }
 
