@@ -3,6 +3,8 @@
 
 function goPage(p){ S.page = p; S.sideOpen = false; S.sheet = null; S.q = ''; S.sel = {}; S.bulkF = null; closePop(); saveUI(); renderAll(); $('#main').scrollTop = 0; }
 function goReg(id){ S.page = 'reg'; S.reg = id; S.sideOpen = false; S.sheet = null; S.q = ''; S.sel = {}; S.bulkF = null; S.gKeep = false; closePop(); saveUI(); renderAll(); $('#main').scrollTop = 0; }
+/* v3.3.1: a list that opens the drawer can ask for focus to come back to the row it was opened from */
+function dBackFocus(){ var k = S.dBack; S.dBack = null; if(k) refocus('[data-fk="' + String(k).replace(/"/g, '\\"') + '"]'); }
 function openRec(id, tab){ var r = getRec(id); if(!r) return; if(isDeckRec(r)){ openDeck(id); return; } S.open = id; S.dtab = tab || 'details'; S.delAsk = false; S.dFold = null; S.hist = null; S.q = ''; closePop(); renderAll(); }
 function curReg(){ return S.page === 'reg' ? getReg(S.reg) : null; }
 function odArr(){ var m = S.modal; if(m && m.kind === 'fields' && m.exp != null){ var f = m.d.fields[m.exp]; if(f.type === 'select' && !f.list){ f.opts = f.opts || []; return f.opts; } } if(m && m.kind === 'opts' && m.d && m.d.opts) return m.d.opts; return S.ldraft ? S.ldraft.opts : []; }
@@ -36,14 +38,14 @@ document.addEventListener('click', function(e){
     case 'authTab': S.auth = {tab:v}; renderGate(); break;
     case 'setup': runSetup(); break;
     case 'openRec': openRec(el.dataset.id, el.dataset.tab); break;
-    case 'close': S.open = null; S.delAsk = false; renderDrawer(); break;
+    case 'close': S.open = null; S.delAsk = false; renderDrawer(); dBackFocus(); break;
     case 'dtab': S.dtab = v; S.delAsk = false; renderDrawer(); break;
     case 'dwide': S.dwide = !S.dwide; renderDrawer(); break;
     case 'dAll': S.dAll = !S.dAll; S.dFold = null; renderDrawer(); break;
     case 'star': setRec(rec, {star:!rec.d.star}, {silent:true}); break;
     case 'msTog': setRec(rec, {ms:!rec.d.ms}); break;
     case 'printMom': printMinutes(rec); break;
-    case 'dupRec': (function(){ var d = clone(rec.d); var ro = rolesOf(drReg); if(ro.no) d[ro.no] = nextNo(drReg); dataFields(drReg).forEach(function(f){ if(f.type === 'files') delete d[f.key]; });
+    case 'dupRec': (function(){ var d = clone(rec.d); var ro = rolesOf(drReg); if(ro.no) d[ro.no] = nextNo(drReg); dataFields(drReg).forEach(function(f){ if(f.type === 'files' || (f.type === 'sub' && f.kind === 'comments')) delete d[f.key]; });   // review comments belong to the item they were made on
       if(typeof isTrnReg === 'function' && isTrnReg(drReg)){ d.status = 'draft'; delete d.pub; delete d.date; delete d._trn; d.items = asArr(d.items).map(function(it){ return {_id:uid('t'), rid:it.rid, no:it.no, docNo:it.docNo, title:it.title, title2:it.title2, rev:it.rev, files:asArr(it.files).map(function(f){ return {path:f.path, name:f.name, size:f.size, type:f.type}; })}; }); } var id = uid('r'); STORE.createRec({id:id, reg:drReg.id, d:d}).then(function(){ openRec(id); toast(T('Duplicated', '已复制')); }).catch(function(er){ toast(errText(er)); }); })(); break;
     case 'delAsk': S.delAsk = true; renderDrawer(); (function(){ var c = $('.dconf [data-act="delNo"]'); if(c) c.focus(); })(); break;
     case 'delNo': S.delAsk = false; renderDrawer(); break;
@@ -258,7 +260,7 @@ function startCellEdit(td){
   if(f.type === 'tree'){ openPick('tree', {reg:reg.id, rec:rec.id, key:f.key}, td); return; }
   if(f.type === 'check'){ setRec(rec, mk(f.key, !rec.d[f.key])); return; }
   if(canInline(f)){ S.edit = {id:rec.id, k:f.key}; renderMain(); var i = $('[data-ie]'); if(i){ i.focus(); if(i.select) i.select(); } return; }
-  openRec(rec.id, f.type === 'files' ? 'files' : f.type === 'link' ? 'links' : 'details');
+  openRec(rec.id, f.type === 'files' ? 'files' : f.type === 'link' ? 'links' : f.type === 'sub' && f.kind === 'comments' ? 'rvc' : 'details');
 }
 function commitEdit(cancel, byKey){
   var ed = S.edit; if(!ed) return; S.edit = null;
@@ -311,16 +313,19 @@ document.addEventListener('keydown', function(e){
   if(e.key === 'Escape'){
     var om = document.querySelector('details.menu[open]'); if(om){ om.removeAttribute('open'); var sm = om.querySelector('summary'); if(sm) sm.focus(); return; }
     if(S.nOpen){ S.nOpen = false; renderTop(); return; } if(S.sheet){ S.sheet = null; renderBnav(); return; }
-    if(S.pop){ closePop(); return; } if(S.modal){ closeModal(); return; } if(S.open){ S.open = null; S.delAsk = false; renderDrawer(); return; } if(S.q){ S.q = ''; renderTop(); return; } if(S.sideOpen){ S.sideOpen = false; renderSide(); }
+    if(S.pop){ closePop(); return; } if(S.modal){ closeModal(); return; } if(S.open){ S.open = null; S.delAsk = false; renderDrawer(); dBackFocus(); return; } if(S.q){ S.q = ''; renderTop(); return; } if(S.sideOpen){ S.sideOpen = false; renderSide(); }
   }
 });
 
 /* ---------------- typing (no full re-render while typing in drafts) ---------------- */
-var qT;
+var qT, SEARCH_IDS = ['gq', 'fq', 'fileq', 'cmvQ', 'cmPasteT'];
+/* some browsers send no input event after the last composition step: send one so the search sees the chosen characters */
+document.addEventListener('compositionend', function(e){ var t = e.target; if(t && SEARCH_IDS.indexOf(t.id) >= 0) setTimeout(function(){ t.dispatchEvent(new Event('input', {bubbles:true})); }, 0); });
 document.addEventListener('input', function(e){
   var el = e.target, d;
+  if(e.isComposing && SEARCH_IDS.indexOf(el.id) >= 0) return;   // v3.3.1: Chinese input — search once the characters are chosen
   if(el.id === 'gq'){ S.q = el.value; clearTimeout(qT); qT = setTimeout(function(){ renderTop(); restoreFocus({k:'gq', s:el.selectionStart, e:el.selectionEnd}); }, 150); return; }
-  if(el.id === 'fq'){ rfil(S.reg).q = el.value; clearTimeout(qT); qT = setTimeout(renderMain, 200); return; }
+  if(el.id === 'fq'){ rfil(S.reg).q = el.value; clearTimeout(qT); qT = setTimeout(function(){ var fk = focusKey(document.activeElement); renderMain(); restoreFocus(fk); }, 200); return; }
   if(el.id === 'fileq'){ S.files.q = el.value; clearTimeout(qT); qT = setTimeout(renderMain, 200); return; }
   if(el.id === 'popq'){ S.pop.q = el.value; renderPop(); var p = $('#popq'); if(p){ p.focus(); p.setSelectionRange(p.value.length, p.value.length); } return; }
   if((d = el.dataset.fm)){ fmSet(d, el); return; }

@@ -186,6 +186,7 @@ async function impRun(){
 }
 
 /* ---------------- export ---------------- */
+function xlCap(t){ t = String(t == null ? '' : t); return t.length > 32000 ? t.slice(0, 32000) + ' …' : t; }   // Excel refuses cells over 32,767 characters
 function regSheet(reg, list){
   var fs = dataFields(reg).filter(function(f){ return f.type !== 'section'; });
   var head = fs.map(function(f){ return f.en + (f.zh && f.zh !== f.en ? ' ' + f.zh : ''); });
@@ -195,10 +196,10 @@ function regSheet(reg, list){
       var v = val(r, f);
       if(f.type === 'number' || f.type === 'percent') return num(v) == null ? '' : num(v);
       if(f.type === 'calc') return v == null ? '' : v;
-      if(f.type === 'sub') return asArr(v).map(function(x){ return (f.cols || []).map(function(c){ return x[c.key] == null ? '' : (c.type === 'check' ? (x[c.key] ? '✓' : '') : x[c.key]); }).filter(function(y){ return y !== ''; }).join(' · '); }).join('\n');
+      if(f.type === 'sub') return xlCap(asArr(v).map(function(x){ return (f.cols || []).map(function(c){ var y = x[c.key]; if(y == null || y === '') return ''; if(c.type === 'check') return y ? '✓' : ''; if(c.type === 'select'){ var o = optsOf(c).filter(function(q){ return q.v === y; })[0]; if(o) return o.en + (o.zh && o.zh !== o.en ? ' ' + o.zh : ''); } return y; }).filter(function(y){ return y !== ''; }).join(' · '); }).join('\n'));
       if(f.type === 'tree'){ var n = treeNode(f, v); return n ? (n.code ? n.code + ' ' : '') + (n.en || '') + (n.zh ? ' ' + n.zh : '') : ''; }
       if(f.type === 'select' && f.list === 'blocks') return asArr(v).join(', ');
-      return textOf(reg, f, r);
+      return xlCap(textOf(reg, f, r));
     });
     if(reg.d.ownerPublish) row.push(r.d.ext ? 'Yes' : 'No'); row.push(r.d.star ? 'Yes' : ''); var pr = parentRec(r); row.push(pr ? recNo(reg, pr) : '');
     return row;

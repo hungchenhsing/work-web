@@ -209,9 +209,9 @@ function multiPatches(reg, conv){
 /* v3.3 · record templates (reg.d.tpls): what a new item starts with; sub-table rows get new ids each time */
 function regTpls(reg){ return asArr(reg && reg.d.tpls).filter(function(t){ return t && t.id && t.d; }); }
 function tplData(t){ var d = clone(t.d || {}); Object.keys(d).forEach(function(k){ if(Array.isArray(d[k]) && d[k].length && isPlainObj(d[k][0]) && hasOwn(d[k][0], '_id')) d[k] = d[k].map(function(r){ return Object.assign({}, r, {_id:uid('s')}); }); }); return d; }
-function tplKeyOk(reg, f){ var ro = rolesOf(reg); return f && ['files','link','calc','section'].indexOf(f.type) < 0 && f.key !== ro.no; }
+function tplKeyOk(reg, f){ var ro = rolesOf(reg); return f && ['files','link','calc','section'].indexOf(f.type) < 0 && f.key !== ro.no && !(f.type === 'sub' && f.kind === 'comments'); }   // review comments belong to the item they were made on
 function tplDefaultOn(reg, f){ var ro = rolesOf(reg); return tplKeyOk(reg, f) && ['date','percent'].indexOf(f.type) < 0 && f.key !== ro.status && f.key !== ro.progress && !(f.type === 'sub' && isActionField(f)); }   // a meeting's action items belong to that meeting
-var REG_FLAGS = ['mig33', 'whoPeople', 'pkgMig'];
+var REG_FLAGS = ['mig33', 'whoPeople', 'pkgMig', 'migCm'];
 /* values in the shape the fields have now (a template saved before "several values" was switched) */
 function shapeData(reg, d){
   dataFields(reg).forEach(function(f){
@@ -412,6 +412,7 @@ function regFromTemplate(key, over){
   var d = {en:t.en, zh:t.zh, icon:t.icon, sec:t.sec, prefix:t.prefix, fields:t.fields, roles:t.roles, view:t.view, tpl:key,
     ownerPublish:!!t.ownerPublish, matrix:t.matrix || null, board:t.board || null, meeting:!!t.meeting, allMs:!!t.allMs};
   if(t.kind) d.kind = t.kind; if(t.group) d.group = t.group;
+  if((t.fields || []).some(function(f){ return f.type === 'sub' && f.kind === 'comments'; })) d.migCm = 1;   // already has the v3.3.1 review comments
   return {id:(over && over.id) || ('reg_' + key + '_' + Date.now().toString(36)), vis:(over && over.vis) || t.visibility || 'team', d:Object.assign(d, (over && over.d) || {})};
 }
 
