@@ -1282,3 +1282,16 @@ svg.gdeps path.mk{fill:var(--muted);stroke:none} svg.gdeps path.mk.bad{fill:var(
 .deplock{display:inline-flex;align-items:center;color:var(--muted);margin-right:4px}
 .lpi .deplock{margin-right:2px}
 .depnote{margin:10px 0 0;padding:8px 10px;border-radius:var(--r-m);background:var(--surface2);border-left:3px solid var(--warn);font-size:13px}
+
+/* v3.4.2 · coarse package view */
+.trow{display:flex;align-items:center;gap:0}
+.trow .tnode{flex:1;min-width:0}
+.tfold{flex:none;width:22px;height:28px;border:0;background:none;color:var(--muted);cursor:pointer;border-radius:4px;font-size:12px;padding:0}
+.tfold:hover{background:var(--surface2);color:var(--ink)}
+.tfold.sp{display:inline-block;cursor:default}
+.dettag{display:inline-block;margin-left:6px;padding:0 5px;border-radius:8px;font-size:10.5px;line-height:16px;background:var(--surface2);color:var(--muted);font-weight:400;vertical-align:1px}
+.detb[aria-pressed=true]{background:var(--accent-soft);color:var(--accent-ink);font-weight:600}
+.detb{width:auto;padding:0 6px;font-size:11px}
+.detnote{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;margin:0 0 8px;padding:6px 10px;border-radius:var(--r-m);background:var(--surface2);font-size:13px;color:var(--ink2,var(--ink))}
+.detnote.on{border-left:3px solid var(--accent)}
+.tn .tdeep{margin-left:4px;color:var(--muted)}

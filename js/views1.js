@@ -21,12 +21,12 @@ function viewRegister(reg){
   if(typeof cmField === 'function' && cmField(reg)) views.push(['comments','list','Comments','意见']);
   var h;
   h = regHead(reg, list, all, ed) + regFilters(reg, views, v);
-  var body;
-  if(v === 'board') body = viewBoard(reg, list);
-  else if(v === 'gantt') body = ganttHtml([{reg:reg, items:list}], {reg:reg, group:S.rg[reg.id + ':g'] || (ro.tree || 'none')});
+  var body, vis = detSplit(reg, list).shown, note = detNote(reg, list);   // v3.4.2: items in detail folders folded away (still counted above and exported)
+  if(v === 'board') body = note + viewBoard(reg, vis);
+  else if(v === 'gantt') body = note + ganttHtml([{reg:reg, items:vis}], {reg:reg, group:S.rg[reg.id + ':g'] || (ro.tree || 'none')});
   else if(v === 'matrix') body = viewMatrix(reg, list);
   else if(v === 'comments') body = viewComments(reg, list);
-  else body = viewTable(reg, list);
+  else body = note + viewTable(reg, vis);
   var tf = rf(reg, 'tree');
   if(tf && (v === 'table' || v === 'board')) h += '<div class="withtree">' + treePanel(reg, tf) + '<div class="wt-main">' + body + '</div></div>';
   else h += body;
@@ -41,11 +41,11 @@ function treePanel(reg, tf){
   var none = base.filter(function(r){ return !treeNode(tf, r.d[tf.key]); }).length;
   var te = !!(S.treeEdit && S.treeEdit[reg.id]) && canSchemaEdit(reg);
   var h = '<aside class="tree card' + (te ? ' editing' : '') + '"><div class="th"><b>' + L(tf.en, tf.zh) + '</b><span class="row" style="gap:2px">' + (canSchemaEdit(reg) ? '<button type="button" class="btn sm' + (te ? ' on' : '') + '" data-act="treeEdit">' + (te ? L('Done', '完成') : L('Edit', '编辑')) + '</button>' : '') + (te ? '' : '<button type="button" class="ib" data-act="treeTog" aria-expanded="true" aria-label="' + esc(T('Fold the list', '收起')) + '" title="' + esc(T('Fold the list', '收起')) + '">' + uic('left', 14) + '</button>') + '</span></div>';
-  if(te) h += '<p class="note" style="margin:0 6px 6px">' + L('＋ adds a sub-level, ✎ renames, ↑↓ reorders, × deletes. Changes save at once and are in the change log.', '＋ 添加下级，✎ 改名，↑↓ 排序，× 删除。修改即时保存并记入修改记录。') + '</p>';
+  if(te) h += '<p class="note" style="margin:0 6px 6px">' + L('＋ adds a sub-level, ✎ renames, ↑↓ reorders, × deletes, “detail” folds a folder’s items out of the list until shown. Changes save at once and are in the change log.', '＋ 添加下级，✎ 改名，↑↓ 排序，× 删除，「细项」让该目录的事项默认在列表中收起。修改即时保存并记入修改记录。') + '</p>';
   h += '<button type="button" class="tnode' + (f.node === 'all' || !f.node ? ' on' : '') + '" data-act="tnode" data-v="all"><span>' + L('All', '全部') + '</span><span class="mono muted">' + base.length + '</span></button>';
-  treeDfs(tf, function(n, d){
-    if(te){ h += '<div class="tnode te" style="padding-left:' + (10 + d * 14) + 'px"><span class="tlab"><span class="mono muted">' + esc(n.code || '') + '</span> ' + esc(nm(n)) + ' <span class="mono muted">' + (cnt[n.id] || 0) + '</span></span><span class="tacts"><button type="button" class="ib" data-act="tnAdd" data-v="' + esc(n.id) + '" title="' + esc(T('Add sub-level', '添加下级')) + '">＋</button><button type="button" class="ib" data-act="tnRen" data-v="' + esc(n.id) + '" title="' + esc(T('Rename', '改名')) + '">✎</button><button type="button" class="ib" data-act="tnMove" data-v="' + esc(n.id) + '" data-d="-1" title="' + esc(T('Up', '上移')) + '">↑</button><button type="button" class="ib" data-act="tnMove" data-v="' + esc(n.id) + '" data-d="1" title="' + esc(T('Down', '下移')) + '">↓</button><button type="button" class="ib" data-act="tnDel" data-v="' + esc(n.id) + '" title="' + esc(T('Delete', '删除')) + '">×</button></span></div>'; return; }
-    h += '<button type="button" class="tnode' + (f.node === n.id ? ' on' : '') + '" data-act="tnode" data-v="' + esc(n.id) + '" style="padding-left:' + (10 + d * 14) + 'px"><span><span class="mono muted">' + esc(n.code || '') + '</span> ' + esc(nm(n)) + '</span><span class="mono muted">' + (cnt[n.id] || 0) + '</span></button>'; });
+  treeRows(reg, tf, te).forEach(function(x){ var n = x.n, d = x.d;
+    if(te){ h += '<div class="tnode te" style="padding-left:' + (10 + d * 14) + 'px"><span class="tlab"><span class="mono muted">' + esc(n.code || '') + '</span> ' + esc(nm(n)) + ' <span class="mono muted">' + (cnt[n.id] || 0) + '</span></span><span class="tacts"><button type="button" class="ib detb" data-act="tnDet" data-v="' + esc(n.id) + '" aria-pressed="' + !!n.det + '" title="' + esc(T('Detail folder: fold its items out of the list until shown', '细项目录：其中的事项默认在列表中收起')) + '">' + L('detail', '细项') + '</button><button type="button" class="ib" data-act="tnAdd" data-v="' + esc(n.id) + '" title="' + esc(T('Add sub-level', '添加下级')) + '">＋</button><button type="button" class="ib" data-act="tnRen" data-v="' + esc(n.id) + '" title="' + esc(T('Rename', '改名')) + '">✎</button><button type="button" class="ib" data-act="tnMove" data-v="' + esc(n.id) + '" data-d="-1" title="' + esc(T('Up', '上移')) + '">↑</button><button type="button" class="ib" data-act="tnMove" data-v="' + esc(n.id) + '" data-d="1" title="' + esc(T('Down', '下移')) + '">↓</button><button type="button" class="ib" data-act="tnDel" data-v="' + esc(n.id) + '" title="' + esc(T('Delete', '删除')) + '">×</button></span></div>'; return; }
+    h += '<div class="trow" style="padding-left:' + (d * 14) + 'px">' + treeFoldBtn(reg, x) + '<button type="button" class="tnode' + (f.node === n.id ? ' on' : '') + '" data-act="tnode" data-v="' + esc(n.id) + '"><span><span class="mono muted">' + esc(n.code || '') + '</span> ' + esc(nm(n)) + detTag(n) + '</span><span class="mono muted">' + (cnt[n.id] || 0) + '</span></button></div>'; });
   if(te) h += '<button type="button" class="btn sm" data-act="tnAdd" data-v="" style="margin:8px 6px">＋ ' + L('Add top-level category', '新增顶层分类') + '</button>';
   if(none) h += '<button type="button" class="tnode' + (f.node === 'none' ? ' on' : '') + '" data-act="tnode" data-v="none"><span class="muted">' + L('Unclassified', '未分类') + '</span><span class="mono muted">' + none + '</span></button>';
   return h + '</aside>';
@@ -262,7 +262,7 @@ function viewSchedule(){
   h += '<div class="card filters"><div class="fchips">' + regs.map(function(r){ return '<button type="button" class="fchip" data-act="schedReg" data-v="' + esc(r.id) + '" aria-pressed="' + (pick.indexOf(r.id) >= 0) + '">' + icon(r.d.icon, 13) + ' ' + esc(regName(r)) + '</button>'; }).join('') + '</div>' +
     '<div class="fchips">' + (lists().blocks.opts || []).map(function(o){ return '<button type="button" class="fchip" data-act="schedBlk" data-v="' + esc(o.v) + '" aria-pressed="' + ((S.schedBlk || []).indexOf(o.v) >= 0) + '">' + esc(S.lang === 'zh' ? o.zh || o.v : o.en) + '</button>'; }).join('') + '</div>' +
     '<label class="chk"><input type="checkbox" id="schOpen"' + (S.schOpen ? ' checked' : '') + '>' + L('Hide completed', '隐藏已完成') + '</label></div>';
-  var groups = regs.filter(function(r){ return pick.indexOf(r.id) >= 0; }).map(function(r){ return {reg:r, items:recsOf(r.id).filter(function(x){ if(S.schOpen && isDone(r, x)) return false; if(S.schedBlk && S.schedBlk.length){ var b = blocksOf(r, x); if(b.length && !b.some(function(v){ return S.schedBlk.indexOf(v) >= 0; })) return false; } return planOf(r, x); })}; });
+  var groups = regs.filter(function(r){ return pick.indexOf(r.id) >= 0; }).map(function(r){ return {reg:r, items:recsOf(r.id).filter(function(x){ if(S.schOpen && isDone(r, x)) return false; if(!rfil(r.id).det && isDetRec(r, x)) return false;   /* v3.4.2: detail items as in the register */ if(S.schedBlk && S.schedBlk.length){ var b = blocksOf(r, x); if(b.length && !b.some(function(v){ return S.schedBlk.indexOf(v) >= 0; })) return false; } return planOf(r, x); })}; });
   return h + ganttHtml(groups, {multi:true});
 }
 

@@ -307,7 +307,7 @@ function cellHtml(reg, f, rec, opts){
       if(isEmpty(v)) return '<span class="muted">—</span>';
       if(f.list === 'people' || f.list === 'subcon') return '<span class="ppl">' + asArr(v).map(function(x){ var o = optOf(f, x); return esc(o ? nm(o) : x); }).join(', ') + '</span>';
       return asArr(v).map(function(x){ return optChip(optOf(f, x), x); }).join(' ');
-    case 'tree': var n = treeNode(f, v); return n ? '<span class="tn"><span class="mono">' + esc(n.code || '') + '</span> ' + esc(nm(n)) + '</span>' : '<span class="muted">—</span>';
+    case 'tree': return treeCellHtml(f, v);   // v3.4.2: the top level, the full place as a tooltip
     case 'percent': if(v == null || v === '') return '<span class="muted">—</span>'; return pbar(v, isAutoNow(rec, f) ? '<span class="auto" title="' + esc(T('Calculated from quantities', '按工程量自动计算')) + '">ƒ</span>' : '');
     case 'number': return v == null || v === '' ? '<span class="muted">—</span>' : '<span class="mono">' + esc(Number(v).toLocaleString()) + (f.unit ? ' <span class="muted">' + esc(f.unit) + '</span>' : '') + '</span>';
     case 'calc': if(f.calc && f.calc.op === 'lk') return lkCell(reg, f, rec); return v == null ? '<span class="muted">—</span>' : (f.calc && f.calc.op === 'pct' ? pbar(v) : '<span class="mono">' + esc(v) + '</span>');
