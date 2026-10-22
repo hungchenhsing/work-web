@@ -1334,3 +1334,9 @@ svg.gdeps path.mk{fill:var(--muted);stroke:none} svg.gdeps path.mk.bad{fill:var(
 @media (max-width:700px){ .fcv .fcc input.in.sm{width:100%} .fcv .fcc select.fcinto{max-width:100%} }
 .cx.cxf{cursor:default;opacity:.55;border-color:transparent}
 .rcx:disabled{cursor:default;opacity:.7}
+/* v3.4.4 · headings inside an item (建筑 / 结构 / 电气 / 给排水) */
+.tbl tr.kgrp td{background:color-mix(in srgb,var(--surface2) 55%,var(--surface));padding:5px 8px;border-bottom:1px solid var(--line2)}
+.kgl{font-size:12px;font-weight:600;color:var(--ink2,var(--ink));letter-spacing:.02em}
+.grow.kgrp .gleft{background:color-mix(in srgb,var(--surface2) 55%,var(--surface))}
+.grow.kgrp .gspan{display:flex;align-items:center;gap:6px;min-height:28px}
+.rcgh{font-size:12px;font-weight:600;color:var(--ink2,var(--ink));margin:4px 0 -2px}

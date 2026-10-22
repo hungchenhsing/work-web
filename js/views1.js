@@ -161,13 +161,16 @@ function viewTable(reg, list){
 }
 function hierRows(reg, items, cols, ed, base, vis){
   var hs = hierSplit(reg, items, function(a){ return sortRecs(reg, a); }), all = kidsIndex(reg.id), out = '', filt = typeof oFiltered === 'function' && oFiltered(reg);
-  (function w(list, depth){ list.forEach(function(r){
+  function w(list, depth){ list.forEach(function(r){
     var k = hs.kids[r.id] || [], tot = all[r.id] || [], open = hs.open(r.id);
     var hh = {depth:depth, base:base || 0, kids:tot, open:open, ctx:!!hs.ctx[r.id], forced:hs.forced(r.id), orphan: depth === 0 && r.d.parent && !hs.ids[r.d.parent] ? getRec(r.d.parent) : null};
     if(vis && !hs.ctx[r.id]) vis.push(r.id);
     out += lzRow(function(){ return tableRow(reg, r, cols, ed, hh); });
-    if(open && depth < 6){ if(k.length) w(k, depth + 1); if(ed && !filt) out += '<tr class="kadd"><td colspan="' + (cols.length + (ed ? 1 : 0) + (canSchemaEdit(reg) ? 1 : 0)) + '"><input class="in" data-kadd="' + esc(r.id) + '" data-fk="kadd:' + esc(r.id) + '" placeholder="' + esc(T('+ Add a sub-item under ', '+ 在此项下新增子项：') + recNo(reg, r) + T(' (Enter)', '（按 Enter）')) + '" style="margin-left:' + (28 + (depth + 1) * 22) + 'px"></td></tr>'; }
-  }); })(hs.roots, 0);
+    if(open && depth < 6){ if(k.length) wk(k, depth + 1); if(ed && !filt) out += '<tr class="kadd"><td colspan="' + (cols.length + (ed ? 1 : 0) + (canSchemaEdit(reg) ? 1 : 0)) + '"><input class="in" data-kadd="' + esc(r.id) + '" data-fk="kadd:' + esc(r.id) + '" placeholder="' + esc(T('+ Add a sub-item under ', '+ 在此项下新增子项：') + recNo(reg, r) + T(' (Enter)', '（按 Enter）')) + '" style="margin-left:' + (28 + (depth + 1) * 22) + 'px"></td></tr>'; }
+  }); }
+  /* the sub-items of one item, under headings when they fall in several groups (v3.4.4) */
+  function wk(k, depth){ subEach(reg, k, function(g){ out += '<tr class="kgrp"><td colspan="' + (cols.length + (ed ? 1 : 0) + (canSchemaEdit(reg) ? 1 : 0)) + '"><span class="kgl" style="padding-left:' + (10 + ((base || 0) + depth) * 18) + 'px">' + esc(g.label) + '</span> <span class="muted mono">' + g.items.length + '</span></td></tr>'; }, function(r){ w([r], depth); }); }
+  w(hs.roots, 0);
   return out;
 }
 function tableRow(reg, r, cols, ed, h){
@@ -218,7 +221,7 @@ function cardsHier(reg, items, vis){
     if(vis && !hs.ctx[r.id]) vis.push(r.id);
     if(!tot.length){ out += recCard(reg, r); return; }
     out += '<div class="rcw' + (hs.ctx[r.id] ? ' ctxr' : '') + '">' + recCard(reg, r) + '<button type="button" class="rcx"' + (fo ? ' disabled' : ' data-act="rexp" data-v="' + esc(r.id) + '"') + ' aria-expanded="' + open + '">' + (open ? '▾ ' : '▸ ') + L(open ? 'Hide sub-items' : 'Show ' + tot.length + (tot.length === 1 ? ' sub-item' : ' sub-items'), open ? '收起子项' : '展开 ' + tot.length + ' 个子项') + '</button>' +
-      (open && depth < 6 ? '<div class="rcsub">' + (function(){ var o0 = out; out = ''; w(k, depth + 1); var x = out; out = o0; return x; })() + '</div>' : '') + '</div>';
+      (open && depth < 6 ? '<div class="rcsub">' + (function(){ var o0 = out; out = ''; subEach(reg, k, function(g){ out += '<div class="rcgh">' + esc(g.label) + ' <span class="muted mono">' + g.items.length + '</span></div>'; }, function(x){ w([x], depth + 1); }); var x = out; out = o0; return x; })() + '</div>' : '') + '</div>';
   }); })(hs.roots, 0);
   return out;
 }
@@ -329,7 +332,7 @@ function ganttHtml(sets, o){
     var hs = hierSplit(reg, recs, function(a){ return sortByStart(a.map(function(r){ return {reg:reg, rec:r}; })).map(function(x){ return x.rec; }); }, {noCtx:!!noCtx});
     (function w(list, depth){ list.forEach(function(r){ var k = hs.kids[r.id] || [], tot = kidsIndex(reg.id)[r.id] || [], op = hs.open(r.id), hd = {depth:depth, kids:tot, open:op, ctx:!!hs.ctx[r.id], forced:hs.forced(r.id)};
       body += lzRow(function(){ return ganttRow(reg, r, mn, px, grid, lines, LC, LW, tpl, A, ind, hd); }, 'div');
-      if(op && k.length && depth < 6) w(k, depth + 1); }); })(hs.roots, 0);
+      if(op && k.length && depth < 6) subEach(reg, k, function(g){ body += '<div class="grow kgrp"><div class="gleft" style="width:' + LW + 'px"><div class="gspan" style="padding-left:' + (6 + ((ind || 0) + depth + 1) * 16) + 'px"><span class="kgl">' + esc(g.label) + '</span> <span class="muted mono">' + g.items.length + '</span></div></div><div class="gt" style="' + grid + '">' + lines + '</div></div>'; }, function(x){ w([x], depth + 1); }); }); })(hs.roots, 0);
   }
   if(o.multi){
     sets.forEach(function(s){ var its = sortByStart(s.items.map(function(r){ return {reg:s.reg, rec:r}; })); if(!its.length) return;

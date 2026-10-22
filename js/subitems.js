@@ -25,6 +25,31 @@ function hierSplit(reg, items, sortFn, opts){
   return {roots:roots, kids:kids, ids:ids, ctx:ctx, open:function(id){ return !!forced[id] || !!S.rexp[id]; }, forced:function(id){ return !!forced[id]; }};
 }
 
+/* ---------- inside an item: sub-items under headings (e.g. 建筑 / 结构 / 电气 / 给排水) ----------
+   The register chooses the field (Register settings); by default its Discipline. Headings show only when the
+   sub-items of one item fall under two or more values; a sub-item with several values goes under its first. */
+function subGroupField(reg){
+  var k = reg && reg.d.subGroup; if(k === '') return null;
+  var f = !k || k === '@auto' ? fieldOf(reg, 'disc') : fieldOf(reg, k);
+  return f && f.type === 'select' ? f : null;
+}
+function subGroups(reg, kids){
+  var f = subGroupField(reg); if(!f || kids.length < 2) return null;
+  var by = {}, order = [];
+  kids.forEach(function(k){ var v = asArr(k.d[f.key])[0]; v = v == null ? '' : String(v); if(!by[v]){ by[v] = []; order.push(v); } by[v].push(k); });
+  if(order.length < 2) return null;
+  var ov = optsOf(f).map(function(o){ return o.v; });
+  function rank(v){ if(v === '') return 1e9; var i = ov.indexOf(v); return i >= 0 ? i : 1e6; }
+  order.sort(function(a, b){ return rank(a) - rank(b) || a.localeCompare(b); });
+  return order.map(function(v){ var o = v ? optOf(f, v) : null; return {v:v, label:v ? (o ? nm(o) : v) : T('No ' + (f.en || f.key).toLowerCase(), '未填' + (f.zh || f.en || '')), items:by[v]}; });
+}
+/* the sub-items of one item, in their groups: calls row(rec) for each and head(group) before each group */
+function subEach(reg, kids, head, row){
+  var gs = subGroups(reg, kids);
+  if(!gs){ kids.forEach(row); return; }
+  gs.forEach(function(g){ head(g); g.items.forEach(row); });
+}
+
 /* ---------- under another item ---------- */
 function isUnder(rec, anc){ var p = parentRec(rec), g = 0; while(p && g++ < 12){ if(p.id === anc.id) return true; p = parentRec(p); } return false; }
 /* patches that put recs under par (null = top level). The package follows the new item, for their sub-items too.

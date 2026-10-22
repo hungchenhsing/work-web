@@ -599,10 +599,12 @@ function drawerSubs(reg, rec, ed, kids){
   h += '<p class="note" style="margin:0 0 8px">' + L('Use sub-items for the individual drawings or documents inside one package (e.g. the sheets of an as-built set). Each sub-item has its own status, dates, files and history; the parent’s progress rolls up from them.', '子项用于一个文件包里的各张图纸或文件（如一套竣工图的每一张）。每个子项有自己的状态、日期、文件与修改记录；上级的进度由子项自动汇总。') + '</p>';
   if(kids.length){
     h += '<div class="card tbl-wrap" style="max-height:none"><table class="tbl subl"><thead><tr><th>' + L('No.', '编号') + '</th>' + (fieldOf(reg, 'docNo') ? '<th>' + L('Doc. No.', '文件编号') + '</th>' : '') + '<th>' + L('Title', '名称') + '</th>' + (sf ? '<th>' + L(sf.en, sf.zh) + '</th>' : '') + (pf ? '<th>%</th>' : '') + '<th></th></tr></thead><tbody>' +
-      sortRecs(reg, kids).map(function(k){ var st = statusOpt(reg, k), gk = childrenOf(k).length;
+      (function(){ var ncol = 3 + (fieldOf(reg, 'docNo') ? 1 : 0) + (sf ? 1 : 0) + (pf ? 1 : 0), rows = '', row = function(k){ var st = statusOpt(reg, k), gk = childrenOf(k).length;
         return '<tr><td class="mono">' + esc(recNo(reg, k)) + '</td>' + (fieldOf(reg, 'docNo') ? '<td class="mono">' + esc(k.d.docNo || '') + '</td>' : '') + '<td>' + esc(recTitle(reg, k) || '—') + (gk ? ' <span class="chip c-grey">' + gk + '</span>' : '') + '</td>' +
           (sf ? '<td>' + (ed ? '<button type="button" class="pickbtn" style="width:auto;min-height:26px" data-act="pick" data-id="' + esc(k.id) + '" data-k="' + esc(sf.key) + '">' + (st ? optChip(st) : '<span class="muted">—</span>') + '</button>' : (st ? optChip(st) : '')) + '</td>' : '') +
-          (pf ? '<td class="mono">' + (progressOf(reg, k) != null ? progressOf(reg, k) + '%' : '') + '</td>' : '') + '<td><button type="button" class="btn sm" data-act="openRec" data-id="' + esc(k.id) + '">' + L('Open', '打开') + '</button></td></tr>'; }).join('') + '</tbody></table></div>';
+          (pf ? '<td class="mono">' + (progressOf(reg, k) != null ? progressOf(reg, k) + '%' : '') + '</td>' : '') + '<td><button type="button" class="btn sm" data-act="openRec" data-id="' + esc(k.id) + '">' + L('Open', '打开') + '</button></td></tr>'; };
+        subEach(reg, sortRecs(reg, kids), function(g){ rows += '<tr class="kgrp"><td colspan="' + ncol + '"><span class="kgl">' + esc(g.label) + '</span> <span class="muted mono">' + g.items.length + '</span></td></tr>'; }, function(k){ rows += row(k); });
+        return rows; })() + '</tbody></table></div>';
   } else h += '<div class="note">' + L('No sub-items yet.', '还没有子项。') + '</div>';
   if(ed){
     h += '<div class="row" style="margin-top:10px"><input class="in" id="subQuick" data-fk="subQuick" placeholder="' + esc(T('Add one: e.g. E-ASB-001 Single line diagram', '新增一项：如 E-ASB-001 单线图')) + '" style="flex:1 1 280px"><button type="button" class="btn" data-act="subQuick">' + uic('plus', 13) + ' ' + L('Add', '新增') + '</button></div>' +
