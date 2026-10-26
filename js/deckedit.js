@@ -157,7 +157,7 @@ function dataElProps(deck, s, e, ed){
   var h = '<div class="dk-pt">' + uic('chart', 13) + ' ' + L('Data block', '数据区块') + '</div>' + ownerGapHtml(ownerGaps(deck, {cfg:el0.cfg || {}}), ed, false) +
     pRow(L('Shows', '内容'), pSel(pre + '.type', el0.type, DATA_EL_TYPES.map(function(t){ return [t, T1(SLIDES[t].en, SLIDES[t].zh)]; }), ed)) +
     pRow(L('Heading', '小标题'), pIn(pre + '.ttl.en', el0.ttl && el0.ttl.en, ed, 'English') + pIn(pre + '.ttl.zh', el0.ttl && el0.ttl.zh, ed, '中文'), L('Leave both empty for no heading.', '两栏都留空即不显示小标题。'));
-  var inner = slideProps(deck, pseudo, ed, true).replace(/data-sp="/g, function(){ return 'data-sp="' + pre + '.'; }).replace(/data-fk="sp:/g, function(){ return 'data-fk="sp:' + esc(e.id) + ':'; }).replace(/data-act="(dkColMv|dkUnhide|dkClearFx)"/g, function(m, a){ return 'data-act="' + a + '" data-hp="' + pre + '"'; });
+  var inner = slideProps(deck, pseudo, ed, true).replace(/data-sp="/g, function(){ return 'data-sp="' + pre + '.'; }).replace(/data-fk="sp:/g, function(){ return 'data-fk="sp:' + esc(e.id) + ':'; }).replace(/data-act="(dkColMv|dkUnhide|dkClearFx|dkSubAll)"/g, function(m, a){ return 'data-act="' + a + '" data-hp="' + pre + '"'; });
   return h + inner + (ed ? '<div class="row" style="margin-top:6px"><button type="button" class="btn sm" data-act="elDel">' + uic('trash', 13) + ' ' + L('Remove block', '删除区块') + '</button></div>' : '');
 }
 function inspLayout(deck){

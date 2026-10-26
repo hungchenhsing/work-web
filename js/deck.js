@@ -85,6 +85,10 @@ function tblGroup(reg, r, f, lvl){
 }
 function usable(ctx, ids){ return (ids || []).map(getReg).filter(function(r){ return regOk(ctx, r); }); }
 
+/* which items of a table slide are open: the slide's own choice (saved), changed for the moment while presenting */
+function slOpen(s){ var o = {}; asArr(s && s.cfg && s.cfg.open).forEach(function(id){ o[id] = 1; }); var rt = typeof S !== 'undefined' && S.present && S.present.open;
+  return function(id){ return rt && Object.prototype.hasOwnProperty.call(rt, id) ? !!rt[id] : !!o[id]; }; }
+
 /* ---------------- slide types ---------------- */
 var SLIDES = {
   cover:{en:'Cover', zh:'封面', t:['',''], def:function(){ return {sub:'', presenter:''}; }},
@@ -153,18 +157,33 @@ var SLIDE_DATA = {
       var pos = {}; list.forEach(function(r, i){ pos[r.id] = i; }); list.sort(function(a, b){ return (gof[a.id].o - gof[b.id].o) || (pos[a.id] - pos[b.id]); }); }
     var sf2 = rf(reg, 'status');
     function stCounts(rs){ if(!sf2) return []; return optsOf(sf2).map(function(o){ return {en:o.en, zh:o.zh || '', color:o.color, n:rs.filter(function(r){ return r.d[sf2.key] === o.v; }).length}; }).filter(function(x){ return x.n; }); }
-    function rowOf(r){ return {id:r.id, hl:recNo(reg, r) + ' ' + (r.d[ro.title] || ''), od:isOverdue(reg, r), dep:c.mode === 'pick' || gf ? 0 : depthOf(r), c:fs.map(function(x){
+    /* v3.4.6: an item's sub-items follow it (under discipline headings); they are hidden until the item is opened */
+    var inL = {}, kidsL = {}; list.forEach(function(r){ inL[r.id] = 1; });
+    list.forEach(function(r){ var p = r.d.parent; if(p && p !== r.id && inL[p]) (kidsL[p] = kidsL[p] || []).push(r); });
+    var tops = list.filter(function(r){ var p = r.d.parent; return !(p && p !== r.id && inL[p]); });
+    var sgf = typeof subGroupField === 'function' ? subGroupField(reg) : null;
+    function kidRows(r, lv, out, guard){ var ks = kidsL[r.id] || []; if(!ks.length || guard > 6) return;
+      var gs = {}, order = [];
+      if(sgf){ ks.forEach(function(k){ var v = asArr(k.d[sgf.key])[0]; v = v == null ? '' : String(v); if(!gs[v]){ gs[v] = []; order.push(v); } gs[v].push(k); });
+        var ov = optsOf(sgf).map(function(o){ return o.v; }); order.sort(function(a, b){ var ra = a === '' ? 1e9 : (ov.indexOf(a) >= 0 ? ov.indexOf(a) : 1e6), rb = b === '' ? 1e9 : (ov.indexOf(b) >= 0 ? ov.indexOf(b) : 1e6); return ra - rb || a.localeCompare(b); }); }
+      if(order.length < 2){ ks.forEach(function(k){ out.push(rowOf(k, lv, r.id)); kidRows(k, lv + 1, out, guard + 1); }); return; }
+      order.forEach(function(v){ var o = v ? optOf(sgf, v) : null; out.push({h:1, pid:r.id, lv:lv, en:v ? (o ? o.en || v : v) : 'No ' + (sgf.en || '').toLowerCase(), zh:v ? (o ? o.zh || o.en || v : v) : '未填' + (sgf.zh || sgf.en || ''), n:gs[v].length});
+        gs[v].forEach(function(k){ out.push(rowOf(k, lv, r.id)); kidRows(k, lv + 1, out, guard + 1); }); });
+    }
+    function withKids(rs){ var out = []; rs.forEach(function(r){ out.push(rowOf(r, 0, null)); kidRows(r, 1, out, 0); }); return out; }
+    function rowOf(r, lv, pid){ var ks = kidsL[r.id] || [], kd = ks.filter(function(k){ return isDone(reg, k); }).length;
+      return {id:r.id, hl:recNo(reg, r) + ' ' + (r.d[ro.title] || ''), od:isOverdue(reg, r), dep:lv || 0, lv:lv || 0, pid:pid || null, kn:ks.length, kd:kd, kc:ks.length, c:fs.map(function(x){
         if(x.key === ro.title) return {t:recPair(reg, r)};
         if(x.type === 'select' && !x.multi && !x.list){ var o = optOf(x, r.d[x.key]); return o ? {s:{en:o.en, zh:o.zh || '', color:o.color}} : {v:''}; }
         if(x.type === 'percent' || (x.type === 'calc' && x.calc && x.calc.op === 'pct')){ var pv = val(r, x); if(pv == null && x.key === ro.progress) pv = progressOf(reg, r); return {p:pv == null ? null : Math.round(pv)}; }
         if(x.type === 'tree'){ var n = treeNode(x, r.d[x.key]); return {v: n ? treeLabel(n) : ''}; }
         if(x.type === 'select' && x.list === 'blocks') return {b:asArr(r.d[x.key])};
         return {v:textOf(reg, x, r), m:x.type === 'date' || x.type === 'number' || x.key === ro.no}; })}; }
-    var rows = [];
+    var rows = [], topSet = {}; tops.forEach(function(r){ topSet[r.id] = 1; });
     if(gf){ var cur = null, grs = [];
-      list.forEach(function(r){ var g = gof[r.id]; if(!cur || cur.k !== g.k){ cur = {k:g.k, en:g.en, zh:g.zh, items:[]}; grs.push(cur); } cur.items.push(r); });
-      grs.forEach(function(g){ rows.push({g:1, k:g.k, en:g.en, zh:g.zh, n:g.items.length, st:c.gst === false ? [] : stCounts(g.items)}); g.items.forEach(function(r){ rows.push(rowOf(r)); }); }); }
-    else rows = list.map(rowOf);
+      list.forEach(function(r){ if(!topSet[r.id]) return; var g = gof[r.id]; if(!cur || cur.k !== g.k){ cur = {k:g.k, en:g.en, zh:g.zh, items:[]}; grs.push(cur); } cur.items.push(r); });
+      grs.forEach(function(g){ rows.push({g:1, k:g.k, en:g.en, zh:g.zh, n:g.items.length, st:c.gst === false ? [] : stCounts(g.items)}); rows = rows.concat(withKids(g.items)); }); }
+    else rows = withKids(tops);
     return {reg:regLab(reg), cols:fs.map(function(x){ return {en:x.en, zh:x.zh || '', type:x.type, key:x.key, title:x.key === ro.title}; }), per:c.per || 12, dense:!!c.dense,
       sum:c.sum ? {n:list.length, od:list.filter(function(r){ return isOverdue(reg, r); }).length, st:stCounts(list)} : null, rows:rows}; },
   breakdown:function(c, ctx){ var reg = getReg(c.reg); if(!regOk(ctx, reg)) return {err:'reg'};
@@ -271,17 +290,24 @@ var SLIDE_RENDER = {
   table:function(d, s){
     if(d.err) return [slEmpty('Choose a register.', '请选择台账。')];
     if(!d.rows.length) return [slEmpty('No items match this slide’s filter.', '没有符合此页筛选条件的记录。')];
-    var nc = d.cols.length, per = room(s, d.per || 10), pages = [], cur = [], g = null;
+    var nc = d.cols.length, per = room(s, d.per || 10), pages = [], cur = [], g = null, open = slOpen(s);
+    /* v3.4.6: sub-items show only under an opened item (▸ on the slide; Expand all / Collapse all in its settings) */
+    var byId = {}; d.rows.forEach(function(r){ if(r.id && !r.h) byId[r.id] = r; });
+    function shown(r){ var p = r.pid, gd = 0; while(p && gd++ < 10){ if(!open(p)) return false; p = byId[p] ? byId[p].pid : null; } return true; }
+    var vis = d.rows.filter(shown);
     function cell(r){ return r.c.map(function(c){
-      if(c.t) return '<td class="sl-tt"' + (r.dep ? ' style="padding-left:' + (10 + r.dep * 18) + 'px"' : '') + '>' + (r.dep ? '└ ' : '') + bil(c.t) + '</td>';
+      if(c.t){ var tg = r.kn ? '<span class="sl-tg" data-tg="' + esc(r.id) + '" data-o="' + (open(r.id) ? 1 : 0) + '" role="button" aria-label="' + esc(T('Sub-items', '子项')) + '">' + (open(r.id) ? '▾' : '▸') + '</span>' : '';
+        return '<td class="sl-tt"' + (r.dep ? ' style="padding-left:' + (10 + r.dep * 18) + 'px"' : '') + '>' + (r.dep && !r.kn ? '<span class="sl-tk">└</span>' : '') + tg + bil(c.t) + (r.kn ? ' <span class="sl-kc">' + bil({en:r.kn + (r.kn === 1 ? ' sub-item' : ' sub-items') + (r.kc ? ' · ' + r.kd + '/' + r.kc + ' done' : ''), zh:r.kn + ' 个子项' + (r.kc ? ' · 完成 ' + r.kd + '/' + r.kc : '')}) + '</span>' : '') + '</td>'; }
       if(c.s) return '<td>' + slChip(c.s) + '</td>'; if(c.p !== undefined) return '<td>' + (c.p == null ? '—' : slBar(c.p) + ' <span class="n">' + c.p + '%</span>') + '</td>'; if(c.b) return '<td>' + slBlk(c.b) + '</td>';
       return '<td' + (c.m ? ' class="n"' : '') + '>' + esc(c.v || '—') + '</td>'; }).join(''); }
     function stc(st){ return (st || []).map(function(x){ return '<span class="sl-tsc">' + slChip(x) + '<b>' + x.n + '</b></span>'; }).join(''); }
     function grow(x, cont){ return '<tr class="sl-grp"' + (cont ? '' : ' data-hk="g:' + esc(x.k) + '" data-hl="' + esc(x.en) + '"') + '><td colspan="' + nc + '"><b>' + bil(x) + '</b>' + (cont ? ' <span class="sl-gc">' + bil({en:'(continued)', zh:'（续）'}) + '</span>' : ' <span class="sl-gn">' + x.n + '</span>' + stc(x.st)) + '</td></tr>'; }
     function cap(){ return per - (d.sum && !pages.length ? 1 : 0); }
-    d.rows.forEach(function(r){
+    vis.forEach(function(r){
       if(r.g){ if(cur.length && cur.length >= cap() - 1){ pages.push(cur); cur = []; } g = r; cur.push(grow(r)); return; }
-      if(cur.length >= cap()){ pages.push(cur); cur = []; if(g) cur.push(grow(g, true)); }
+      /* an opened item never sits alone at the foot of a page — it moves over with its first sub-item */
+      if(cur.length >= cap() || (r.kn && !r.h && open(r.id) && cur.length >= cap() - 1 && cur.length > 2)){ pages.push(cur); cur = []; if(g) cur.push(grow(g, true)); }
+      if(r.h){ cur.push('<tr class="sl-kgrp"><td colspan="' + nc + '" style="padding-left:' + (10 + (r.lv || 1) * 18) + 'px">' + bil(r) + ' <span class="sl-gn">' + r.n + '</span></td></tr>'); return; }
       cur.push('<tr data-hk="r:' + esc(r.id) + '" data-hl="' + esc(r.hl || '') + '"' + (r.od ? ' class="sl-od"' : '') + '>' + cell(r) + '</tr>'); });
     if(cur.length) pages.push(cur);
     var head = '<thead><tr>' + d.cols.map(function(c){ return '<th data-hk="c:' + esc(c.key) + '" data-hl="' + esc(c.en) + '">' + bil(c) + '</th>'; }).join('') + '</tr></thead>';
@@ -500,6 +526,8 @@ var SLIDE_CSS = [
 '.sl-t tr.sl-od td:first-child{border-left:4px solid #C8372D}.sl-t td.bad{color:#C8372D;font-weight:600}',
 '.sl-t .n{white-space:nowrap;font-size:.92em}',
 '.sl-t td.sl-tt .sl-zh{display:inline;margin-left:8px;font-size:.85em}',
+'.sl-tg{display:inline-block;width:1.3em;margin-right:4px;color:var(--sl-mut);cursor:pointer;user-select:none}.sl-tk{color:var(--sl-mut);margin-right:4px}.sl-kc{display:inline-block;margin-left:8px;padding:0 7px;border-radius:9px;background:#EEF0EC;color:var(--sl-mut);font-size:.78em;white-space:nowrap}',
+'.sl-t tr.sl-kgrp td{padding-top:5px;padding-bottom:5px;font-size:.82em;font-weight:600;color:var(--sl-mut);background:#F7F8F5}.sl-kgrp .sl-gn{background:var(--sl-mut)}',
 '.sl-t.sl-dense{font-size:15px}.sl-t.sl-dense td{padding:5px 10px}.sl-t.sl-dense th{font-size:12.5px;padding-bottom:6px}',
 '.sl-t tr.sl-grp td{background:var(--sl-soft,#F2F4F7);padding-top:7px;padding-bottom:7px;border-bottom:1px solid var(--sl-line)}.sl-t tr.sl-grp b{font-weight:700}.sl-t tr.sl-grp b .sl-zh{display:inline;margin-left:6px;font-weight:500}',
 '.sl-t.sl-dense tr.sl-grp td{padding-top:4px;padding-bottom:4px}',

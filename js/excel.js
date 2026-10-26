@@ -16,6 +16,7 @@ function guessField(reg, header){
   if(/任务文件|taskdocument/.test(n)) return '__task';
   if(/^对外$|^external$|^external对外$|^对外external$|^业主可见$|^ownercansee$|^ownercansee业主可见$/.test(n)) return '__ext';
   if(/^重点$|^key$|^key重点$|^重点key$|^★/.test(n)) return '__star';
+  if(/^(level|层级|層級)+$/.test(n)) return '';   // v3.4.6: the export's Level column is not data
   if(/parent|上级|父项/.test(n)) return '__parent';
   if(/^(action|操作|处理方式|處理方式)+$/.test(n)) return '__act';   // v3.4.4: "Action 操作" (not "Action items" / "Action by")
   var best = '', bl = 0;
@@ -212,8 +213,32 @@ async function impRun(){
 
 /* ---------------- export ---------------- */
 function xlCap(t){ t = String(t == null ? '' : t); return t.length > 32000 ? t.slice(0, 32000) + ' …' : t; }   // Excel refuses cells over 32,767 characters
-function regSheet(reg, list){
+/* v3.4.6 · the export keeps the structure: a heading row per top-level package, each item followed by its sub-items
+   (under their discipline order), a Level column, and Excel's +/− row groups. Importing the file back still works:
+   the Level column and the heading rows are skipped. Returns [{r:record, lv:1..} | {h:label}] */
+function xlTree(reg, list){
+  var tf = rf(reg, 'tree'), inL = {}, kids = {}, out = [];
+  list.forEach(function(r){ inL[r.id] = 1; });
+  list.forEach(function(r){ var p = r.d.parent; if(p && p !== r.id && inL[p]) (kids[p] = kids[p] || []).push(r); });
+  var tops = list.filter(function(r){ var p = r.d.parent; return !(p && p !== r.id && inL[p]); });
+  if(!tf && !Object.keys(kids).length) return null;
+  function walk(r, lv, g){ out.push({r:r, lv:lv}); var ks = kids[r.id] || []; if(!ks.length || g > 8) return;
+    var gs = typeof subGroups === 'function' ? subGroups(reg, ks) : null;
+    (gs ? gs.reduce(function(a, x){ return a.concat(x.items); }, []) : ks).forEach(function(k){ walk(k, lv + 1, g + 1); }); }
+  if(!tf){ tops.forEach(function(r){ walk(r, 1, 0); }); return out; }
+  var order = [], by = {};
+  tops.forEach(function(r){ var p = treePath(tf, r.d[tf.key]), k = p.length ? p[0].id : '__none'; if(!by[k]){ by[k] = []; } by[k].push(r); });
+  treeNodes(tf).forEach(function(n){ if(!n.parent || !treeNode(tf, n.parent)){ if(by[n.id]) order.push(n.id); } });
+  if(by.__none) order.push('__none');
+  order.forEach(function(k){ var n = k === '__none' ? null : treeNode(tf, k);
+    out.push({h:n ? (n.code ? n.code + ' ' : '') + (n.en || '') + (n.zh && n.zh !== n.en ? ' ' + n.zh : '') : 'Unclassified 未分类'});
+    by[k].forEach(function(r){ walk(r, 1, 0); }); });
+  return out;
+}
+function regSheet(reg, list, opts){
   var fs = dataFields(reg).filter(function(f){ return f.type !== 'section'; });
+  var tree = opts && opts.tree ? xlTree(reg, list) : null, ro = rolesOf(reg);
+  if(tree) list = tree.filter(function(x){ return x.r; }).map(function(x){ return x.r; });
   var head = fs.map(function(f){ return f.en + (f.zh && f.zh !== f.en ? ' ' + f.zh : ''); });
   if(reg.d.ownerPublish) head.push('Owner can see 业主可见'); head.push('Key 重点'); head.push('Parent No. 上级编号');
   var depCol = typeof depList === 'function' && list.some(function(r){ return depList(r).length; }); if(depCol) head.push('Starts after 前置事项');   // v3.4
@@ -231,6 +256,18 @@ function regSheet(reg, list){
     if(depCol) row.push(depText(depList(r)));
     return row;
   });
+  if(tree){
+    var rowOf = {}; list.forEach(function(r, i){ rowOf[r.id] = rows[i]; });
+    var ti = fs.map(function(f){ return f.key; }).indexOf(ro.title), aoa = [['Level 层级'].concat(head)], lev = [{}], merges = [], ncol = head.length + 1;
+    tree.forEach(function(x){
+      if(x.h){ var hr = [x.h]; for(var i = 1; i < ncol; i++) hr.push(''); aoa.push(hr); lev.push({level:0}); merges.push({s:{r:aoa.length - 1, c:0}, e:{r:aoa.length - 1, c:Math.min(ncol - 1, 6)}}); return; }
+      var row = rowOf[x.r.id].slice(); if(ti >= 0 && x.lv > 1 && row[ti] !== '') row[ti] = new Array(x.lv).join('    ') + row[ti];
+      aoa.push([x.lv].concat(row)); lev.push({level:Math.min(7, x.lv - (rf(reg, 'tree') ? 0 : 1))}); });
+    var wt = XLSX.utils.aoa_to_sheet(aoa);
+    wt['!cols'] = [{wch:8}].concat(fs.map(function(f){ return {wch: f.type === 'long' || f.key === ro.title ? 40 : f.type === 'sub' ? 50 : 14}; }));
+    wt['!rows'] = lev; wt['!merges'] = merges; wt['!outline'] = {above:true};
+    return wt;
+  }
   var ws = XLSX.utils.aoa_to_sheet([head].concat(rows));
   ws['!cols'] = fs.map(function(f){ return {wch: f.type === 'long' || f.key === rolesOf(reg).title ? 40 : f.type === 'sub' ? 50 : 14}; });
   ws['!freeze'] = {xSplit:0, ySplit:1};
@@ -240,7 +277,7 @@ function fname(base){ return slug(cfg().projectEn || 'work-web') + '_' + base + 
 function exportReg(reg){ xlsxLib().then(function(){ exportReg0(reg); }).catch(function(e){ toast(errText(e)); }); }
 function exportReg0(reg){
   var wb = XLSX.utils.book_new(), list = sortRecs(reg, filteredRecs(reg));
-  XLSX.utils.book_append_sheet(wb, regSheet(reg, list), String(reg.d.en || 'Register').replace(/[\\\/?*\[\]:]/g, ' ').slice(0, 31));
+  XLSX.utils.book_append_sheet(wb, regSheet(reg, list, {tree:true}), String(reg.d.en || 'Register').replace(/[\\\/?*\[\]:]/g, ' ').slice(0, 31));
   XLSX.writeFile(wb, fname(slug(reg.d.en) || 'register'));
 }
 function backupXlsx(){ xlsxLib().then(backupXlsx0).catch(function(e){ toast(errText(e)); }); }

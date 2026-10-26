@@ -175,6 +175,9 @@ document.addEventListener('click', function(ev){
   if(p.menu && !(ev.target.closest && ev.target.closest('[data-pm]'))){ p.menu = null; renderPresent(); return; }
   var stage = ev.target.closest && ev.target.closest('.pres-sc'); if(!stage) return;
   if(p.zoomMode){ if(p.zoom){ p.zoom = null; } else { var rr = stage.getBoundingClientRect(), sc = rr.width / 1280; p.zoom = {x:(ev.clientX - rr.left) / sc, y:(ev.clientY - rr.top) / sc}; } renderPresent(); return; }
+  /* v3.4.6: ▸ on a table opens or closes that item's sub-items for this presentation */
+  var tg = ev.target.closest('[data-tg]');
+  if(tg && presDeck()){ p.open = p.open || {}; p.open[tg.dataset.tg] = tg.dataset.o !== '1'; p.drill = null; presRebuild(); renderPresent(); return; }
   var hk = ev.target.closest('[data-hk]'), key = hk ? hk.getAttribute('data-hk') : '';
   if(presDeck()){
     if(/^r:/.test(key) && getRec(key.slice(2))){ p.drill = key.slice(2); renderPresent(); return; }

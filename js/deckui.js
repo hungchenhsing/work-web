@@ -173,6 +173,7 @@ function slideProps(deck, s, ed, region){
           gf0 ? L('Each group gets a heading with its count. Hover a heading on the slide and click × to leave that group out.', '每组有小标题和数量；鼠标移到页面上的小标题点 × 可隐藏整组。') : '');
         h += '<div class="fl"><span class="flab">' + L('Show', '显示') + '</span>' + (gf0 ? pChk('cfg.gst', c.gst !== false, L('Status counts in group headings', '小标题显示各状态数量'), ed) : '') +
           pChk('cfg.sum', !!c.sum, L('Status summary bar at the top', '顶部状态汇总条'), ed) + pChk('cfg.dense', !!c.dense, L('Compact rows (more per page)', '紧凑行距（每页更多行）'), ed) + '</div>';
+        if(recsOf(reg.id).some(function(r){ return r.d.parent && getRec(r.d.parent); })) h += pRow(L('Sub-items', '子项'), ed ? '<div class="row" style="gap:4px"><button type="button" class="btn sm" data-act="dkSubAll" data-v="0">' + L('Collapse all', '全部收起') + '</button><button type="button" class="btn sm" data-act="dkSubAll" data-v="1">' + L('Expand all', '全部展开') + '</button></div>' : '', L('An item with sub-items shows ▸ on the slide: click it to open or close that item. PDF and PowerPoint show the slide as it is here; while presenting you can open more.', '有子项的事项在页面上带 ▸，点一下展开或收起；导出 PDF、PowerPoint 照这里的样子，演示时也可以临时展开。'));
         h += pRow(L('Rows per page', '每页行数'), pSel('cfg.per', c.per || 10, [6, 8, 10, 12, 14, 16, 18, 20, 24].map(function(n){ return [n, String(n)]; }), ed, 'num'), L('More rows continue on extra pages automatically. 16 or more work best with compact rows.', '超出部分自动分页；16 行以上建议配合紧凑行距。'));
       }
       break;
@@ -224,7 +225,7 @@ function regionProps(deck, s, key, ed){
   var h = '<div class="dk-region"><div class="dk-pt">' + (key === 'L' ? L('Left part', '左边') : L('Right part', '右边')) + '</div>' +
     pRow(L('Shows', '内容'), pSel('cfg.' + key + '.type', x.type, COMBO_TYPES.map(function(t){ return [t, T1(SLIDES[t].en, SLIDES[t].zh)]; }), ed)) +
     pRow(L('Small heading (optional)', '小标题（可选）'), pIn('cfg.' + key + '.title.en', x.title && x.title.en, ed, 'English') + pIn('cfg.' + key + '.title.zh', x.title && x.title.zh, ed, '中文'));
-  var inner = slideProps(deck, pseudo, ed, true).replace(/data-sp="/g, 'data-sp="cfg.' + key + '.').replace(/data-fk="sp:/g, 'data-fk="sp:' + key + ':').replace(/data-act="(dkColMv|dkUnhide|dkClearFx)"/g, 'data-act="$1" data-hp="cfg.' + key + '"');
+  var inner = slideProps(deck, pseudo, ed, true).replace(/data-sp="/g, 'data-sp="cfg.' + key + '.').replace(/data-fk="sp:/g, 'data-fk="sp:' + key + ':').replace(/data-act="(dkColMv|dkUnhide|dkClearFx|dkSubAll)"/g, 'data-act="$1" data-hp="cfg.' + key + '"');
   return h + inner + '</div>';
 }
 function pickerHtml(reg, c, ed){
@@ -435,6 +436,8 @@ document.addEventListener('click', function(e){
     case 'dkUndo': deckUndo(false); break;
     case 'dkRedo': deckUndo(true); break;
     case 'dkUnhide': (function(){ var sl = clone(deck.d.slides || []); sl.forEach(function(x0){ if(x0.id !== S.dslide) return; var x = el.dataset.hp ? getPath(x0, el.dataset.hp) : x0; if(!x || !x.cfg) return; if(v === '*'){ x.cfg.hide = []; x.cfg.hideLab = {}; } else { x.cfg.hide = (x.cfg.hide || []).filter(function(k){ return k !== v; }); if(x.cfg.hideLab) delete x.cfg.hideLab[v]; } }); saveSlides(deck, sl, true); })(); break;
+    case 'dkSubAll': (function(){ var sl = clone(deck.d.slides || []), s00 = sl.filter(function(x){ return x.id === S.dslide; })[0]; if(!s00) return; var s0 = el.dataset.hp ? getPath(s00, el.dataset.hp) : s00; if(!s0) return; var c0 = s0.cfg = s0.cfg || {};
+      c0.open = v === '1' ? recsOf(c0.reg).filter(function(r){ return childrenOf(r).length; }).map(function(r){ return r.id; }) : []; saveSlides(deck, sl, true); })(); break;   // v3.4.6
     case 'dkColMv': (function(){ var sl = clone(deck.d.slides || []), s00 = sl.filter(function(x){ return x.id === S.dslide; })[0]; if(!s00) return; var s0 = el.dataset.hp ? getPath(s00, el.dataset.hp) : s00; if(!s0) return; var r0 = getReg(s0.cfg.reg), cols = s0.cfg.cols && s0.cfg.cols.length ? s0.cfg.cols.slice() : (r0 ? defCols(r0) : []), i = cols.indexOf(v), j = i + (+el.dataset.d); if(i < 0 || j < 0 || j >= cols.length) return; cols[i] = cols[j]; cols[j] = v; s0.cfg.cols = cols; saveSlides(deck, sl, true); })(); break;
     case 'dkPickAdd': case 'dkPickDel': case 'dkPickMv': (function(){ var sl = clone(deck.d.slides || []), s0 = sl.filter(function(x){ return x.id === S.dslide; })[0]; if(!s0) return; var p = (s0.cfg.picks || []).slice(), i = p.indexOf(v);
       if(act === 'dkPickAdd' && i < 0) p.push(v); if(act === 'dkPickDel' && i >= 0) p.splice(i, 1); if(act === 'dkPickMv'){ var j = i + (+el.dataset.d); if(i < 0 || j < 0 || j >= p.length) return; p[i] = p[j]; p[j] = v; } s0.cfg.picks = p; saveSlides(deck, sl, true); })(); break;
@@ -554,6 +557,16 @@ document.addEventListener('keydown', function(e){
 window.addEventListener('resize', function(){ clearTimeout(window.__dkrz); window.__dkrz = setTimeout(function(){ fitSlides(); if(S.present) renderPresent(); }, 120); });
 if(window.ResizeObserver){ (function(){ var ro = new ResizeObserver(function(){ fitSlides(); }); var t = setInterval(function(){ var m = document.getElementById('main'); if(m){ ro.observe(m); clearInterval(t); } }, 50); })(); }
 
+/* v3.4.6 · ▸ on a table slide opens or closes that item's sub-items (saved with the slide; PDF and PowerPoint follow it) */
+document.addEventListener('click', function(e){
+  var t = e.target.closest && e.target.closest('.dk-stage [data-tg]'); if(!t || S.page !== 'decks' || S.present) return;
+  e.preventDefault(); e.stopPropagation();
+  var deck = curDeck(); if(!deck || !edOk()){ toast(T('This presentation is issued — open items while presenting instead.', '此演示文稿已定稿，可在演示时临时展开。')); return; }
+  var sl = clone(deck.d.slides || []), s0 = sl.filter(function(x){ return x.id === S.dslide; })[0]; if(!s0) return;
+  var hp = t.closest('[data-hp]'), obj = hp ? getPath(s0, hp.dataset.hp) : s0; if(!obj) return;
+  var c = obj.cfg = obj.cfg || {}, id = t.dataset.tg, o = asArr(c.open).filter(function(x){ return x !== id; });
+  if(t.dataset.o !== '1') o.push(id); c.open = o; saveSlides(deck, sl, true);
+}, true);
 /* hover a row / column / bar / photo / tile on the editor preview → × leaves it out of this slide only */
 function dkxBtn(){ var b = document.getElementById('dkx'); if(!b){ b = document.createElement('button'); b.id = 'dkx'; b.type = 'button'; b.hidden = true; b.innerHTML = '×'; b.title = T('Leave out of this slide', '在此页隐藏'); document.body.appendChild(b); } return b; }
 function dkxHide(){ var b = document.getElementById('dkx'); if(b) b.hidden = true; $$('.dk-hov').forEach(function(x){ x.classList.remove('dk-hov'); }); S.dkxEl = null; }
