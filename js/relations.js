@@ -41,7 +41,7 @@ function depPlan(changes){
     succsOf(pr).forEach(function(e){
       var s = e.rec, g = getReg(s.reg), sp = cur(s); if(!sp || !hasDates(g)) return;
       var req = pp.f + 1 + e.lag; if(sp.s >= req) return;
-      var why = it.path.indexOf(s.id) >= 0 ? 'loop' : fixed[s.id] ? 'edited' : !canWrite(g) ? 'ro' : isDone(g, s) ? 'done' : depActStarted(g, s) ? 'started' : '';   // a link back to an item already on this chain is a loop: never pushed round
+      var why = it.path.indexOf(s.id) >= 0 ? 'loop' : fixed[s.id] ? 'edited' : !canWrite(g) ? 'ro' : isHead(g, s) ? 'head' : isDone(g, s) ? 'done' : depActStarted(g, s) ? 'started' : '';   // a link back to an item already on this chain is a loop: never pushed round
       if(why){ if(!bseen[s.id]){ bseen[s.id] = 1; blocked.push({rec:s, reg:g, why:why, req:req}); } return; }
       if((cnt[s.id] = (cnt[s.id] || 0) + 1) > 60) return;   // links that go round in a circle
       if(!byId[s.id]){ byId[s.id] = {rec:s, reg:g, from:planOf(g, s)}; moves.push(byId[s.id]); }
@@ -79,7 +79,7 @@ function depPlanFor(m){
   if(m.batch) return depPlan(m.items.map(function(i){ var r = getRec(i.id), g = r && getReg(r.reg); return r && g ? {rec:r, was:i.was, now:planOf(g, r)} : null; }).filter(Boolean));
   return depPlan(m.items.map(function(i){ var r = getRec(i.id), g = r && getReg(r.reg); return r && g ? depChange(g, r, i.patch) : null; }).filter(Boolean));
 }
-var DEP_WHY = {done:['done', '已完成'], started:['already started or finished', '已开始或已完成'], ro:['you cannot change that register', '你不能修改该台账'], edited:['changed in this same edit', '本次同时修改'], loop:['its links go round in a circle', '前后关系形成循环']};
+var DEP_WHY = {head:['a heading — its dates come from its sub-items', '纲领，日期由子项汇总'], done:['done', '已完成'], started:['already started or finished', '已开始或已完成'], ro:['you cannot change that register', '你不能修改该台账'], edited:['changed in this same edit', '本次同时修改'], loop:['its links go round in a circle', '前后关系形成循环']};
 function depShiftModal(m){
   var plan = depPlanFor(m), n = plan.moves.length, first = getRec(m.items[0] && m.items[0].id), fg = first && getReg(first.reg);
   var lead = m.batch ? L('After these changes, ' + n + ' item(s) that follow would start before their predecessors finish:', '这些修改之后，有 ' + n + ' 个后续事项会在前置事项完成前开始：')
@@ -201,7 +201,7 @@ document.addEventListener('click', function(e){
       closeModal(); setRec(src, {dep:cur}).then(function(){ if(depLate(getRec(src.id))) toast(T('It now starts before its predecessors allow — see Schedule links', '现在开始日早于前置事项允许的日期 — 见「前后关系」')); }); })(); break;
     case 'depDel': if(rec && canWrite(reg)) setRec(rec, {dep:depList(rec).filter(function(x){ return x.id !== v; })}); break;
     case 'depDelS': (function(){ var s = getRec(v), g = s && getReg(s.reg); if(!s || !rec || !canWrite(g)) return; setRec(s, {dep:depList(s).filter(function(x){ return x.id !== rec.id; })}); })(); break;
-    case 'depFix': (function(){ if(!rec || !canWrite(reg)) return; var p = planOf(reg, rec), e0 = depEarliest(rec); if(!p || e0 == null || p.s >= e0) return; datesSet(reg, rec, depPatch(reg, rec, {s:e0, f:p.f + (e0 - p.s)})); })(); break;
+    case 'depFix': (function(){ if(!rec || !canWrite(reg) || isHead(reg, rec)) return; var p = planOf(reg, rec), e0 = depEarliest(rec); if(!p || e0 == null || p.s >= e0) return; datesSet(reg, rec, depPatch(reg, rec, {s:e0, f:p.f + (e0 - p.s)})); })(); break;
     case 'depAll': if(S.modal && S.modal.kind === 'depShift') depApply(S.modal, true); break;
     case 'depOne': if(S.modal && S.modal.kind === 'depShift') depApply(S.modal, false); break;
   }

@@ -9,6 +9,15 @@ function auditDiff(o, n){
   Object.keys(keys).sort().forEach(function(k){ if(!same((o || {})[k], (n || {})[k])) out.push(k); });
   return out;
 }
+/* v3.4.7 · the team invite link this tab opened, kept until it is used or the tab is closed (never in the browser's
+   long-term storage, so a shared computer does not keep it). invTok() reads it, invTok(t) keeps one, invTok(null) forgets it. */
+function invTok(v){
+  try{
+    if(v === undefined){ var x = JSON.parse(sessionStorage.getItem('ww.inv') || 'null'); return x && typeof x.t === 'string' && /^[A-Za-z0-9_-]{20,64}$/.test(x.t) && Date.now() - (x.at || 0) < 864e5 ? x.t : null; }
+    if(v) sessionStorage.setItem('ww.inv', JSON.stringify({t:v, at:Date.now()})); else sessionStorage.removeItem('ww.inv');
+  }catch(e){ if(v === undefined) return null; }
+  return v || null;
+}
 function pick(o, keys){ var r = {}; keys.forEach(function(k){ r[k] = o && o[k] !== undefined ? o[k] : null; }); return r; }
 
 /* ---------------- demo: everything in this browser ---------------- */
@@ -52,6 +61,12 @@ function DemoStore(){
     shareSetCfg: function(id, c){ var x = (st.shares || []).filter(function(s){ return s.id === id; })[0]; if(x){ x.data.cfg = clone(c); api.save(); } return Promise.resolve(); },
     shareUpdate: function(id, p){ (st.shares || []).forEach(function(x){ if(x.id === id) Object.assign(x, clone(p)); }); api.save(); return Promise.resolve(); },
     shareDelete: function(id){ st.shares = (st.shares || []).filter(function(x){ return x.id !== id; }); api.save(); return Promise.resolve(); },
+    /* team invite links (the demo keeps them in this browser; nobody signs up here) */
+    inviteList: function(){ return Promise.resolve(clone(st.invites || [])); },
+    inviteCreate: function(o){ st.invites = st.invites || []; st.invites.unshift(Object.assign({revoked:false, uses:0, used:[], created_at:new Date().toISOString()}, clone(o))); api.save(); return Promise.resolve(); },
+    inviteUpdate: function(id, p){ (st.invites || []).forEach(function(x){ if(x.id === id) Object.assign(x, clone(p)); }); api.save(); return Promise.resolve(); },
+    inviteDelete: function(id){ st.invites = (st.invites || []).filter(function(x){ return x.id !== id; }); api.save(); return Promise.resolve(); },
+    invitePeek: function(t){ var x = (st.invites || []).filter(function(i){ return i.id === t; })[0]; return Promise.resolve(x && !x.revoked && !(x.expires_at && Date.parse(x.expires_at) <= Date.now()) ? {role:x.role, expires_at:x.expires_at || null} : null); },
     /* what share_get returns; counted only when the link opens, once per 20 seconds */
     shareGet: function(token){
       var x = (st.shares || []).filter(function(s){ return s.id === token; })[0], res = shareServe(st, x);
@@ -110,6 +125,10 @@ function CloudStore(url, key){
     return api._bootP = sb.from('profiles').select('*').eq('id', u.id).maybeSingle().then(function(r){
       api.me = r.data ? r.data : {id:u.id, email:u.email, name:(u.user_metadata || {}).name || '', role:'pending'};
       if(!api.me.email) api.me.email = u.email;
+      /* v3.4.7: opened a team invite link — a waiting account gets its role now; one that already has a role keeps it */
+      var tk = invTok();
+      if(tk && api.me.role === 'pending') return api.inviteRedeem(tk).then(function(nr){ invTok(null); if(nr && nr !== 'pending') api.me.role = nr; else S.invBad = true; }, function(){ S.invBad = true; }).then(function(){ return api.loadAll(); });
+      if(tk){ invTok(null); setTimeout(function(){ toast(T('You already have access — the invite link was not needed.', '你已有权限，无需使用邀请链接。')); }, 300); }
       return api.loadAll();
     }).catch(function(e){ api.me = {id:u.id, email:u.email, name:'', role:'pending'}; api.ready = true; notify(); fail(e); });
   };
@@ -439,7 +458,15 @@ function CloudStore(url, key){
     return sb.storage.from('files').createSignedUrls(need, 3600).then(function(r){ urlsGot(need, r); }, function(){ urlsGot(need, null); });
   };
   api.signIn = function(email, pw){ return sb.auth.signInWithPassword({email:email, password:pw}); };
-  api.signUp = function(email, pw, name){ return sb.auth.signUp({email:email, password:pw, options:{data:{name:name}, emailRedirectTo: location.origin + location.pathname}}); };
+  /* v3.4.7: an account made through a team invite link gets the link's role at once (handle_new_user) */
+  api.signUp = function(email, pw, name){ var o = {name:name}, tk = invTok(); if(tk) o.invite = tk; return sb.auth.signUp({email:email, password:pw, options:{data:o, emailRedirectTo: location.origin + location.pathname}}); };
+  /* team invite links (admins make them; the sign-in page asks what one gives; a waiting account uses one) */
+  api.invitePeek = function(t){ return sb.rpc('invite_peek', {p_token:t}).then(function(r){ if(r.error) throw r.error; return r.data; }); };
+  api.inviteRedeem = function(t){ return sb.rpc('invite_redeem', {p_token:t}).then(function(r){ if(r.error) throw r.error; return r.data; }); };
+  api.inviteList = function(){ return sb.from('invites').select('*').order('created_at', {ascending:false}).then(function(r){ if(r.error) throw r.error; return r.data || []; }); };
+  api.inviteCreate = function(o){ return sb.from('invites').insert(o).then(function(r){ if(r.error) throw r.error; }); };
+  api.inviteUpdate = function(id, p){ return sb.from('invites').update(p).eq('id', id).then(function(r){ if(r.error) throw r.error; }); };
+  api.inviteDelete = function(id){ return sb.from('invites').delete().eq('id', id).then(function(r){ if(r.error) throw r.error; }); };
   api.reset = function(email){ return sb.auth.resetPasswordForEmail(email, {redirectTo: location.origin + location.pathname}); };
   api.setPassword = function(pw){ return sb.auth.updateUser({password:pw}); };
   api.signOut = function(){ return sb.auth.signOut(); };

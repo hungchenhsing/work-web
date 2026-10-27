@@ -229,7 +229,7 @@ function myWork(){
     var A = asOfN(), out = [];
     peopleRefs(personKeys(me)).forEach(function(x){
       var main = x.keys.filter(function(k){ var f = fieldOf(x.reg, k); return f && f.type !== 'sub' && !MINE_SKIP.test(k); });
-      if(main.length && !isDone(x.reg, x.rec)){ var p = planOf(x.reg, x.rec); out.push({kind:'rec', reg:x.reg, rec:x.rec, due:p ? p.f : null, title:recTitle(x.reg, x.rec), no:recNo(x.reg, x.rec)}); }
+      if(main.length && !isDone(x.reg, x.rec) && !isHead(x.reg, x.rec)){ var p = planOf(x.reg, x.rec); out.push({kind:'rec', reg:x.reg, rec:x.rec, due:p ? p.f : null, title:recTitle(x.reg, x.rec), no:recNo(x.reg, x.rec)}); }
       (x.rows || []).forEach(function(rw){ var sf = fieldOf(x.reg, rw.key), cols = (sf && sf.cols) || [], ck = (cols.filter(function(c){ return c.type === 'check'; })[0] || {}).key, dk = (cols.filter(function(c){ return c.type === 'date'; })[0] || {}).key, tk = (cols.filter(function(c){ return c.type === 'long' || c.type === 'text'; })[0] || {}).key;
         if(ck && rw.row[ck]) return; out.push({kind:'act', reg:x.reg, rec:x.rec, due:dk ? d2n(rw.row[dk]) : null, title:(tk && rw.row[tk]) || '—', no:recNo(x.reg, x.rec)}); });
     });

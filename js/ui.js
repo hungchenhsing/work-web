@@ -26,12 +26,14 @@ function renderAll(){
   var fk = focusKey(document.activeElement);
   document.documentElement.lang = S.lang === 'zh' ? 'zh-CN' : 'en';
   document.body.classList.toggle('lang-both', S.lang === 'both');
-  if(STORE.mode === 'public'){ renderPublic(); return; }
+  if(STORE.mode === 'public' && !STORE.site){ renderPublic(); return; }   // a whole-site link (v3.4.7) shows the site itself, read-only
+  document.body.classList.toggle('visit', isVisitor()); if(isVisitor()) document.body.classList.remove('gate', 'pubv');
   renderTop();
+  if(!isVisitor()){
   if(typeof pkgUpgrade === 'function') setTimeout(pkgUpgrade, 0);
   if(typeof peopleSubUpgrade === 'function') setTimeout(peopleSubUpgrade, 0);
   if(typeof multiUpgrade === 'function') setTimeout(multiUpgrade, 0);
-  if(typeof cmUpgrade === 'function') setTimeout(cmUpgrade, 0);
+  if(typeof cmUpgrade === 'function') setTimeout(cmUpgrade, 0); }
   if(STORE.mode === 'cloud' && (!STORE.ready || !STORE.session || !STORE.me || role() === 'pending' || role() === 'none' || S.recovery)){ $('#side').innerHTML = ''; document.body.classList.add('gate'); renderGate(); renderDrawer(); renderPop(); renderModal(); return; }
   document.body.classList.remove('gate');
   if(role() === 'owner'){ $('#side').innerHTML = ''; document.body.classList.add('gate'); $('#main').innerHTML = viewOwnerPortal(); fitSlides(); renderDrawer(); renderPop(); renderModal(); return; }
@@ -46,12 +48,12 @@ function renderAll(){
 /* ---------------- top bar & side navigation ---------------- */
 function renderTop(){
   var c = cfg(), st = '';
-  if(STORE){ if(STORE.mode === 'demo') st = ['Demo · this browser only', '演示 · 仅本浏览器', 'demo']; else if(appReady()) st = STORE.rt === 'live' ? ['Live', '在线', 'live'] : STORE.rt === 'off' ? ['Offline', '离线', 'off', 'Offline — changes may not be saved until the connection is back', '离线：恢复连接前修改可能无法保存'] : ['Connecting…', '连接中…', 'wait']; }
+  if(STORE){ if(isVisitor()) st = ['Read-only · live', '只读 · 实时', 'live']; else if(STORE.mode === 'demo') st = ['Demo · this browser only', '演示 · 仅本浏览器', 'demo']; else if(appReady()) st = STORE.rt === 'live' ? ['Live', '在线', 'live'] : STORE.rt === 'off' ? ['Offline', '离线', 'off', 'Offline — changes may not be saved until the connection is back', '离线：恢复连接前修改可能无法保存'] : ['Connecting…', '连接中…', 'wait']; }
   var signed = STORE && STORE.mode === 'cloud' && STORE.me && STORE.session;
   $('#top').innerHTML =
     '<button type="button" class="ib sidebtn" data-act="side" aria-label="Menu">' + uic('menu', 20) + '</button>' +
     '<div class="brand"><b>' + esc(c.projectEn) + '</b><span>' + esc(c.projectZh) + '</span></div>' +
-    (appReady() && isInternal() || (STORE && STORE.mode === 'demo') ? '<label class="gsearch">' + uic('search', 15) + '<input id="gq" type="search" data-fk="gq" placeholder="' + esc(T('Search all registers', '搜索全部台账')) + '" value="' + esc(S.q) + '" autocomplete="off"></label>' : '<span style="flex:1"></span>') +
+    (appReady() && (isInternal() || isVisitor()) || (STORE && STORE.mode === 'demo') ? '<label class="gsearch">' + uic('search', 15) + '<input id="gq" type="search" data-fk="gq" placeholder="' + esc(T('Search all registers', '搜索全部台账')) + '" value="' + esc(S.q) + '" autocomplete="off"></label>' : '<span style="flex:1"></span>') +
     '<div class="tools">' + (st ? '<span class="sync ' + st[2] + '" role="status" title="' + esc(st[3] ? T(st[3], st[4]) : T(st[0], st[1])) + '"><span class="dot ' + st[2] + '"></span><span class="stx">' + L(st[0], st[1]) + '</span></span>' : '') +
     noticeBell() +
     '<div class="seg lseg" role="group" aria-label="Language">' + [['en','EN'],['both','EN + 中'],['zh','中']].map(function(o){ return '<button type="button" data-act="lang" data-v="' + o[0] + '" aria-pressed="' + (S.lang === o[0]) + '">' + o[1] + '</button>'; }).join('') + '</div>' +
@@ -68,7 +70,7 @@ function noticeList(){
   return out;
 }
 function noticeBell(){
-  if(!STORE || !(appReady() || STORE.mode === 'demo')) return '';
+  if(!STORE || isVisitor() || !(appReady() || STORE.mode === 'demo')) return '';
   var ns = noticeList(), n = ns.filter(function(x){ return x.unread; }).length;
   return '<button type="button" class="ib nbell' + (S.nOpen ? ' on' : '') + '" data-act="notices" aria-expanded="' + !!S.nOpen + '" aria-label="' + esc(T('Notices', '通知') + (n ? ' (' + n + ')' : '')) + '" title="' + esc(T('Notices', '通知')) + '">' + uic('bell', 18) + (n ? '<span class="nbn">' + n + '</span>' : '') + '</button>';
 }
@@ -104,13 +106,14 @@ function searchResults(){
   return '<div class="gres card">' + (out.length ? out.map(function(x){ return '<button type="button" data-act="openRec" data-id="' + esc(x.rec.id) + '">' + icon(x.reg.d.icon, 14) + '<span class="mono muted">' + esc(recNo(x.reg, x.rec)) + '</span> ' + esc(recTitle(x.reg, x.rec) || '—') + ' <span class="muted" style="margin-left:auto;font-size:12px">' + esc(regName(x.reg)) + '</span></button>'; }).join('') : '<div class="note" style="padding:10px">' + L('No matches', '没有匹配') + '</div>') + '</div>';
 }
 /* v3.2 · phones: a bottom bar (overview, my work, registers, search, more); registers and more open as sheets */
-function sidePages(){ return [['home','home','Overview','总览']].concat(peopleDir() && (isInternal() || STORE.mode === 'demo') ? [['mine','user','My work','我的工作']] : []).concat([['schedule','cal','Schedule','进度计划'],['decks','present','Presentations','演示文稿'],['activity','hist','Change log','修改记录'],['files','file','Documents','文件库'],['owner','owner','Owner plan','业主计划'],['settings','gear','Settings','设置']]); }
+function sidePages(){ if(isVisitor()) return [['home','home','Overview','总览'],['schedule','cal','Schedule','进度计划']].concat(deckReg() ? [['decks','present','Presentations','演示文稿']] : []);   /* v3.4.7: a site link shows only what it carries */
+  return [['home','home','Overview','总览']].concat(peopleDir() && (isInternal() || STORE.mode === 'demo') ? [['mine','user','My work','我的工作']] : []).concat([['schedule','cal','Schedule','进度计划'],['decks','present','Presentations','演示文稿'],['activity','hist','Change log','修改记录'],['files','file','Documents','文件库'],['owner','owner','Owner plan','业主计划'],['settings','gear','Settings','设置']]); }
 function regGroups(){ var regs = allRegs(), out = SECS.map(function(s){ return {s:s, regs:regs.filter(function(r){ return !isPrivate(r) && (r.d.sec || 'other') === s[0]; })}; }); out.push({s:['private','Only me','仅自己可见'], regs:regs.filter(isPrivate)}); return out.filter(function(g){ return g.regs.length; }); }
-function regBtn(r, cls){ var n = recsOf(r.id), od = n.filter(function(x){ return isOverdue(r, x); }).length;
+function regBtn(r, cls){ var n = countedOf(r, recsOf(r.id)), od = n.filter(function(x){ return isOverdue(r, x); }).length;
   return '<button type="button" class="' + cls + '" data-act="reg" data-v="' + esc(r.id) + '"' + (S.page === 'reg' && S.reg === r.id ? ' aria-current="page"' : '') + '><span class="ri c-' + esc(r.d.color || 'blue') + '">' + icon(r.d.icon) + '</span><span class="rn">' + esc(regName(r)) + '</span><span class="scnt">' + (od ? '<b class="odn" title="' + esc(T(od + ' overdue', od + ' 项逾期')) + '">' + od + '</b> ' : '') + n.length + '</span></button>'; }
 function renderBnav(){
   var nb = $('#bnav'); if(!nb) return;
-  if(!STORE || document.body.classList.contains('gate') || STORE.mode === 'public'){ nb.innerHTML = ''; renderSheet(); return; }
+  if(!STORE || document.body.classList.contains('gate') || (STORE.mode === 'public' && !isVisitor())){ nb.innerHTML = ''; renderSheet(); return; }
   var mine = peopleDir() && (isInternal() || STORE.mode === 'demo'), inMore = ['schedule','decks','activity','files','owner','settings'].indexOf(S.page) >= 0;
   var it = [['home','home','Overview','总览', S.page === 'home' && !S.sheet], mine ? ['mine','user','My work','我的工作', S.page === 'mine' && !S.sheet] : null, ['@regs','table','Registers','台账', S.sheet === 'regs' || (S.page === 'reg' && !S.sheet)], ['@search','search','Search','搜索', !!S.msearch], ['@more','menu','More','更多', S.sheet === 'more' || (inMore && !S.sheet)]].filter(Boolean);
   nb.innerHTML = it.map(function(x){ return '<button type="button" data-act="bnav" data-v="' + x[0] + '"' + (x[4] ? ' aria-current="page"' : '') + '>' + uic(x[1], 20) + '<span>' + esc(T1(x[2], x[3])) + '</span></button>'; }).join('');
@@ -120,9 +123,9 @@ function renderSheet(){
   var r = $('#sheet-root'); if(!r) return;
   if(!S.sheet){ r.innerHTML = ''; return; }
   var h = '';
-  if(S.sheet === 'regs') h = '<h2>' + L('Registers', '台账') + '</h2>' + navRegsHtml('sreg', !!S.sideEdit) + (S.sideEdit ? navEditFoot() : (canCreateReg() ? '<button type="button" class="sadd" data-act="newReg">' + uic('plus', 14) + ' ' + L('New register', '新建台账') + '</button>' : '') + '<button type="button" class="sadd" data-act="navEdit">' + uic('gear', 14) + ' ' + L('Arrange this menu', '整理菜单') + '</button>');
+  if(S.sheet === 'regs') h = '<h2>' + L('Registers', '台账') + '</h2>' + navRegsHtml('sreg', !!S.sideEdit) + (S.sideEdit ? navEditFoot() : (canCreateReg() ? '<button type="button" class="sadd" data-act="newReg">' + uic('plus', 14) + ' ' + L('New register', '新建台账') + '</button>' : '') + (isVisitor() ? '' : '<button type="button" class="sadd" data-act="navEdit">' + uic('gear', 14) + ' ' + L('Arrange this menu', '整理菜单') + '</button>'));
   else if(S.sideEdit){ var mp = navModel(true).pages; h = '<h2>' + L('More', '更多') + '</h2><div class="snav">' + mp.map(function(p, k){ return navEditRow(uic(p[1]) + '<span>' + L(p[2], p[3]) + '</span>', p[0], 'pages', k, mp.length, false); }).join('') + '</div>' + navEditFoot(); }
-  else h = '<h2>' + L('More', '更多') + '</h2><div class="snav">' + navModel(false).pages.filter(function(p){ return p[0] !== 'home' && p[0] !== 'mine'; }).map(function(p){ return '<button type="button" data-act="page" data-v="' + p[0] + '"' + (S.page === p[0] ? ' aria-current="page"' : '') + '>' + uic(p[1]) + '<span>' + L(p[2], p[3]) + '</span></button>'; }).join('') + '</div><button type="button" class="sadd" data-act="navEdit">' + uic('gear', 14) + ' ' + L('Arrange this menu', '整理菜单') + '</button>' +
+  else h = '<h2>' + L('More', '更多') + '</h2><div class="snav">' + navModel(false).pages.filter(function(p){ return p[0] !== 'home' && p[0] !== 'mine'; }).map(function(p){ return '<button type="button" data-act="page" data-v="' + p[0] + '"' + (S.page === p[0] ? ' aria-current="page"' : '') + '>' + uic(p[1]) + '<span>' + L(p[2], p[3]) + '</span></button>'; }).join('') + '</div>' + (isVisitor() ? '' : '<button type="button" class="sadd" data-act="navEdit">' + uic('gear', 14) + ' ' + L('Arrange this menu', '整理菜单') + '</button>') +
     (STORE.mode === 'cloud' && STORE.me ? '<div class="sme"><span>' + esc(STORE.me.name || STORE.me.email || '') + ' · ' + esc(roleName(role())) + '</span><button type="button" class="btn sm" data-act="signout">' + L('Sign out', '退出登录') + '</button></div>' : '');
   var was = r.querySelector('.sheet');
   r.innerHTML = '<div class="sheet-scrim" data-act="sheetClose"></div><div class="sheet" role="dialog" aria-modal="true" tabindex="-1" aria-label="' + esc(S.sheet === 'regs' ? T('Registers', '台账') : T('More', '更多')) + '"><span class="sgrip"></span>' + h + '</div>';
@@ -134,6 +137,7 @@ function renderSide(){
   var h = '<div class="snav">' + m.pages.map(function(p, i){ var lab = uic(p[1]) + '<span>' + L(p[2], p[3]) + '</span>'; return ed ? navEditRow(lab, p[0], 'pages', i, m.pages.length, false) : '<button type="button" data-act="page" data-v="' + p[0] + '"' + (S.page === p[0] ? ' aria-current="page"' : '') + '>' + lab + '</button>'; }).join('') + '</div>';
   h += navRegsHtml('sreg', ed);
   if(ed) h += navEditFoot();
+  else if(isVisitor()) h += '<p class="note svis">' + L('Read-only page shared from the project site. It shows the data as it is now.', '项目网站分享的只读页面，显示的是最新数据。') + '</p>';
   else { if(canCreateReg()) h += '<button type="button" class="sadd" data-act="newReg">' + uic('plus', 14) + ' ' + L('New register', '新建台账') + '</button>';
     h += '<button type="button" class="sadd sarr" data-act="navEdit">' + uic('gear', 14) + ' ' + L('Arrange this menu', '整理菜单') + '</button>'; }
   $('#side').innerHTML = h; $('#side').classList.toggle('editing', ed);
@@ -144,6 +148,7 @@ function renderMain(){ S.inRender = (S.inRender || 0) + 1; try{ renderMain0(); }
 function renderMain0(){
   var pk0 = S.page + ':' + S.reg + ':' + (S.rv[S.reg] || ''); if(S.lastPk !== pk0) VW = {}; LZ = [];
   var m = $('#main'), sx = m.scrollTop, h, gw = $('#gwrap'), gsc = gw ? [gw.scrollLeft, gw.scrollTop] : null, tw = $('.tbl-wrap'), tsc = tw ? [tw.scrollLeft, tw.scrollTop] : null, pk = S.page + ':' + S.reg + ':' + (S.rv[S.reg] || '');
+  if(isVisitor() && ['home', 'reg', 'schedule', 'decks'].indexOf(S.page) < 0) S.page = 'home';   /* v3.4.7: a site link reaches only what it carries */
   try{
     if(S.page === 'reg' && getReg(S.reg)) h = viewRegister(getReg(S.reg));
     else if(S.page === 'schedule') h = viewSchedule();
@@ -443,7 +448,8 @@ function sumFields(reg){
 }
 function sumCell(reg, f, rec, ed){
   var v = rec.d[f.key], inner;
-  if(f.type === 'select') inner = '<button type="button" class="sumv pickbtn"' + (ed ? ' data-act="pick" data-id="' + esc(rec.id) + '" data-k="' + esc(f.key) + '"' : ' disabled') + '>' + (isEmpty(v) ? '<span class="muted">—</span>' : cellHtml(reg, f, rec)) + '</button>';
+  if(headLocked(reg, rec, f)) inner = '<div class="sumv ro hdv" title="' + esc(T('From its sub-items', '由子项汇总')) + '">' + (f.key === rolesOf(reg).progress ? pbar(progressOf(reg, rec), '<span class="auto">Σ</span>') : cellHtml(reg, f, rec)) + '</div>';
+  else if(f.type === 'select') inner = '<button type="button" class="sumv pickbtn"' + (ed ? ' data-act="pick" data-id="' + esc(rec.id) + '" data-k="' + esc(f.key) + '"' : ' disabled') + '>' + (isEmpty(v) ? '<span class="muted">—</span>' : cellHtml(reg, f, rec)) + '</button>';
   else if(f.type === 'percent' && isAutoNow(rec, f)) inner = '<div class="sumv ro">' + pbar(val(rec, f)) + '</div>';
   else inner = fieldInput(reg, f, rec, ed).replace('<input class="in"', '<input class="in" placeholder="—"');
   return '<div class="sumc t-' + esc(f.type) + '" role="group" aria-label="' + esc(T1(f.en || f.key, f.zh)) + '"><span class="flab">' + L(f.en, f.zh) + '</span>' + inner + '</div>';
@@ -452,6 +458,7 @@ function drawerTabs(reg, rec, kids){
   var lib = isLibRec(rec), trn = typeof isTrnReg === 'function' && isTrnReg(reg), fl = lib ? 0 : recFiles(rec).length, lk = relCount(rec);
   if(lib) return [['details','Document','文件'],['links','Used by & related','引用与相关', lk],['history','History','修改记录']];
   var tabs = [['details','Details','详情']];
+  if(isVisitor()) return kids.length ? tabs.concat([['subs','Sub-items','子项', kids.length]]) : tabs;   /* v3.4.7: files, links and the change log stay with the team */
   if(trn) tabs.push(['trn','Documents','文件清单', trnItems(rec).length]);
   if(isPeopleReg(reg)) tabs.push(['work','Assignments','参与事项', peopleWorkCount(reg, rec)]);
   if(!trn && (kids.length || S.dtab === 'subs')) tabs.push(['subs','Sub-items','子项', kids.length]);
@@ -472,7 +479,7 @@ function renderDrawer(){
   var tabs = drawerTabs(reg, rec, kids);
   if(!tabs.some(function(t){ return t[0] === S.dtab; })) S.dtab = 'details';
   var desc = descendantsOf(rec).length, w = drawerW();
-  var menu = '<details class="menu dmenu"><summary class="ib" aria-label="' + esc(T('More actions', '更多操作')) + '" title="' + esc(T('More actions', '更多操作')) + '">' + uic('dots', 18) + '</summary><div class="pop pop-r">' +
+  var menu = isVisitor() ? '' : '<details class="menu dmenu"><summary class="ib" aria-label="' + esc(T('More actions', '更多操作')) + '" title="' + esc(T('More actions', '更多操作')) + '">' + uic('dots', 18) + '</summary><div class="pop pop-r">' +
     (ed ? '<button type="button" data-act="dupRec">' + uic('copy', 14) + ' ' + L('Duplicate', '复制') + '</button>' : '') +
     (ed && !lib && !trn && reg.d.kind !== 'decks' ? '<button type="button" data-act="tplSave">' + uic('layers', 14) + ' ' + L('Save as a template…', '存成模板…') + '</button>' : '') +
     (ed && !lib && !trn ? '<button type="button" data-act="dtab" data-v="subs">' + uic('list', 14) + ' ' + L('Sub-items…', '子项…') + '</button>' : '') +
@@ -485,6 +492,7 @@ function renderDrawer(){
   var es = relsOf(rec).filter(function(e){ return e.t !== 'men' && getRec(e.id); });
   var chips = (rf(reg, 'block') ? blockChips(rec.d[rf(reg, 'block').key], rf(reg, 'block')) : '') + (isOverdue(reg, rec) ? chip('red', L('Overdue', '逾期')) : '') + (!ed ? chip('grey', L('Read only', '只读')) : '') +
     (ownerGated(reg) && !isPrivate(reg) ? (ed ? '<label class="chip c-violet tog"><input type="checkbox" data-act="extTog"' + (rec.d.ext ? ' checked' : '') + '>' + uic('eye', 12) + ' ' + L('Owner can see', '业主可见') + '</label>' : (rec.d.ext ? chip('violet', uic('eye', 12) + ' ' + L('Owner can see', '业主可见')) : '')) : '') +
+    (kids.length && !trn ? (ed ? '<label class="chip c-grey tog" title="' + esc(T('An item with sub-items is a heading: it is not counted and takes its status, progress and dates from its sub-items. Tick to count it as a document too.', '有子项的事项是纲领：不计入数量，状态、进度和日期由子项汇总。勾选后它本身也计为一份文件。')) + '"><input type="checkbox" data-act="asDocTog"' + (rec.d.asDoc ? ' checked' : '') + '>' + L('Counted as a document', '计为一份文件') + '</label>' : '') + (rec.d.asDoc ? (ed ? '' : chip('grey', L('Counted as a document', '计为一份文件'))) : chip('grey', L('Heading · not counted', '纲领 · 不计数'))) : '') +
     (!lib && !es.length && ed ? '<button type="button" class="rchip add" data-act="linkOpen" data-id="' + esc(rec.id) + '">' + uic('plus', 12) + ' ' + L('Link', '关联') + '</button>' : '');
   var sf = lib || trn ? [] : sumFields(reg);
   var h = '<div class="scrim" data-act="close"></div><aside class="drawer' + (S.dwide ? ' wide' : '') + '" role="dialog" aria-modal="true" aria-label="' + esc(recLabel(rec)) + '"' + (w && !S.dwide ? ' style="width:' + w + 'px"' : '') + '><div class="dres" data-dres="1" title="' + esc(T('Drag to resize', '拖动调整宽度')) + '"></div>' +
@@ -505,7 +513,7 @@ function renderDrawer(){
   else if(S.dtab === 'rvc' && typeof cmPanel === 'function') h += cmPanel(reg, rec, ed);
   else if(S.dtab === 'work' && isPeopleReg(reg)) h += peopleWork(reg, rec);
   else if(S.dtab === 'trn' && trn) h += trnItemsHtml(reg, rec, ed);
-  else h += (sf.length ? '<div class="dsum">' + sf.map(function(f){ return sumCell(reg, f, rec, ed); }).join('') + '</div>' : '') + (lib ? docPreview(rec, ed) : (es.length ? relStrip(rec, ed) : '')) + (typeof closeChecklistHtml === 'function' ? closeChecklistHtml(reg, rec) : '') + drawerForm(reg, rec, ed, sf.concat(typeof cmField === 'function' && cmField(reg) ? [cmField(reg)] : [])) + (typeof docTrnHtml === 'function' && !isPrivate(reg) ? docTrnHtml(reg, rec) : '');
+  else h += (sf.length ? '<div class="dsum">' + sf.map(function(f){ return sumCell(reg, f, rec, ed); }).join('') + '</div>' : '') + (isHead(reg, rec) && !lib ? '<p class="note hdn">' + L('This item is a heading: its status, dates and progress come from its sub-items, and it is not counted as a document.', '此事项是纲领：状态、日期和进度由子项汇总，不计为一份文件。') + '</p>' : '') + (lib ? docPreview(rec, ed) : (es.length ? relStrip(rec, ed) : '')) + (typeof closeChecklistHtml === 'function' ? closeChecklistHtml(reg, rec) : '') + drawerForm(reg, rec, ed, sf.concat(typeof cmField === 'function' && cmField(reg) ? [cmField(reg)] : [])) + (typeof docTrnHtml === 'function' && !isPrivate(reg) ? docTrnHtml(reg, rec) : '');
   h += '</div></aside>';
   root.innerHTML = h; document.body.classList.add('dopen');
   if(typeof enhanceDates === 'function') enhanceDates(root);
@@ -521,6 +529,7 @@ document.addEventListener('pointerdown', function(e){
   hnd.addEventListener('pointermove', mv); hnd.addEventListener('pointerup', up);
 });
 function fieldInput(reg, f, rec, ed){
+  if(headLocked(reg, rec, f)) return '<div class="ro hdv">' + (f.key === rolesOf(reg).progress ? pbar(progressOf(reg, rec), '<span class="auto">Σ</span>') : cellHtml(reg, f, rec, {full:true})) + ' <span class="note">' + L('from its sub-items', '由子项汇总') + '</span></div>';
   var v = rec.d[f.key], dis = ed ? '' : ' disabled', a = ' data-df="' + esc(f.key) + '" data-fk="df:' + esc(rec.id + ':' + f.key) + '" aria-label="' + esc(T(f.en || f.key, f.zh)) + '"' + dis;
   switch(f.type){
     case 'text': case 'url': var chf = f.type === 'text' ? contactHref(f, v) : '', inp = '<input class="in" type="' + (f.type === 'url' ? 'url' : chf.indexOf('mailto:') === 0 ? 'email' : chf ? 'tel' : 'text') + '"' + a + ' value="' + esc(v == null ? '' : v) + '">';
@@ -563,7 +572,7 @@ function drawerForm(reg, rec, ed, skip){
   h += '</div>';
   if(folded || S.dAll) h += '<button type="button" class="lnk dmore" data-act="dAll">' + (S.dAll ? L('Hide empty fields', '收起空字段') : L('Show ' + folded + ' more fields', '显示另外 ' + folded + ' 个字段')) + '</button>';
   h += (typeof depHtml === 'function' ? depHtml(reg, rec, ed) : '') + baseInfo(reg, rec);
-  h += '<div class="note" style="margin-top:14px">' + L('Created', '创建') + ' ' + esc(fmtTime(rec.ca)) + ' · ' + L('last change', '最后修改') + ' ' + esc(fmtTime(rec.ua)) + (canSchemaEdit(reg) ? ' · <button type="button" class="lnk" data-act="fieldsOpen" data-v="' + esc(reg.id) + '">' + L('Add or change fields', '增删 / 修改字段') + '</button>' : '') + '</div>';
+  if(!isVisitor()) h += '<div class="note" style="margin-top:14px">' + L('Created', '创建') + ' ' + esc(fmtTime(rec.ca)) + ' · ' + L('last change', '最后修改') + ' ' + esc(fmtTime(rec.ua)) + (canSchemaEdit(reg) ? ' · <button type="button" class="lnk" data-act="fieldsOpen" data-v="' + esc(reg.id) + '">' + L('Add or change fields', '增删 / 修改字段') + '</button>' : '') + '</div>';
   return h;
 }
 function fileList(reg, f, rec, ed){
@@ -596,12 +605,12 @@ function drawerSubs(reg, rec, ed, kids){
   var h = '<div class="fl"><span class="flab">' + L('Belongs to', '上级') + '</span><div class="row">' + (par ? recRow(par) : '<span class="note">' + L('Top level', '顶层') + '</span>') +
     (ed ? '<button type="button" class="btn sm" data-act="pickParent" data-id="' + esc(rec.id) + '">' + (par ? L('Change…', '更改…') : L('Put under another item…', '归到其他项下…')) + '</button>' + (par ? '<button type="button" class="btn sm" data-act="setParent" data-v="">' + L('Make top level', '设为顶层') + '</button>' : '') : '') + '</div></div>';
   h += '<h3 class="fsec">' + L('Sub-items', '子项') + (ru ? ' <span class="note">' + L(ru.done + ' of ' + ru.n + ' done · ' + ru.pct + '%', ru.n + ' 项中已完成 ' + ru.done + ' · ' + ru.pct + '%') + '</span>' : '') + '</h3>';
-  h += '<p class="note" style="margin:0 0 8px">' + L('Use sub-items for the individual drawings or documents inside one package (e.g. the sheets of an as-built set). Each sub-item has its own status, dates, files and history; the parent’s progress rolls up from them.', '子项用于一个文件包里的各张图纸或文件（如一套竣工图的每一张）。每个子项有自己的状态、日期、文件与修改记录；上级的进度由子项自动汇总。') + '</p>';
+  h += '<p class="note" style="margin:0 0 8px">' + L('Use sub-items for the individual drawings or documents inside one package (e.g. the sheets of an as-built set). Each sub-item has its own status, dates, files and history. An item with sub-items is a heading: it is not counted as a document, and its status, progress and dates come from its sub-items — unless “Counted as a document” is ticked at its top.', '子项用于一个文件包里的各张图纸或文件（如一套竣工图的每一张）。每个子项有自己的状态、日期、文件与修改记录。有子项的事项是纲领：不计为文件，状态、进度和日期由子项汇总；如在其顶部勾选「计为一份文件」则照常计数。') + '</p>';
   if(kids.length){
     h += '<div class="card tbl-wrap" style="max-height:none"><table class="tbl subl"><thead><tr><th>' + L('No.', '编号') + '</th>' + (fieldOf(reg, 'docNo') ? '<th>' + L('Doc. No.', '文件编号') + '</th>' : '') + '<th>' + L('Title', '名称') + '</th>' + (sf ? '<th>' + L(sf.en, sf.zh) + '</th>' : '') + (pf ? '<th>%</th>' : '') + '<th></th></tr></thead><tbody>' +
       (function(){ var ncol = 3 + (fieldOf(reg, 'docNo') ? 1 : 0) + (sf ? 1 : 0) + (pf ? 1 : 0), rows = '', row = function(k){ var st = statusOpt(reg, k), gk = childrenOf(k).length;
         return '<tr><td class="mono">' + esc(recNo(reg, k)) + '</td>' + (fieldOf(reg, 'docNo') ? '<td class="mono">' + esc(k.d.docNo || '') + '</td>' : '') + '<td>' + esc(recTitle(reg, k) || '—') + (gk ? ' <span class="chip c-grey">' + gk + '</span>' : '') + '</td>' +
-          (sf ? '<td>' + (ed ? '<button type="button" class="pickbtn" style="width:auto;min-height:26px" data-act="pick" data-id="' + esc(k.id) + '" data-k="' + esc(sf.key) + '">' + (st ? optChip(st) : '<span class="muted">—</span>') + '</button>' : (st ? optChip(st) : '')) + '</td>' : '') +
+          (sf ? '<td>' + (ed && !headLocked(reg, k, sf) ? '<button type="button" class="pickbtn" style="width:auto;min-height:26px" data-act="pick" data-id="' + esc(k.id) + '" data-k="' + esc(sf.key) + '">' + (st ? optChip(st) : '<span class="muted">—</span>') + '</button>' : (st ? optChip(st) : '')) + '</td>' : '') +
           (pf ? '<td class="mono">' + (progressOf(reg, k) != null ? progressOf(reg, k) + '%' : '') + '</td>' : '') + '<td><button type="button" class="btn sm" data-act="openRec" data-id="' + esc(k.id) + '">' + L('Open', '打开') + '</button></td></tr>'; };
         subEach(reg, sortRecs(reg, kids), function(g){ rows += '<tr class="kgrp"><td colspan="' + ncol + '"><span class="kgl">' + esc(g.label) + '</span> <span class="muted mono">' + g.items.length + '</span></td></tr>'; }, function(k){ rows += row(k); });
         return rows; })() + '</tbody></table></div>';
@@ -676,15 +685,20 @@ function renderGate(){
   if(!STORE.ready){ v.innerHTML = '<div class="card empty">' + L('Connecting…', '连接中…') + '</div>'; return; }
   if(S.recovery){ v.innerHTML = '<div class="card auth"><h1 class="vtitle">' + L('Set a new password', '设置新密码') + '</h1><form id="fRecover" class="fg1"><label class="fl">' + L('New password', '新密码') + '<input class="in" type="password" id="aPw" minlength="8" required autocomplete="new-password"></label><button class="btn pri" type="submit">' + L('Save password', '保存密码') + '</button></form></div>'; return; }
   if(STORE.session && STORE.me && (role() === 'pending' || role() === 'none')){
-    v.innerHTML = '<div class="card auth"><h1 class="vtitle">' + L('Waiting for approval', '等待审批') + '</h1><p>' + L('Your account (' + (STORE.me.email || '') + ') is registered. The project admin needs to give you access.', '你的账号（' + (STORE.me.email || '') + '）已注册，需要项目管理员授权后才能查看。') + '</p><div class="row"><button class="btn" data-act="recheck">' + L('Check again', '重新检查') + '</button><button class="btn" data-act="signout">' + L('Sign out', '退出登录') + '</button></div></div>'; return;
+    v.innerHTML = '<div class="card auth"><h1 class="vtitle">' + L('Waiting for approval', '等待审批') + '</h1><p>' + L('Your account (' + (STORE.me.email || '') + ') is registered. The project admin needs to give you access.', '你的账号（' + (STORE.me.email || '') + '）已注册，需要项目管理员授权后才能查看。') + '</p>' + (S.invBad ? '<p class="err" role="alert">' + L('The invite link you opened cannot give you access: it has expired or was withdrawn, or the admin took your access away. Ask the admin.', '你打开的邀请链接无法给你权限：链接已过期或已撤销，或管理员已收回你的权限。请联系管理员。') + '</p>' : '') + '<div class="row"><button class="btn" data-act="recheck">' + L('Check again', '重新检查') + '</button><button class="btn" data-act="signout">' + L('Sign out', '退出登录') + '</button></div></div>'; return;
   }
   var a = S.auth, c = cfg();
+  /* v3.4.7: opened a team invite link — say what it gives before the account is made */
+  var inv = invTok(), ip = S.invPeek;
+  if(inv && STORE.invitePeek && !(ip && ip.t === inv)){ ip = S.invPeek = {t:inv, st:'loading'}; STORE.invitePeek(inv).then(function(x){ S.invPeek = {t:inv, st:x ? 'ok' : 'bad', role:x && x.role}; if(!x) invTok(null); renderGate(); }, function(){ S.invPeek = {t:inv, st:'err'}; renderGate(); }); }
+  var invb = !ip ? '' : ip.st === 'ok' ? '<div class="invb" role="status">' + L('You are invited to join as ' + (ip.role === 'viewer' ? 'Viewer (read only)' : 'Editor') + '. Create your account below — you are in as soon as it is made. Have an account already? Sign in: it gets the same access if it is still waiting.', '你受邀以「' + (ip.role === 'viewer' ? '只读' : '编辑') + '」身份加入。在下方注册，注册后即可进入。已有账号？直接登录；如账号仍在等待审批，也会获得同样权限。') + '</div>'
+    : ip.st === 'bad' ? '<p class="err" role="alert">' + L('This invite link has expired or was withdrawn. Ask the person who sent it for a new one.', '此邀请链接已过期或已撤销，请向发送者索取新链接。') + '</p>' : '';
   var tabs = '<div class="seg" role="tablist">' + [['in','Sign in','登录'],['up','Create account','注册'],['reset','Forgot password','忘记密码']].map(function(t){ return '<button type="button" data-act="authTab" data-v="' + t[0] + '" aria-pressed="' + (a.tab === t[0]) + '">' + L(t[1], t[2]) + '</button>'; }).join('') + '</div>';
   var body = '';
-  if(a.tab === 'up') body = '<label class="fl">' + L('Name', '姓名') + '<input class="in" id="aName" required autocomplete="name"></label><label class="fl">' + L('Email', '邮箱') + '<input class="in" type="email" id="aEmail" required autocomplete="email"></label><label class="fl">' + L('Password (8+ characters)', '密码（至少 8 位）') + '<input class="in" type="password" id="aPw" minlength="8" required autocomplete="new-password"></label><button class="btn pri" type="submit"' + (a.busy ? ' disabled' : '') + '>' + L('Create account', '注册') + '</button><p class="note">' + L('After you register, the project admin gives you access.', '注册后，由项目管理员授权。') + '</p>';
+  if(a.tab === 'up') body = '<label class="fl">' + L('Name', '姓名') + '<input class="in" id="aName" required autocomplete="name"></label><label class="fl">' + L('Email', '邮箱') + '<input class="in" type="email" id="aEmail" required autocomplete="email"></label><label class="fl">' + L('Password (8+ characters)', '密码（至少 8 位）') + '<input class="in" type="password" id="aPw" minlength="8" required autocomplete="new-password"></label><button class="btn pri" type="submit"' + (a.busy ? ' disabled' : '') + '>' + L('Create account', '注册') + '</button><p class="note">' + (ip && ip.st === 'ok' ? L('The invite gives you access straight away.', '通过邀请注册，立即获得权限。') : L('After you register, the project admin gives you access.', '注册后，由项目管理员授权。')) + '</p>';
   else if(a.tab === 'reset') body = '<label class="fl">' + L('Email', '邮箱') + '<input class="in" type="email" id="aEmail" required autocomplete="email"></label><button class="btn pri" type="submit"' + (a.busy ? ' disabled' : '') + '>' + L('Send reset link', '发送重置链接') + '</button>';
   else body = '<label class="fl">' + L('Email', '邮箱') + '<input class="in" type="email" id="aEmail" required autocomplete="email"></label><label class="fl">' + L('Password', '密码') + '<input class="in" type="password" id="aPw" required autocomplete="current-password"></label><button class="btn pri" type="submit"' + (a.busy ? ' disabled' : '') + '>' + L('Sign in', '登录') + '</button>';
-  v.innerHTML = '<div class="card auth"><h1 class="vtitle">' + esc(c.projectEn) + '</h1><p class="muted" style="margin:0">work-web · ' + L('Site & document registers', '现场与资料台账') + '</p>' + tabs + '<form id="fAuth" class="fg1">' + body + '</form>' + (a.err ? '<p class="err" role="alert">' + esc(a.err) + '</p>' : '') + (a.msg ? '<p class="okm" role="status">' + esc(a.msg) + '</p>' : '') + '</div>';
+  v.innerHTML = '<div class="card auth"><h1 class="vtitle">' + esc(c.projectEn) + '</h1><p class="muted" style="margin:0">work-web · ' + L('Site & document registers', '现场与资料台账') + '</p>' + invb + tabs + '<form id="fAuth" class="fg1">' + body + '</form>' + (a.err ? '<p class="err" role="alert">' + esc(a.err) + '</p>' : '') + (a.msg ? '<p class="okm" role="status">' + esc(a.msg) + '</p>' : '') + '</div>';
 }
 
 /* ---------------- new version check ----------------

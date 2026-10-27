@@ -13,7 +13,7 @@ function baseOf(reg, rec){
 function actOf(reg, rec){
   var ro = rolesOf(reg), d = rec.d;
   var sk = ro.astart || (d.actualStart !== undefined ? 'actualStart' : null), fk = ro.afinish || ['actualFinish', 'actualEnd', 'actual'].filter(function(k){ return d[k] !== undefined && fieldOf(reg, k); })[0];
-  var s = sk ? d2n(d[sk]) : null, f = fk ? d2n(d[fk]) : null;
+  var s = sk ? d2n(sk === ro.astart ? headOr(reg, rec, 'astart', d[sk]) : d[sk]) : null, f = fk ? d2n(fk === ro.afinish ? headOr(reg, rec, 'afinish', d[fk]) : d[fk]) : null;
   if(s == null && f == null) return null;
   return {s:s, f:f};
 }
@@ -98,7 +98,7 @@ function snapshots(){ var r = snapReg(); return r ? recsOf(r.id).map(function(x)
 function scurveCalc(o){
   var A = o.asOf, regs = o.regs, items = [];
   regs.forEach(function(reg){ var idx = kidsIndex(reg.id), bf = rf(reg, 'block');
-    recsOf(reg.id).forEach(function(r){ if(idx[r.id]) return; if(o.ctx && !recOk(o.ctx, reg, r)) return; if(o.blk && bf && asArr(r.d[bf.key]).length && asArr(r.d[bf.key]).indexOf(o.blk) < 0) return; if(o.hide && o.hide.indexOf('r:' + r.id) >= 0) return;
+    recsOf(reg.id).forEach(function(r){ if(idx[r.id] && !r.d.asDoc) return; if(o.ctx && !recOk(o.ctx, reg, r)) return; if(o.blk && bf && asArr(r.d[bf.key]).length && asArr(r.d[bf.key]).indexOf(o.blk) < 0) return; if(o.hide && o.hide.indexOf('r:' + r.id) >= 0) return;
       var p = planOf(reg, r); if(!p) return; var w = o.weight && fieldOf(reg, o.weight) ? num(r.d[o.weight]) : 1; if(!w || w < 0) return;
       items.push({reg:reg, r:r, p:p, b:baseOf(reg, r), w:w}); }); });
   if(!items.length) return {err:'none'};

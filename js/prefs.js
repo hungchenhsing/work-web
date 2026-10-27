@@ -71,8 +71,8 @@ function viewMenu(reg){
   h += '<hr>';
   if(x && ch && canEditView(reg, x.id)) h += '<button type="button" data-act="vwUpdate">' + uic('check', 13) + ' ' + L('Update “' + x.name + '”', '更新「' + x.name + '」') + '</button>';
   if(x && ch) h += '<button type="button" data-act="vwRevert">' + uic('undo', 13) + ' ' + L('Undo changes to this view', '撤销对此视图的修改') + '</button>';
-  h += '<button type="button" data-act="vwSaveAs">' + uic('plus', 13) + ' ' + L('Save as a new view…', '另存为新视图…') + '</button>';
-  if(tv.length || mv.length) h += '<button type="button" data-act="vwManage">' + L('Manage views…', '管理视图…') + '</button>';
+  if(!isVisitor()) h += '<button type="button" data-act="vwSaveAs">' + uic('plus', 13) + ' ' + L('Save as a new view…', '另存为新视图…') + '</button>';
+  if((tv.length || mv.length) && !isVisitor()) h += '<button type="button" data-act="vwManage">' + L('Manage views…', '管理视图…') + '</button>';
   return h + '</div></details>';
 }
 function vwSaveModal(m){

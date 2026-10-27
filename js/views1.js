@@ -36,7 +36,7 @@ function viewRegister(reg){
 function treePanel(reg, tf){
   if(uiPref('treeHide', false) && !(S.treeEdit && S.treeEdit[reg.id])){ var f0 = rfil(reg.id), on = f0.node && f0.node !== 'all' ? treeNode(tf, f0.node) : null;
     return '<aside class="tree rail"><button type="button" class="railb" data-act="treeTog" aria-expanded="false" title="' + esc(T('Show ', '显示') + T1(tf.en, tf.zh)) + '">' + uic('right', 14) + '<span>' + esc(T1(tf.en, tf.zh)) + (on ? ': ' + esc((on.code ? on.code + ' ' : '') + nm(on)) : '') + '</span></button></aside>'; }
-  var f = rfil(reg.id), base = recsOf(reg.id).filter(function(r){ return matchRec(reg, r, f, true); }), cnt = {};
+  var f = rfil(reg.id), base = countedOf(reg, recsOf(reg.id)).filter(function(r){ return matchRec(reg, r, f, true); }), cnt = {};   /* counts leave heading items out (v3.4.7) */
   base.forEach(function(r){ treePath(tf, r.d[tf.key]).forEach(function(n){ cnt[n.id] = (cnt[n.id] || 0) + 1; }); });
   var none = base.filter(function(r){ return !treeNode(tf, r.d[tf.key]); }).length;
   var te = !!(S.treeEdit && S.treeEdit[reg.id]) && canSchemaEdit(reg);
@@ -53,6 +53,7 @@ function treePanel(reg, tf){
 /* v3.2 · the register's title block: name, then the figures that matter (overdue and due soon filter the list), then actions */
 function regHead(reg, list, all, ed){
   var ro = rolesOf(reg), A = asOfN(), f = rfil(reg.id), sf = rf(reg, 'status');
+  list = countedOf(reg, list); all = countedOf(reg, all);   /* v3.4.7: heading items are not counted */
   var done = sf ? all.filter(function(x){ return isDone(reg, x); }).length : 0, od = 0, due = 0;
   if(ro.finish || ro.start) all.forEach(function(x){ if(isOverdue(reg, x)) od++; else if(!isDone(reg, x)){ var p = planOf(reg, x); if(p && p.f >= A && p.f <= A + 14) due++; } });
   var cells = [[L('Items', '项'), list.length === all.length ? String(all.length) : list.length + ' / ' + all.length, '', '']];
@@ -66,7 +67,7 @@ function regHead(reg, list, all, ed){
       (canSchemaEdit(reg) ? '<button type="button" data-act="fieldsOpen" data-v="' + esc(reg.id) + '">' + L('Fields & columns', '字段与列') + '</button><button type="button" data-act="regSettings" data-v="' + esc(reg.id) + '">' + L('Register settings', '台账设置') + '</button>' : '') +
       (ed ? '<button type="button" data-act="impOpen" data-v="' + esc(reg.id) + '">' + L('Import Excel…', '导入 Excel…') + '</button>' : '') +
       '<button type="button" data-act="expReg" data-v="' + esc(reg.id) + '">' + L('Export Excel (filtered)', '导出 Excel（当前筛选）') + '</button>' +
-      '<button type="button" data-act="regHist" data-v="' + esc(reg.id) + '">' + L('Change log of this register', '本台账修改记录') + '</button>' + regPlanMenu(reg) + regMenuItem(reg) + (typeof trnMenu === 'function' ? trnMenu(reg) : '') + (typeof fcMenu === 'function' ? fcMenu(reg) : '') + (isPeopleReg(reg) && canTeamEdit() ? '<button type="button" data-act="peopleMatch">' + L('Match names in other registers…', '对照其他台账中的名字…') + '</button>' : '') + (canTeamEdit() && !isPrivate(reg) && reg.d.kind !== 'decks' && !isPeopleReg(reg) ? '<button type="button" data-act="shareReg" data-v="' + esc(reg.id) + '">' + L('Public link for this view…', '为当前视图生成公开链接…') + '</button>' : '') +
+      (isVisitor() ? '' : '<button type="button" data-act="regHist" data-v="' + esc(reg.id) + '">' + L('Change log of this register', '本台账修改记录') + '</button>') + regPlanMenu(reg) + regMenuItem(reg) + (typeof trnMenu === 'function' ? trnMenu(reg) : '') + (typeof fcMenu === 'function' ? fcMenu(reg) : '') + (isPeopleReg(reg) && canTeamEdit() ? '<button type="button" data-act="peopleMatch">' + L('Match names in other registers…', '对照其他台账中的名字…') + '</button>' : '') + (canTeamEdit() && !isPrivate(reg) && reg.d.kind !== 'decks' && !isPeopleReg(reg) ? '<button type="button" data-act="shareReg" data-v="' + esc(reg.id) + '">' + L('Public link for this view…', '为当前视图生成公开链接…') + '</button>' : '') +
     '</div></details></div></header>';
 }
 /* v3.3 · New, and with templates a ▾ to start from one */
@@ -128,7 +129,7 @@ function viewTable(reg, list){
     (oOn ? '<span class="row" style="gap:4px"><button type="button" class="btn sm" data-act="oAll" data-v="1">' + L('Open all', '全部展开') + '</button><button type="button" class="btn sm" data-act="oAll" data-v="0">' + L('Close all', '全部收起') + '</button></span>' : '') +
     '<button type="button" class="btn" data-act="colsPick">' + L('Columns', '列') + ' ▾</button>' +
     '<div class="seg dseg" role="group" aria-label="' + esc(T('Row height', '行高')) + '"><button type="button" data-act="dense" data-v="0" aria-pressed="' + !uiPref('dense', false) + '">' + L('Comfortable', '舒适') + '</button><button type="button" data-act="dense" data-v="1" aria-pressed="' + !!uiPref('dense', false) + '">' + L('Compact', '紧凑') + '</button></div>' +
-    '<span class="note hint">' + L('Click a cell to edit · click the No. for all fields', '点单元格直接编辑 · 点编号查看全部字段') + '</span></div>';
+    '<span class="note hint">' + (ed ? L('Click a cell to edit · click the No. for all fields', '点单元格直接编辑 · 点编号查看全部字段') : L('Click the No. for all fields', '点编号查看全部字段')) + '</span></div>';
   if(selIds.length && ed){
     h += '<div class="bulk"><b>' + L(selIds.length + ' selected', '已选 ' + selIds.length) + '</b><select class="in" id="bulkField"><option value="">' + esc(T('Set a field…', '批量设置字段…')) + '</option>' + dataFields(reg).filter(function(f){ return ['text','number','percent','date','select','tree','check','long'].indexOf(f.type) >= 0 && !(f.type === 'percent' && f.auto); }).map(function(f){ return '<option value="' + esc(f.key) + '">' + esc(T1(f.en, f.zh)) + '</option>'; }).join('') + '</select>' +
       (S.bulkF ? bulkInput(reg, fieldOf(reg, S.bulkF)) : '') +
@@ -146,8 +147,8 @@ function viewTable(reg, list){
   var tvis = [];
   if(oOn) body = oTableBody(reg, list, cols, ed);
   groups.forEach(function(g){
-    if(gk !== 'none'){ var colp = !!S.gcol[reg.id + g.k], dn = g.items.filter(function(x){ return isDone(reg, x); }).length;
-      body += '<tr class="grp"><td colspan="' + span + '"><button type="button" class="glb" data-act="gcol" data-v="' + esc(reg.id + g.k) + '">' + (colp ? '▸' : '▾') + ' ' + (g.color ? '<span class="sw c-' + esc(g.color) + '"></span>' : '') + '<b>' + esc(g.label) + '</b> <span class="muted mono">' + (rf(reg, 'status') ? dn + '/' : '') + g.items.length + '</span></button>' + (ed && g.set ? ' <button type="button" class="btn sm" data-act="grpAdd" data-v="' + esc(JSON.stringify(g.set)) + '">+ ' + L('Add here', '在此新增') + '</button>' : '') + '</td></tr>';
+    if(gk !== 'none'){ var colp = !!S.gcol[reg.id + g.k], gdoc = countedOf(reg, g.items), dn = gdoc.filter(function(x){ return isDone(reg, x); }).length;
+      body += '<tr class="grp"><td colspan="' + span + '"><button type="button" class="glb" data-act="gcol" data-v="' + esc(reg.id + g.k) + '">' + (colp ? '▸' : '▾') + ' ' + (g.color ? '<span class="sw c-' + esc(g.color) + '"></span>' : '') + '<b>' + esc(g.label) + '</b> <span class="muted mono">' + (rf(reg, 'status') ? dn + '/' : '') + gdoc.length + '</span></button>' + (ed && g.set ? ' <button type="button" class="btn sm" data-act="grpAdd" data-v="' + esc(JSON.stringify(g.set)) + '">+ ' + L('Add here', '在此新增') + '</button>' : '') + '</td></tr>';
       if(colp) return; }
     body += hierRows(reg, g.items, cols, ed, 0, tvis);
   });
@@ -176,8 +177,8 @@ function hierRows(reg, items, cols, ed, base, vis){
 function tableRow(reg, r, cols, ed, h){
   h = h || {depth:0, kids:[]};
   var ro = rolesOf(reg), od = isOverdue(reg, r), cm = openFb(r.id) > 0, ru = h.kids.length ? rollup(reg, r, h.kids) : null;
-  return '<tr class="' + (r.d.star ? 'star ' : '') + (od ? 'odr ' : '') + (h.depth ? 'kid ' : '') + (h.ctx ? 'ctxr' : '') + '"' + (h.ctx ? ' title="' + esc(T('Shown because a sub-item matches', '因子项符合条件而显示')) + '"' : '') + '>' + (ed ? '<td class="sel"><input type="checkbox" class="rowsel" data-id="' + esc(r.id) + '"' + (S.sel[r.id] ? ' checked' : '') + ' aria-label="Select"></td>' : '') + cols.map(function(f){
-    var ce = ed && f.type !== 'calc' && !(f.type === 'percent' && isAutoNow(r, f)), inner;
+  return '<tr class="' + (r.d.star ? 'star ' : '') + (od ? 'odr ' : '') + (h.depth ? 'kid ' : '') + (h.ctx ? 'ctxr ' : '') + (isHead(reg, r) ? 'hdr' : '') + '"' + (h.ctx ? ' title="' + esc(T('Shown because a sub-item matches', '因子项符合条件而显示')) + '"' : '') + '>' + (ed ? '<td class="sel"><input type="checkbox" class="rowsel" data-id="' + esc(r.id) + '"' + (S.sel[r.id] ? ' checked' : '') + ' aria-label="Select"></td>' : '') + cols.map(function(f){
+    var ce = ed && f.type !== 'calc' && !(f.type === 'percent' && isAutoNow(r, f)) && !headLocked(reg, r, f), inner;
     if(S.edit && S.edit.id === r.id && S.edit.k === f.key){
       var v = r.d[f.key] == null ? '' : r.d[f.key];
       inner = f.type === 'long' ? '<textarea class="in ie" data-ie="1" data-fk="ie" rows="3">' + esc(v) + '</textarea>' : '<input class="in ie" data-ie="1" data-fk="ie" type="' + (f.type === 'date' ? 'date' : f.type === 'number' || f.type === 'percent' ? 'number' : 'text') + '" value="' + esc(v) + '">';
@@ -186,6 +187,7 @@ function tableRow(reg, r, cols, ed, h){
     if(f.key === ro.no) return '<td class="no"' + (h.base ? ' style="padding-left:' + (10 + h.base * 18) + 'px"' : '') + '><button type="button" class="lnk mono" data-act="openRec" data-id="' + esc(r.id) + '">' + esc(r.d[f.key] || '—') + '</button>' + (r.d.star ? ' <span class="kst">★</span>' : '') + (r.d.ext && ownerGated(reg) && !isPrivate(reg) ? ' <span class="oeye" title="' + esc(T('Owner can see', '业主可见')) + '" aria-label="' + esc(T('Owner can see', '业主可见')) + '">' + uic('eye', 12) + '</span>' : '') + (cm ? '<span class="rdot"></span>' : '') + (function(){ var n = relCount(r); return n ? '<button type="button" class="rlk" data-act="openRecTab" data-v="' + esc(r.id) + '" title="' + esc(T(n + ' linked', n + ' 项关联')) + '">' + uic('link', 11) + n + '</button>' : ''; })() + '</td>';
     if(f.key === ro.title){ var lead = '<span class="ind" style="width:' + ((h.depth + (h.base && !cols.some(function(c){ return c.key === ro.no; }) ? h.base : 0)) * 22) + 'px"></span>' + (h.kids.length ? (h.forced ? '<span class="cx cxf" title="' + esc(T('Open because a sub-item matches the search', '因子项符合搜索而展开')) + '">▾</span>' : '<button type="button" class="cx" data-act="rexp" data-v="' + esc(r.id) + '" aria-expanded="' + !!h.open + '" title="' + esc(T('Show sub-items', '展开子项')) + '">' + (h.open ? '▾' : '▸') + '</button>') : (h.depth ? '<span class="cx0">└</span>' : ''));
       return '<td class="tt' + (ce ? ' ce' : '') + '"' + (ce ? ' data-ce="1" data-id="' + esc(r.id) + '" data-k="' + esc(f.key) + '"' : '') + '><div class="ttw">' + lead + '<div class="ttx">' + (h.orphan ? '<span class="pp">↳ ' + esc(recNo(reg, h.orphan) || recTitle(reg, h.orphan)) + '</span>' : '') + '<span class="tt1" title="' + esc(r.d[f.key] || recTitle(reg, r) || '') + '">' + esc(r.d[f.key] || recTitle(reg, r) || '—') + '</span>' + (recTitle2(reg, r) && !tableCols(reg).some(function(c){ return c.key === ro.title2; }) ? '<span class="tt2" title="' + esc(recTitle2(reg, r)) + '">' + esc(recTitle2(reg, r)) + '</span>' : '') + (ru ? (h.forced ? '<span class="kc">' : '<button type="button" class="kc" data-act="rexp" data-v="' + esc(r.id) + '">') + L(ru.done + '/' + ru.n + ' sub-items done', ru.n + ' 个子项，已完成 ' + ru.done) + (h.forced ? '</span>' : '</button>') : '') + '</div></div></td>'; }
+    if(headLocked(reg, r, f)) return '<td class="t-' + esc(f.type) + ' hdv" title="' + esc(T('From its sub-items', '由子项汇总')) + '" data-act="openRec" data-id="' + esc(r.id) + '">' + (f.key === ro.progress ? pbar(progressOf(reg, r), '<span class="auto">Σ</span>') : cellHtml(reg, f, r)) + '</td>';
     if(f.key === ro.progress && ru && (r.d[f.key] == null || r.d[f.key] === '') && !isAutoNow(r, f)) return '<td class="t-percent">' + pbar(ru.pct, '<span class="auto" title="' + esc(T('Rolled up from sub-items', '由子项汇总')) + '">Σ</span>') + '</td>';
     var tip = (f.type === 'text' || f.type === 'long') && r.d[f.key] && String(r.d[f.key]).length > 40 ? ' title="' + esc(String(r.d[f.key]).slice(0, 1200)) + '"' : '';
     return '<td class="t-' + esc(f.type) + (ce ? ' ce' : '') + '"' + tip + (ce ? ' data-ce="1" data-id="' + esc(r.id) + '" data-k="' + esc(f.key) + '"' : ' data-act="openRec" data-id="' + esc(r.id) + '"') + '>' + cellHtml(reg, f, r) + '</td>';
@@ -208,7 +210,7 @@ function recCard(reg, r, drag){
   var u = img && STORE.fileUrl(img.path);
   var who = dataFields(reg).filter(function(f){ return f.list === 'people' && f.key !== 'attendees'; })[0];
   return '<button type="button" class="rc card' + (od ? ' od' : '') + (r.d.star ? ' star' : '') + '" data-act="openRec" data-id="' + esc(r.id) + '"' + (drag ? ' draggable="true" data-drag="' + esc(r.id) + '"' : '') + '>' + (u ? '<img src="' + esc(u) + '" alt="" loading="lazy">' : '') +
-    '<span class="rc1"><span class="mono muted">' + esc(recNo(reg, r)) + '</span>' + (statusOpt(reg, r) && !drag ? (canWrite(reg) && rf(reg, 'status') ? '<span class="rcst" role="button" tabindex="0" data-act="pick" data-id="' + esc(r.id) + '" data-k="' + esc(rf(reg, 'status').key) + '" aria-label="' + esc(T('Change status', '更改状态')) + '">' + optChip(statusOpt(reg, r)) + uic('chev', 11) + '</span>' : optChip(statusOpt(reg, r))) : '') + (r.d.star ? '<span class="kst">★</span>' : '') + (r.d.ext && ownerGated(reg) && !isPrivate(reg) ? '<span class="oeye" title="' + esc(T('Owner can see', '业主可见')) + '">' + uic('eye', 12) + '</span>' : '') + '</span>' +
+    '<span class="rc1"><span class="mono muted">' + esc(recNo(reg, r)) + '</span>' + (statusOpt(reg, r) && !drag ? (canWrite(reg) && rf(reg, 'status') && !headLocked(reg, r, rf(reg, 'status')) ? '<span class="rcst" role="button" tabindex="0" data-act="pick" data-id="' + esc(r.id) + '" data-k="' + esc(rf(reg, 'status').key) + '" aria-label="' + esc(T('Change status', '更改状态')) + '">' + optChip(statusOpt(reg, r)) + uic('chev', 11) + '</span>' : optChip(statusOpt(reg, r))) : '') + (r.d.star ? '<span class="kst">★</span>' : '') + (r.d.ext && ownerGated(reg) && !isPrivate(reg) ? '<span class="oeye" title="' + esc(T('Owner can see', '业主可见')) + '">' + uic('eye', 12) + '</span>' : '') + '</span>' +
     '<span class="rct">' + esc(recTitle(reg, r) || '—') + '</span>' + (recTitle2(reg, r) ? '<span class="rct2">' + esc(recTitle2(reg, r)) + '</span>' : '') +
     '<span class="rc2">' + (bf ? blockChips(r.d[bf.key], bf) : '') + (p ? '<span class="mono' + (od ? ' od' : '') + '">' + esc(md(n2d(p.f))) + (od ? ' !' : '') + '</span>' : '') + (who && !isEmpty(r.d[who.key]) ? '<span class="muted ppl">' + esc(textOf(reg, who, r)) + '</span>' : '') + '</span>' +
     (pr != null && rf(reg, 'progress') ? pbar(pr) : '') + (function(){ var ru = rollup(reg, r); return ru ? '<span class="rck">' + L(ru.n + (ru.n === 1 ? ' sub-item' : ' sub-items') + ' · ' + ru.done + '/' + ru.n + ' done', ru.n + ' 个子项 · 已完成 ' + ru.done + '/' + ru.n) + '</span>' : ''; })() + '</button>';
@@ -231,17 +233,18 @@ function viewBoard(reg, list){
   var bf = boardField(reg), ed = canWrite(reg);
   list = sortRecs(reg, hierSplit(reg, list, null, {noCtx:true}).roots);   // v3.4.4: sub-items stay inside their item (the card says how many); a match whose item is filtered out still shows
   var h = '<div class="tbar"><label class="fl row">' + L('Columns by', '分栏依据') + '<select class="in" id="rboard">' + dataFields(reg).filter(function(f){ return f.type === 'select' && !f.multi; }).map(function(f){ return '<option value="' + esc(f.key) + '"' + (f.key === bf.key ? ' selected' : '') + '>' + esc(T1(f.en, f.zh)) + '</option>'; }).join('') + '</select></label>' + (ed ? '<span class="note">' + L('Drag cards between columns to change ', '拖动卡片到其他栏即可修改') + esc(T1(bf.en, bf.zh)) + '</span>' : '') + '</div>';
-  var cols = optsOf(bf).map(function(o){ return {v:o.v, o:o, items:list.filter(function(r){ return r.d[bf.key] === o.v; })}; });
-  var none = list.filter(function(r){ return !optOf(bf, r.d[bf.key]); });
+  var cols = optsOf(bf).map(function(o){ return {v:o.v, o:o, items:list.filter(function(r){ return val(r, bf) === o.v; })}; });
+  var none = list.filter(function(r){ return !optOf(bf, val(r, bf)); });
   if(none.length) cols.unshift({v:'', o:null, items:none});
   return h + '<div class="board">' + cols.map(function(c){
-    return '<section class="bcol" data-drop="' + esc(c.v) + '" data-k="' + esc(bf.key) + '"><div class="bch">' + (c.o ? '<span class="sw c-' + esc(c.o.color) + '"></span><b>' + esc(nm(c.o)) + '</b>' : '<b class="muted">' + L('(empty)', '（空）') + '</b>') + '<span class="mono muted">' + c.items.length + '</span>' + (ed && c.o ? '<button type="button" class="ib" data-act="boardAdd" data-v="' + esc(c.v) + '" title="' + esc(T('Add', '新增')) + '">' + uic('plus', 14) + '</button>' : '') + '</div><div class="bcl">' + (function(){ var mk0 = reg.id + ':' + c.v, lim = (S.bmore || {})[mk0] ? 1e9 : 40; return c.items.slice(0, lim).map(function(r){ return recCard(reg, r, ed); }).join('') + (c.items.length > lim ? '<button type="button" class="btn sm bmore" data-act="bMore" data-v="' + esc(mk0) + '">' + L('Show ' + (c.items.length - lim) + ' more', '再显示 ' + (c.items.length - lim) + ' 项') + '</button>' : ''); })() + '</div></section>';
+    return '<section class="bcol" data-drop="' + esc(c.v) + '" data-k="' + esc(bf.key) + '"><div class="bch">' + (c.o ? '<span class="sw c-' + esc(c.o.color) + '"></span><b>' + esc(nm(c.o)) + '</b>' : '<b class="muted">' + L('(empty)', '（空）') + '</b>') + '<span class="mono muted">' + c.items.length + '</span>' + (ed && c.o ? '<button type="button" class="ib" data-act="boardAdd" data-v="' + esc(c.v) + '" title="' + esc(T('Add', '新增')) + '">' + uic('plus', 14) + '</button>' : '') + '</div><div class="bcl">' + (function(){ var mk0 = reg.id + ':' + c.v, lim = (S.bmore || {})[mk0] ? 1e9 : 40; return c.items.slice(0, lim).map(function(r){ return recCard(reg, r, ed && !headLocked(reg, r, bf)); }).join('') + (c.items.length > lim ? '<button type="button" class="btn sm bmore" data-act="bMore" data-v="' + esc(mk0) + '">' + L('Show ' + (c.items.length - lim) + ' more', '再显示 ' + (c.items.length - lim) + ' 项') + '</button>' : ''); })() + '</div></section>';
   }).join('') + '</div>';
 }
 
 /* ---------------- block matrix (PV) ---------------- */
 function matrixAgg(reg, items){
   var m = matrixCfg(reg);
+  items = countedOf(reg, items);   /* v3.4.7: heading items are not counted */
   if(!items.length) return null;
   if(m.val === 'count') return {v:items.length, t:String(items.length)};
   if(m.val === 'open'){ var o = items.filter(function(r){ return !isDone(reg, r); }).length; return {v:o, t:String(o), bad:o > 0}; }
@@ -262,7 +265,7 @@ function viewMatrix(reg, list){
   var groups = groupRecs(reg, list, m.row);
   var t = '<table class="mx"><thead><tr><th>' + L(rfd ? rfd.en : '', rfd ? rfd.zh : '') + '</th>' + cols.map(function(c){ return '<th><span class="ar c-' + esc(c.o.color) + '">' + esc(c.v) + '</span> ' + esc(nm(c.o)) + '</th>'; }).join('') + '<th>' + L('Total', '合计') + '</th></tr></thead><tbody>';
   groups.forEach(function(g){
-    t += '<tr><th class="mr">' + (g.color ? '<span class="sw c-' + esc(g.color) + '"></span>' : '') + esc(g.label) + ' <span class="muted mono">' + g.items.length + '</span></th>' + cols.map(function(c){
+    t += '<tr><th class="mr">' + (g.color ? '<span class="sw c-' + esc(g.color) + '"></span>' : '') + esc(g.label) + ' <span class="muted mono">' + countedOf(reg, g.items).length + '</span></th>' + cols.map(function(c){
       var its = g.items.filter(function(r){ return asArr(r.d[cf.key]).indexOf(c.v) >= 0; }), a = matrixAgg(reg, its);
       if(!a) return '<td class="mc mc0">·</td>';
       return '<td class="mc" style="' + (m.val === 'progress' ? heat(a.v) : a.bad ? 'background:var(--bad-soft)' : '') + '"><button type="button" class="mcb" data-act="mxCell" data-v="' + esc(JSON.stringify({g:g.k, c:c.v})) + '"><b class="mono">' + esc(a.t) + '</b>' + (a.sub ? '<span class="mono muted">' + esc(a.sub) + '</span>' : '') + '</button></td>';
@@ -322,8 +325,8 @@ function ganttHtml(sets, o){
   var body = '<div class="grow ghead"><div class="gleft" style="width:' + LW + 'px;grid-template-columns:' + tpl + '">' + LC.map(function(x){ return '<div class="gc">' + L(x[1], x[2]) + '</div>'; }).join('') + '</div><div class="gt" style="' + grid + ';height:40px">' + ticks + lines + '</div></div>';
   function grpRow(key, label, items, reg, color, set){
     var smn = Infinity, smx = -Infinity; items.forEach(function(x){ var p = planOf(x.reg, x.rec); if(p){ smn = Math.min(smn, p.s); smx = Math.max(smx, p.f); } });
-    var colp = !!S.gcol[key], dn = items.filter(function(x){ return isDone(x.reg, x.rec); }).length;
-    body += '<div class="grow ggrp"><div class="gleft" style="width:' + LW + 'px"><div class="gspan"><button type="button" class="glb" data-act="gcol" data-v="' + esc(key) + '">' + (colp ? '▸ ' : '▾ ') + (color ? '<span class="sw c-' + esc(color) + '"></span>' : '') + '<b>' + label + '</b> <span class="muted mono">' + dn + '/' + items.length + '</span></button>' + (reg && set && canWrite(reg) ? '<button type="button" class="btn sm" data-act="grpAdd" data-reg="' + esc(reg.id) + '" data-v="' + esc(JSON.stringify(set)) + '">+</button>' : '') + '</div></div><div class="gt" style="' + grid + '">' + lines + (isFinite(smn) ? '<div class="sum" style="left:' + ((smn - mn) * px) + 'px;width:' + Math.max(px, (smx - smn + 1) * px) + 'px"></div>' : '') + '</div></div>';
+    var colp = !!S.gcol[key], gdoc = items.filter(function(x){ return !isHead(x.reg, x.rec); }), dn = gdoc.filter(function(x){ return isDone(x.reg, x.rec); }).length;
+    body += '<div class="grow ggrp"><div class="gleft" style="width:' + LW + 'px"><div class="gspan"><button type="button" class="glb" data-act="gcol" data-v="' + esc(key) + '">' + (colp ? '▸ ' : '▾ ') + (color ? '<span class="sw c-' + esc(color) + '"></span>' : '') + '<b>' + label + '</b> <span class="muted mono">' + dn + '/' + gdoc.length + '</span></button>' + (reg && set && canWrite(reg) ? '<button type="button" class="btn sm" data-act="grpAdd" data-reg="' + esc(reg.id) + '" data-v="' + esc(JSON.stringify(set)) + '">+</button>' : '') + '</div></div><div class="gt" style="' + grid + '">' + lines + (isFinite(smn) ? '<div class="sum" style="left:' + ((smn - mn) * px) + 'px;width:' + Math.max(px, (smx - smn + 1) * px) + 'px"></div>' : '') + '</div></div>';
     return colp;
   }
   function sortByStart(items){ return items.sort(function(a, b){ var pa = planOf(a.reg, a.rec), pb = planOf(b.reg, b.rec); return (pa ? pa.s : 1e9) - (pb ? pb.s : 1e9); }); }
@@ -359,15 +362,15 @@ function ganttHtml(sets, o){
 }
 function ganttRow(reg, rec, mn, px, grid, lines, LC, LW, tpl, A, ind, hd){
   hd = hd || {depth:0, kids:[]};
-  var p = planOf(reg, rec), ed = canWrite(reg), od = isOverdue(reg, rec), pr = progressOf(reg, rec), fb = openFb(rec.id) > 0, st = statusOpt(reg, rec), ro = rolesOf(reg);
+  var p = planOf(reg, rec), ed = canWrite(reg), od = isOverdue(reg, rec), pr = progressOf(reg, rec), fb = openFb(rec.id) > 0, st = statusOpt(reg, rec), ro = rolesOf(reg), hl = isHead(reg, rec);
   var left = LC.map(function(c){
     var k = c[0];
     if(k === 'no') return '<div class="gc"><button type="button" class="glb mono" data-act="openRec" data-id="' + esc(rec.id) + '">' + esc(recNo(reg, rec) || '—') + '</button>' + (fb ? '<span class="rdot"></span>' : '') + '</div>';
     if(k === 'title') return '<div class="gc t' + (rec.d.star ? ' key' : '') + (hd.ctx ? ' ctxr' : '') + '" data-act="openRec" data-id="' + esc(rec.id) + '"' + (hd.depth || ind ? ' style="padding-left:' + (6 + ((hd.depth || 0) + (ind || 0)) * 16) + 'px"' : '') + '>' + (hd.kids.length ? hd.forced ? '<span class="cx cxf">▾</span>' : '<button type="button" class="cx" data-act="rexp" data-v="' + esc(rec.id) + '" aria-expanded="' + !!hd.open + '" aria-label="' + esc((hd.open ? T('Hide the sub-items of ', '收起子项：') : T('Show the sub-items of ', '展开子项：')) + recLabel(rec)) + '">' + (hd.open ? '▾' : '▸') + '</button>' : hd.depth ? '<span class="cx0">└</span>' : '') + '<span style="min-width:0"><span class="tt">' + esc(recTitle(reg, rec) || '—') + '</span>' + (recTitle2(reg, rec) ? '<span class="ts">' + esc(recTitle2(reg, rec)) + '</span>' : '') + '</span></div>';
     if(k === 'blk'){ var bf = rf(reg, 'block'); return '<div class="gc">' + (bf ? blockChips(rec.d[bf.key], bf) : '') + '</div>'; }
     if(k === 's' || k === 'f'){ var dk = k === 's' ? ro.start : ro.finish, dv = p ? md(n2d(k === 's' ? p.s : p.f)) : '';
-      if(ed && dk && S.edit && S.edit.id === rec.id && S.edit.k === dk) return '<div class="gc"><input class="gdi mono" type="date" data-ie="1" data-fk="ie" value="' + esc(rec.d[dk] || '') + '"></div>';
-      return '<div class="gc mono' + (k === 'f' && od ? ' od' : '') + (ed && dk ? ' gce' : '') + '"' + (ed && dk ? ' data-gce="' + esc(rec.id) + '" data-k="' + esc(dk) + '" title="' + esc(T('Click to change', '点击修改')) + '"' : '') + '>' + esc(dv || '—') + '</div>'; }
+      if(ed && !hl && dk && S.edit && S.edit.id === rec.id && S.edit.k === dk) return '<div class="gc"><input class="gdi mono" type="date" data-ie="1" data-fk="ie" value="' + esc(rec.d[dk] || '') + '"></div>';
+      return '<div class="gc mono' + (k === 'f' && od ? ' od' : '') + (ed && !hl && dk ? ' gce' : '') + '"' + (hl ? ' title="' + esc(T('From its sub-items', '由子项汇总')) + '"' : '') + (ed && !hl && dk ? ' data-gce="' + esc(rec.id) + '" data-k="' + esc(dk) + '" title="' + esc(T('Click to change', '点击修改')) + '"' : '') + '>' + esc(dv || '—') + '</div>'; }
     if(k === 'p') return '<div class="gc mono">' + (pr != null ? pr + '%' : '') + '</div>';
     if(k === 'st') return '<div class="gc">' + (st ? chip(st.color, esc(S.lang === 'zh' ? st.zh || st.en : st.en)) : '') + '</div>';
     return '<div class="gc"></div>';
@@ -378,6 +381,9 @@ function ganttRow(reg, rec, mn, px, grid, lines, LC, LW, tpl, A, ind, hd){
   if(as != null){ if(ae == null) ae = isDone(reg, rec) ? as : A; tr += '<div class="act" style="left:' + ((as - mn) * px) + 'px;width:' + Math.max(3, (ae - as + 1) * px) + 'px"></div>'; }
   if(!p){ var ks = hd.kids.length ? (function(){ var s0 = Infinity, e0 = -Infinity; descendantsOf(rec).forEach(function(k){ var q = planOf(reg, k); if(q){ s0 = Math.min(s0, q.s); e0 = Math.max(e0, q.f); } }); return isFinite(s0) ? {s:s0, f:e0} : null; })() : null;
     tr += ks ? '<div class="sum" style="left:' + ((ks.s - mn) * px) + 'px;width:' + Math.max(px, (ks.f - ks.s + 1) * px) + 'px" title="' + esc(recLabel(rec) + ' · ' + T('span of its sub-items', '子项的起止范围') + ' · ' + n2d(ks.s) + ' → ' + n2d(ks.f)) + '"></div>' : '<span class="bl" style="left:8px">' + L('No dates', '未设日期') + '</span>'; }
+  else if(hl){   /* v3.4.7: a heading spans its sub-items; it is not moved by hand */
+    tr += '<div class="sum" style="left:' + ((p.s - mn) * px) + 'px;width:' + Math.max(px, (p.f - p.s + 1) * px) + 'px" title="' + esc(recLabel(rec) + ' · ' + T('span of its sub-items', '子项的起止范围') + ' · ' + n2d(p.s) + ' → ' + n2d(p.f) + (pr != null ? ' · ' + pr + '%' : '')) + '"></div>' + (pr != null ? '<span class="bl" style="left:' + ((p.f - mn + 1) * px + 5) + 'px">' + pr + '%</span>' : '');
+  }
   else {
     var tip = esc(recLabel(rec) + ' · ' + n2d(p.s) + ' → ' + n2d(p.f) + (pr != null ? ' · ' + pr + '%' : '') + (st ? ' · ' + nm(st) : ''));
     if(isMilestone(reg, rec) || p.s === p.f && !ro.progress){

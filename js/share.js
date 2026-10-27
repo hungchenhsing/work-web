@@ -31,10 +31,11 @@ function shareField(f){
   return shareObj(o);
 }
 /* which fields of a register go out. strict (register views): External fields plus No. and title only;
-   cols: only these columns (plus No., title and package) */
-function shareKeys(reg, strict, cols){
+   cols: only these columns (plus No., title and package); team (site links made for the team, v3.4.7): every field except
+   files, links and sub-tables */
+function shareKeys(reg, strict, cols, team){
   var d = (reg && shareIsObj(reg.d)) ? reg.d : {}, lib = d.kind === 'library', fs = shareFields(d), ro = shareRoles(d), keys = shareSet();
-  fs.forEach(function(f){ var k = shareStr(f.key); if(k && SHARE_BAD.indexOf(shareStr(f.type) || '') < 0 && (f.ext === true || (lib && SHARE_LIB_KEYS.indexOf(k) >= 0))) keys[k] = 1; });
+  fs.forEach(function(f){ var k = shareStr(f.key); if(k && SHARE_BAD.indexOf(shareStr(f.type) || '') < 0 && (f.ext === true || team === true || (lib && SHARE_LIB_KEYS.indexOf(k) >= 0))) keys[k] = 1; });
   (strict ? ['no', 'title', 'title2'] : SHARE_ROLE_KEYS).forEach(function(r){ var k = shareStr(ro[r]); if(k) keys[k] = 1; });
   if(!strict){
     fs.forEach(function(f){ if(typeof f.key === 'string' && f.key === ro.progress && shareIsObj(f.auto)){ [shareStr(f.auto.a), shareStr(f.auto.b)].forEach(function(k){ if(k) keys[k] = 1; }); } });
@@ -89,28 +90,28 @@ function shareLists(l0, acc){
     else { var x = clone(v); x.opts = v.opts.filter(function(o){ return shareIsObj(o) && typeof o.v === 'string' && acc.used[k + '\x1f' + o.v]; }).map(clone); cl[k] = x; } });
   return cl;
 }
-/* opt: {strict, cols, filter, ids} — see share_project */
+/* opt: {strict, team, cols, filter, ids} — see share_project */
 function shareProject(src, ids, opt){
   opt = shareIsObj(opt) ? opt : {};
-  var strict = opt.strict === true, only = null;
+  var strict = opt.strict === true, team = opt.team === true, only = null;
   if(Array.isArray(opt.ids)){ only = shareSet(); opt.ids.forEach(function(x){ if(typeof x === 'string') only[x] = 1; }); }
   var regs = [], recs = [], acc = {lst:shareSet(), full:shareSet(), used:shareSet()}, seen = shareSet();
   (ids || []).forEach(function(id){
     if(seen[id]) return; seen[id] = 1;
     var g = (src.regs || []).filter(function(r){ return r && r.id === id; })[0]; if(!shareRegOk(g)) return;
-    var d0 = g.d, fs = shareFields(d0), ro = shareRoles(d0), gated = shareGated(g), keys = shareKeys(g, strict, opt.cols), roles = {};
+    var d0 = g.d, fs = shareFields(d0), ro = shareRoles(d0), gated = shareGated(g) && !team, keys = shareKeys(g, strict, opt.cols, team), roles = {};
     Object.keys(ro).forEach(function(k){ if(SHARE_ROLE_KEYS.indexOf(k) >= 0 && typeof ro[k] === 'string' && keys[ro[k]]) roles[k] = ro[k]; });
     var flds = fs.filter(function(f){ return typeof f.key === 'string' && keys[f.key]; }).map(shareField), d = {};
     ['kind', 'en', 'zh', 'icon', 'color', 'sec', 'prefix', 'tpl', 'ownerPublish', 'allMs', 'view', 'matrix'].forEach(function(k){ d[k] = shareCl(d0[k]); });
     d.roles = roles; d.fields = flds;
     regs.push({id:g.id, vis:'team', d:shareObj(d)});
-    /* parent / ms / ext travel with records unless a field of that name exists (then the field rules apply) */
+    /* parent / ms / ext / asDoc travel with records unless a field of that name exists (then the field rules apply) */
     var allk = shareSet(), fp = shareFilterPrep(fs, ro, opt.filter), rs = [];
     fs.forEach(function(f){ if(typeof f.key === 'string') allk[f.key] = 1; });
     (src.recs || []).forEach(function(r){
       if(!r || r.reg !== g.id) return; var rd = shareIsObj(r.d) ? r.d : {};
       if((gated && rd.ext !== true) || (only && !(typeof r.id === 'string' && only[r.id])) || !shareFilterRec(fp, rd)) return;
-      var o = {}; Object.keys(rd).forEach(function(k){ if(rd[k] !== undefined && (keys[k] || ((k === 'parent' || k === 'ms' || k === 'ext') && !allk[k]))) o[k] = clone(rd[k]); });
+      var o = {}; Object.keys(rd).forEach(function(k){ if(rd[k] !== undefined && (keys[k] || ((k === 'parent' || k === 'ms' || k === 'ext' || k === 'asDoc') && !allk[k]))) o[k] = clone(rd[k]); });
       rs.push({id:r.id, reg:r.reg, d:o});
     });
     recs = recs.concat(rs);
@@ -124,6 +125,7 @@ function shareProject(src, ids, opt){
 /* which registers a link reads, and the options for shareProject (stage: live / freeze / check) */
 function shareRegList(d){ return d && shareIsObj(d.cfg) && Array.isArray(d.cfg.regs) ? d.cfg.regs.filter(function(x){ return typeof x === 'string'; }) : []; }
 function shareOpt(d, stage){
+  if(d && d.kind === 'site') return shareIsObj(d.cfg) && d.cfg.scope === 'team' ? {team:true} : {};
   if(!d || d.kind !== 'reg') return {}; var c = shareIsObj(d.cfg) ? d.cfg : {};
   return shareObj({strict:true, cols:shareCl(c.cols), filter:stage !== 'check' ? shareCl(c.filter) : null, ids:stage === 'freeze' ? shareCl(c.ids) : null});
 }
@@ -171,11 +173,11 @@ function shareCfg(t, c){
 }
 function shareEl(e){ if(!shareIsObj(e) || e.k !== 'data') return shareCl(e); var x = clone(e), c = shareCfg(e.type, e.cfg); if(c != null) x.cfg = c; return x; }
 function shareLogo(l){ return shareIsObj(l) && typeof l.path === 'string' ? {path:l.path} : null; }
-function shareDeckPublic(rec){
+function shareDeckPublic(rec, aud){
   if(!rec || !shareIsObj(rec.d)) return null; var p = rec.d, th = p.theme;
   var slides = (Array.isArray(p.slides) ? p.slides : []).filter(function(s){ return shareIsObj(s) && !shareTruthy(s.hidden); }).map(function(s){
     return shareObj({id:shareCl(s.id), type:shareCl(s.type), title:shareCl(s.title), box:shareCl(s.box), cfg:shareCfg(s.type, s.cfg), els:Array.isArray(s.els) ? s.els.map(shareEl) : null}); });
-  return {id:rec.id, d:shareObj({no:shareCl(p.no), title:shareCl(p.title), titleZh:shareCl(p.titleZh), date:shareCl(p.date), lang:shareCl(p.lang), presenter:shareCl(p.presenter), aud:'owner',
+  return {id:rec.id, d:shareObj({no:shareCl(p.no), title:shareCl(p.title), titleZh:shareCl(p.titleZh), date:shareCl(p.date), lang:shareCl(p.lang), presenter:shareCl(p.presenter), aud:aud === 'internal' ? 'internal' : 'owner',
     theme:shareIsObj(th) ? shareObj({color:shareCl(th.color), foot:shareCl(th.foot), footText:shareCl(th.footText), conf:shareCl(th.conf), style:shareCl(th.style), agenda:shareCl(th.agenda), logoL:shareLogo(th.logoL), logoR:shareLogo(th.logoR)}) : null,
     slides:slides})};
 }
@@ -200,7 +202,15 @@ function shareServe(src, x){
     if(!dk || !shareIsObj(dk.d) || !g || g.vis !== 'team' || !shareIsObj(g.d) || g.d.kind !== 'decks' || dk.d.aud === 'internal') return null;
   }
   var media = d.media; delete d.media;
-  if(d.mode === 'live'){ delete d.snap; d.live = shareProject(src, regs, shareOpt(d, 'live')); if(d.kind === 'deck'){ d.deck = shareDeckPublic(dk); d.media = shareMedia(media, d.deck); } }
+  if(d.kind === 'site'){   /* v3.4.7: the whole site, read-only and always live (share_get) */
+    var team = shareIsObj(d.cfg) && d.cfg.scope === 'team', dids = shareIsObj(d.cfg) && Array.isArray(d.cfg.decks) ? d.cfg.decks.filter(function(x){ return typeof x === 'string'; }) : [], dl = [], md = {};
+    var dks = (src.recs || []).filter(function(r){ if(!r || typeof r.id !== 'string' || dids.indexOf(r.id) < 0 || !shareIsObj(r.d)) return false; var g = (src.regs || []).filter(function(x){ return x && x.id === r.reg; })[0];
+      return !!g && g.vis === 'team' && shareIsObj(g.d) && g.d.kind === 'decks' && (team || r.d.aud !== 'internal'); });
+    dks.sort(function(a, b){ return dids.indexOf(a.id) - dids.indexOf(b.id); });
+    dks.forEach(function(r){ var dj = shareDeckPublic(r, team ? (typeof r.d.aud === 'string' ? r.d.aud : 'owner') : 'owner'); dl.push(dj); Object.assign(md, shareMedia(media, dj)); });
+    delete d.snap; d.mode = 'live'; d.live = shareProject(src, regs, shareOpt(d, 'live')); d.decks = dl; d.media = md;
+  }
+  else if(d.mode === 'live'){ delete d.snap; d.live = shareProject(src, regs, shareOpt(d, 'live')); if(d.kind === 'deck'){ d.deck = shareDeckPublic(dk); d.media = shareMedia(media, d.deck); } }
   else if(d.kind !== 'deck') d.snap = shareRecheck(d.snap, shareProject(src, regs, shareOpt(d, 'check')));
   if(shareIsObj(d.cfg)){ delete d.cfg.filter; delete d.cfg.ids; }
   return {id:x.id, at:new Date().toISOString(), created_at:x.created_at, expires_at:x.expires_at || null, data:d};
@@ -211,7 +221,7 @@ function shareSrc(){ return {regs:(STORE && STORE.regs) || [], recs:(STORE && ST
 /* ---------------- links ---------------- */
 function shareToken(){ var a = new Uint8Array(18); crypto.getRandomValues(a); return btoa(String.fromCharCode.apply(null, a)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
 function shareUrl(id){ return location.origin + location.pathname + '#s=' + id; }
-var SHARE_KINDS = {reg:['Register view', '台账视图'], deck:['Presentation', '演示文稿'], overview:['Progress overview', '进度总览']};
+var SHARE_KINDS = {reg:['Register view', '台账视图'], deck:['Presentation', '演示文稿'], overview:['Progress overview', '进度总览'], site:['Whole site, read-only', '整站只读']};
 /* registers a presentation reads from (for a live link) */
 function deckShareRegs(deck){
   var ids = {};
@@ -235,6 +245,10 @@ function shareFilter(reg, mode){
   }
   return {f:f, dropped:dropped, snapOnly:snapOnly};
 }
+/* v3.4.7 · a site link: team registers (not the document library) and presentations — Owner mode only under Owner rules */
+function siteRegCands(){ return allRegs().filter(function(r){ return shareRegOk(r) && r.d.kind !== 'library'; }); }
+function siteDeckCands(team){ var dr = deckReg(); if(!dr || isPrivate(dr)) return []; return allDecks().filter(function(r){ return team || (r.d.aud || 'owner') !== 'internal'; }); }
+function siteDeckRegs(ids){ var out = []; (ids || []).forEach(function(id){ var dk = getRec(id); if(dk) deckShareRegs(dk).forEach(function(x){ if(out.indexOf(x) < 0) out.push(x); }); }); return out; }
 function shareCandidates(){ return allRegs().filter(function(r){ return shareRegOk(r) && (rolesOf(r).status || rolesOf(r).start || rolesOf(r).finish); }); }
 
 /* ---------------- create ---------------- */
@@ -261,6 +275,25 @@ function shareNewModal(m){
     if(!n){ notes.push(L('No record would be visible. In the register, tick records and use “Show to the Owner”.', '目前没有可显示的记录。请在台账中勾选记录，点「对业主显示」。')); }
     notes.push(L('Only the columns listed above go out: fields marked “Owner can see” among the visible columns, plus No. and title. To show another column (e.g. Package or Block), mark it “Owner can see” in Fields & columns and show it in the table.', '只公开上面列出的列：表格中可见、且标记为「业主可见」的字段，以及编号和名称。要显示其他列（如文件包、区域），请在「字段与列」中把它设为「业主可见」并在表格中显示。'));
     if(!m.title) m.title = regName(reg);
+  } else if(m.sk === 'site'){
+    /* v3.4.7: the whole site, read-only — the chosen registers and presentations, always live */
+    if(role() !== 'admin') m.scope = 'owner';   /* a team link (every field) is made by an admin */
+    var team = m.scope === 'team', sc = siteRegCands(), dks = siteDeckCands(team);
+    /* Owner rules start from the registers published to the Owner; the team view from all of them */
+    if(!m.regs) m.regs = sc.filter(function(r){ return team || r.d.ownerPublish; }).map(function(r){ return r.id; });
+    if(!m.decks) m.decks = dks.map(function(r){ return r.id; });
+    m.decks = m.decks.filter(function(id){ return dks.some(function(r){ return r.id === id; }); });
+    h += '<div class="fl"><span class="flab">' + L('What it shows', '公开范围') + '</span><div class="seg">' + [['owner', 'Owner rules', '业主规则']].concat(role() === 'admin' ? [['team', 'Team — all fields', '团队 · 全部字段']] : []).map(function(o){ return '<button type="button" class="' + ((m.scope || 'owner') === o[0] ? 'on' : '') + '" aria-pressed="' + ((m.scope || 'owner') === o[0]) + '" data-act="shareScope" data-v="' + o[0] + '">' + L(o[1], o[2]) + '</button>'; }).join('') + '</div></div>';
+    notes.push(team ? L('Team: every record and field of the ticked registers (remarks, contacts…), Internal presentations too. Files, links to other records, sub-tables (update logs, meeting actions), comments, the change log and “Only me” registers never go out. Anyone the link is forwarded to sees the same — use it for colleagues.', '团队：所选台账的全部记录和字段（备注、对接人等），也包括内部演示文稿。附件、记录间关联、表格型字段（更新记录、会议待办）、意见、修改记录和「仅自己可见」的台账永远不公开。链接被转发后对方看到的一样，请只发给同事。')
+      : L('Owner rules: only fields marked “Owner can see”, plus what charts need (dates, progress, status, block, package); registers published to the Owner show only records marked “Owner can see”. Internal presentations are left out.', '业主规则：只公开标记「业主可见」的字段，以及图表需要的日期、进度、状态、区域和文件包；发布给业主的台账只显示标记「业主可见」的记录。内部演示文稿不包括。'));
+    h += '<div class="fl"><span class="flab">' + L('Registers', '台账') + '</span><div class="dk-cl">' + sc.map(function(r){ var on = m.regs.indexOf(r.id) >= 0, g = shareGated(r) && !team, nn = g ? recsOf(r.id).filter(function(x){ return x.d.ext === true; }).length : recsOf(r.id).length;
+      return '<label class="chk"><input type="checkbox" data-shsite="reg" data-v="' + esc(r.id) + '"' + (on ? ' checked' : '') + '>' + esc(regName(r)) + ' <span class="note">' + (g ? L(nn + ' marked “Owner can see”', nn + ' 条业主可见') : L(nn + ' records', nn + ' 条')) + '</span></label>'; }).join('') + '</div></div>';
+    h += '<div class="fl"><span class="flab">' + L('Presentations', '演示文稿') + '</span>' + (dks.length ? '<div class="dk-cl">' + dks.map(function(r){ return '<label class="chk"><input type="checkbox" data-shsite="deck" data-v="' + esc(r.id) + '"' + (m.decks.indexOf(r.id) >= 0 ? ' checked' : '') + '>' + esc((r.d.no ? r.d.no + ' · ' : '') + deckTitle(r.d)) + (r.d.aud === 'internal' ? ' <span class="note">' + L('Internal', '内部') + '</span>' : '') + '</label>'; }).join('') + '</div>' : '<span class="note">' + (team ? L('No presentations yet.', '还没有演示文稿。') : L('No presentation in Owner mode.', '没有业主模式的演示文稿。')) + '</span>') + '</div>';
+    var extra = siteDeckRegs(m.decks).filter(function(id){ return m.regs.indexOf(id) < 0; });
+    if(extra.length) notes.push(L('The chosen presentations also read: ', '所选演示文稿还用到：') + esc(extra.map(function(id){ return regName(getReg(id)); }).join(', ')) + L(' — these registers are included so their slides are not empty.', '。这些台账会一并公开，以免页面为空。'));
+    notes.push(L('Visitors see the site as it is now each time they open it (live), read-only: overview, registers (table, cards, board, Gantt), schedule and presentations. They cannot edit, comment or see the change log.', '访客每次打开都是最新数据（实时），只读：总览、各台账（表格、卡片、看板、甘特图）、进度计划和演示文稿；不能编辑、评论或查看修改记录。'));
+    if(!m.regs.length && !m.decks.length) ok = false;
+    if(!m.title) m.title = inDoc(function(){ return T('Project site', '项目网站'); });
   } else if(m.sk === 'deck'){
     var deck = getRec(m.deck); if(!deck) return {title:'', html:''};
     if((deck.d.aud || 'owner') === 'internal'){ ok = false; notes.push(L('Internal presentations cannot be shared. Switch the audience to Owner mode in Presentation settings.', '内部文稿不能公开。请在文稿设置中切换为业主模式。')); }
@@ -277,7 +310,7 @@ function shareNewModal(m){
     if(!m.title) m.title = inDoc(function(){ return T('Progress overview', '进度总览'); });
   }
   h = '<label class="fl">' + L('Title', '标题') + '<input class="in" id="shareTitle" data-fk="shareTitle" value="' + esc(m.title) + '"></label>' + h +
-    '<div class="fl"><span class="flab">' + L('Data', '数据') + '</span><div class="seg">' + [['live', 'Live — always current', '实时：打开时为最新'], ['snap', 'Snapshot — as it is now', '快照：按现在冻结']].map(function(o){ return '<button type="button" class="' + (m.mode === o[0] ? 'on' : '') + '" data-act="shareMode" data-v="' + o[0] + '">' + L(o[1], o[2]) + '</button>'; }).join('') + '</div></div>' +
+    (m.sk === 'site' ? '' : '<div class="fl"><span class="flab">' + L('Data', '数据') + '</span><div class="seg">' + [['live', 'Live — always current', '实时：打开时为最新'], ['snap', 'Snapshot — as it is now', '快照：按现在冻结']].map(function(o){ return '<button type="button" class="' + (m.mode === o[0] ? 'on' : '') + '" aria-pressed="' + (m.mode === o[0]) + '" data-act="shareMode" data-v="' + o[0] + '">' + L(o[1], o[2]) + '</button>'; }).join('') + '</div></div>') +
     '<label class="fl">' + L('Link valid for', '有效期') + '<select class="in" id="shareExp">' + [['0', 'No end date', '不设期限'], ['7', '7 days', '7 天'], ['30', '30 days', '30 天'], ['90', '90 days', '90 天']].map(function(o){ return '<option value="' + o[0] + '"' + (m.exp === o[0] ? ' selected' : '') + '>' + esc(T(o[1], o[2])) + '</option>'; }).join('') + '</select></label>' +
     notes.map(function(x){ return '<p class="note">' + x + '</p>'; }).join('') + (m.err ? '<p class="note" style="color:var(--bad)">' + esc(m.err) + '</p>' : '');
   return {title:L('Public link · ' + SHARE_KINDS[m.sk][0], '公开链接 · ' + SHARE_KINDS[m.sk][1]), html:h,
@@ -293,6 +326,9 @@ async function shareCreate(){
   try{
     if(m.sk === 'reg') data.cfg = m._cfg;
     else if(m.sk === 'overview') data.cfg = {regs:m.regs.slice()};
+    else if(m.sk === 'site'){ var sregs = m.regs.slice(); siteDeckRegs(m.decks).forEach(function(id){ if(sregs.indexOf(id) < 0) sregs.push(id); });
+      data.mode = 'live'; data.cfg = {regs:sregs, decks:m.decks.slice(), scope:m.scope === 'team' ? 'team' : 'owner'}; data.media = {};
+      for(var di = 0; di < m.decks.length; di++){ var dk0 = getRec(m.decks[di]); if(dk0) Object.assign(data.media, await deckMedia(dk0)); } }
     else {
       var deck = getRec(m.deck);
       if(m.mode === 'snap'){ await loadHistory(deckNeedsHist(deck)); deck = getRec(deck.id) || deck; data.cfg = {deck:deck.id}; data.snap = await deckPubPayload(deck); }
@@ -302,7 +338,7 @@ async function shareCreate(){
     m.busy = false; m.done = id; S.shares = null; renderModal();
   }catch(e){ m.busy = false; m.err = shareErr(e); renderModal(); }
 }
-function shareErr(e){ var s = String((e && (e.message || e.code)) || e || ''); if(/shares|share_get|share_freeze|PGRST20[25]|42P01|42883/.test(s)) return T('The database needs the updated structure: in Supabase open SQL Editor → New query, paste supabase/schema.sql and click Run once.', '数据库需要更新结构：在 Supabase 打开 SQL Editor → New query，粘贴 supabase/schema.sql 并点 Run（只需一次）。'); return errText(e); }
+function shareErr(e){ var s = String((e && (e.message || e.code)) || e || ''); if(/shares|share_get|share_freeze|invites|invite_|PGRST20[25]|42P01|42883/.test(s)) return T('The database needs the updated structure: in Supabase open SQL Editor → New query, paste supabase/schema.sql and click Run once.', '数据库需要更新结构：在 Supabase 打开 SQL Editor → New query，粘贴 supabase/schema.sql 并点 Run（只需一次）。'); return errText(e); }
 /* images a live presentation needs (logos, pictures placed on slides), embedded once when the link is made */
 async function deckMedia(deck){
   var th = themeOf(deck), paths = [], out = {};
@@ -319,7 +355,7 @@ function setLinks(){
   if(!canTeamEdit()) return '<div class="card empty">' + L('Only admins and editors manage public links.', '只有管理员和编辑可以管理公开链接。') + '</div>';
   if(S.shares == null && !S.sharesBusy){ S.sharesBusy = true; STORE.shareList().then(function(x){ S.shares = x || []; S.sharesErr = ''; }).catch(function(e){ S.shares = []; S.sharesErr = shareErr(e); }).then(function(){ S.sharesBusy = false; renderMain(); }); }
   var h = '<div class="card sec"><div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:8px"><p class="note" style="margin:0;max-width:760px">' + L('A public link opens a read-only page without signing in. It follows the Owner rules: registers published to the Owner show only records marked “Owner can see”, and only fields marked “Owner can see” are listed. Make links from a register (⋯ menu), a presentation (Issue & share) or here.', '公开链接无需登录即可只读查看，规则与业主相同：发布给业主的台账只显示标记「业主可见」的记录，只列出「业主可见」字段。可在台账（⋯ 菜单）、演示文稿（定稿与分享）或这里生成。') + '</p>' +
-    '<button type="button" class="btn pri" data-act="shareOverview">' + uic('plus', 14) + ' ' + L('Progress overview link…', '进度总览链接…') + '</button></div></div>';
+    '<div class="row" style="gap:6px;flex-wrap:wrap"><button type="button" class="btn pri" data-act="shareSite">' + uic('plus', 14) + ' ' + L('Whole-site link…', '整站链接…') + '</button><button type="button" class="btn" data-act="shareOverview">' + uic('plus', 14) + ' ' + L('Progress overview link…', '进度总览链接…') + '</button></div></div></div>';
   if(S.sharesErr) h += '<div class="card" style="color:var(--warn);background:var(--warn-soft)">' + esc(S.sharesErr) + '</div>';
   if(S.shares == null) return h + '<div class="card empty">' + L('Loading…', '正在加载…') + '</div>';
   if(!S.shares.length) return h + '<div class="card empty">' + L('No public links yet.', '还没有公开链接。') + '</div>';
@@ -354,6 +390,8 @@ document.addEventListener('click', function(e){
   var act = el.dataset.act, v = el.dataset.v, m = S.modal;
   if(act === 'shareCopy'){ var u = shareUrl(v); (navigator.clipboard ? navigator.clipboard.writeText(u) : Promise.reject()).then(function(){ toast(T('Link copied', '链接已复制')); }).catch(function(){ var i = $('#shareUrl'); if(i){ i.select(); try{ document.execCommand('copy'); toast(T('Link copied', '链接已复制')); }catch(er){} } else prompt('', u); }); return; }
   if(act === 'shareMode' && m){ m.mode = v; renderModal(); return; }
+  if(act === 'shareScope' && m){ var ti0 = $('#shareTitle'); if(ti0) m.title = ti0.value; m.scope = v; m.decks = null; m.regs = null; renderModal(); return; }
+  if(act === 'shareSite'){ openShareNew({sk:'site', scope:'owner', mode:'live', exp:'30'}); return; }
   if(act === 'shareCreate'){ var ti = $('#shareTitle'), ex = $('#shareExp'); if(m){ if(ti) m.title = ti.value; if(ex) m.exp = ex.value; } shareCreate(); return; }
   if(act === 'shareManage'){ closeModal(); S.page = 'settings'; S.stab = 'links'; renderAll(); return; }
   if(act === 'shareOverview'){ openShareNew({sk:'overview'}); return; }
@@ -366,6 +404,7 @@ document.addEventListener('click', function(e){
 });
 document.addEventListener('change', function(e){
   var el = e.target; if(!el || !el.dataset) return; var m = S.modal;
+  if(el.dataset.shsite && m && m.kind === 'shareNew'){ var arr = el.dataset.shsite === 'deck' ? m.decks : m.regs, sid = el.dataset.v, si = arr.indexOf(sid); if(el.checked && si < 0) arr.push(sid); if(!el.checked && si >= 0) arr.splice(si, 1); var ti1 = $('#shareTitle'); if(ti1) m.title = ti1.value; renderModal(); return; }
   if(el.dataset.shreg && m && m.kind === 'shareNew'){ var id = el.dataset.shreg, i = m.regs.indexOf(id); if(el.checked && i < 0) m.regs.push(id); if(!el.checked && i >= 0) m.regs.splice(i, 1); var ti = $('#shareTitle'); if(ti) m.title = ti.value; renderModal(); }
   if(el.id === 'shareExp' && m) m.exp = el.value;
 });
@@ -383,7 +422,18 @@ function PublicStore(token, fetcher){
           /* the page opens in the language the link was made in, until the visitor picks one here */
           var pl = LS.get('ww.publang', null); if(['en', 'zh', 'both'].indexOf(pl) >= 0) S.lang = pl; else if(['en', 'zh', 'both'].indexOf(d.lang) >= 0) S.lang = d.lang;
           if(src){ api.regs = (src.regs || []).map(function(r){ cleanFields(r.d); return r; }); api.recs = src.recs || []; api.cfg = src.cfg || {}; }
-          else api.cfg = d.cfgProject || {}; }
+          else api.cfg = d.cfgProject || {};
+          /* v3.4.7: a whole-site link opens the site itself, read-only */
+          if(d.kind === 'site' && src){ api.site = true; api.session = {visitor:true}; api.me = {id:'', email:'', name:'', role:'visitor'};
+            var dks = Array.isArray(d.decks) ? d.decks.filter(function(x){ return x && shareIsObj(x.d) && typeof x.id === 'string'; }) : [];
+            if(dks.length){ var media = d.media || {}; api.regs.push({id:'pub_decks', vis:'team', d:{kind:'decks', en:'Presentations', zh:'演示文稿', fields:[], roles:{}}});
+              dks.forEach(function(dk){ var x = clone(dk), th = x.d.theme || {};
+                ['logoL', 'logoR'].forEach(function(k){ var l = th[k]; if(l && l.path) th[k] = media[l.path] ? {src:media[l.path]} : null; });
+                (x.d.slides || []).forEach(function(sl){ (sl.els || []).forEach(function(e){ if(e.path){ e.src = media[e.path] || null; delete e.path; } }); });
+                x.d.status = 'draft'; api.recs.push({id:x.id, reg:'pub_decks', d:x.d}); }); }
+            /* no change log behind a public copy: slides that read it get an empty one */
+            api.regs.forEach(function(g){ HIST[g.id] = {rows:[], at:Date.now() + 864e5}; }); }
+        }
         api.ready = true; notify();
       }).catch(function(e){ console.error(e); api.fail = true; api.ready = true; notify(); });
     }
@@ -429,16 +479,16 @@ function pubRegView(d){
   list = sortRecs(reg, list);
   var cols = (c.cols && c.cols.length ? c.cols : dataFields(reg).map(function(f){ return f.key; })).map(function(k){ return fieldOf(reg, k); }).filter(Boolean); if(!cols.some(function(f){ return f.key === ro.title; }) && fieldOf(reg, ro.title)) cols.unshift(fieldOf(reg, ro.title)); if(ro.no && fieldOf(reg, ro.no) && !cols.some(function(f){ return f.key === ro.no; })) cols.unshift(fieldOf(reg, ro.no));
   var chips = '';
-  if(tf){ var top = treeKids(tf, ''), cnt = function(n){ var s = treeDesc(tf, n.id); return base.filter(function(r){ return s[r.d[tf.key]]; }).length; };
-    chips = '<div class="pub-chips"><button type="button" class="fbtn' + (P.node === 'all' ? ' on' : '') + '" data-act="pubNode" data-v="all">' + L('All', '全部') + ' <b>' + base.length + '</b></button>' + top.map(function(n){ var k = cnt(n); return k ? '<button type="button" class="fbtn' + (P.node === n.id ? ' on' : '') + '" data-act="pubNode" data-v="' + esc(n.id) + '">' + esc(treeLabel(n)) + ' <b>' + k + '</b></button>' : ''; }).join('') + '</div>'; }
+  if(tf){ var top = treeKids(tf, ''), cnt = function(n){ var s = treeDesc(tf, n.id); return countedOf(reg, base).filter(function(r){ return s[r.d[tf.key]]; }).length; };
+    chips = '<div class="pub-chips"><button type="button" class="fbtn' + (P.node === 'all' ? ' on' : '') + '" data-act="pubNode" data-v="all">' + L('All', '全部') + ' <b>' + countedOf(reg, base).length + '</b></button>' + top.map(function(n){ var k = cnt(n); return k ? '<button type="button" class="fbtn' + (P.node === n.id ? ' on' : '') + '" data-act="pubNode" data-v="' + esc(n.id) + '">' + esc(treeLabel(n)) + ' <b>' + k + '</b></button>' : ''; }).join('') + '</div>'; }
   var rows = [], span = cols.length;
   function row(r){ return '<tr>' + cols.map(function(f){ var v = f.key === ro.title ? '<span class="tt1">' + esc(recTitle(reg, r) || '—') + '</span>' + (recTitle2(reg, r) ? '<span class="tt2">' + esc(recTitle2(reg, r)) + '</span>' : '') : cellHtml(reg, f, r); return '<td class="t-' + esc(f.type) + (f.key === ro.title ? ' tt' : '') + '">' + v + '</td>'; }).join('') + '</tr>'; }
-  if(tf && P.grp){ var gs = groupRecs(reg, list, tf.key); gs.forEach(function(g){ rows.push('<tr class="grp"><td colspan="' + span + '"><b>' + esc(g.label) + '</b> <span class="muted mono">' + g.items.length + '</span></td></tr>'); g.items.forEach(function(r){ rows.push(row(r)); }); }); }
+  if(tf && P.grp){ var gs = groupRecs(reg, list, tf.key); gs.forEach(function(g){ rows.push('<tr class="grp"><td colspan="' + span + '"><b>' + esc(g.label) + '</b> <span class="muted mono">' + countedOf(reg, g.items).length + '</span></td></tr>'); g.items.forEach(function(r){ rows.push(row(r)); }); }); }
   else list.forEach(function(r){ rows.push(row(r)); });
   if(!list.length) rows.push('<tr><td colspan="' + span + '" class="empty">' + L('No records match.', '没有符合条件的记录。') + '</td></tr>');
   var key = 'pub:' + reg.id, long = rows.length > VW_MIN;
   var cg = long ? '<colgroup>' + cols.map(function(f){ return '<col style="width:' + colWidth(reg, f) + 'px">'; }).join('') + '</colgroup>' : '';
-  return pubHead(d, esc(regName(reg)) + ' · ' + L(list.length + ' of ' + base.length + ' records', '显示 ' + list.length + ' / ' + base.length + ' 条')) +
+  return pubHead(d, esc(regName(reg)) + ' · ' + L(countedOf(reg, list).length + ' of ' + countedOf(reg, base).length + ' records', '显示 ' + countedOf(reg, list).length + ' / ' + countedOf(reg, base).length + ' 条')) +
     '<div class="card pub-bar"><label class="gsearch">' + uic('search', 15) + '<input id="pubq" data-fk="pubq" type="search" placeholder="' + esc(T('Search', '搜索')) + '" value="' + esc(P.q) + '"></label>' + (tf ? '<label class="chk"><input type="checkbox" id="pubgrp"' + (P.grp ? ' checked' : '') + '>' + L('Group by ' + tf.en, '按' + (tf.zh || tf.en) + '分组') + '</label>' : '') + '</div>' + chips +
     '<div class="card tbl-wrap"' + (long ? ' data-vw="' + esc(key) + '"' : '') + '><table class="tbl' + (long ? ' vwt' : '') + '">' + cg + '<thead><tr>' + cols.map(function(f){ return '<th>' + L(f.en, f.zh) + '</th>'; }).join('') + '</tr></thead><tbody data-vwb="' + esc(key) + '">' + vwHtml(key, rows, 'tr', span) + '</tbody></table></div>';
 }

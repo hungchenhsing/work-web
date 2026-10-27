@@ -40,7 +40,7 @@ function bil1(o){ return o ? esc(S.lang === 'zh' ? (o.zh || o.en || '') : (o.en 
 function recPair(reg, r){ var ro = rolesOf(reg); return {en:(ro.title && r.d[ro.title]) || '', zh:(ro.title2 && r.d[ro.title2]) || ''}; }
 function stPair(reg, r){ var o = statusOpt(reg, r); return o ? {en:o.en, zh:o.zh || '', color:o.color, done:!!o.done} : null; }
 var DK_CACHE = null;
-function isLeaf(r){ var idx = DK_CACHE ? (DK_CACHE[r.reg] || (DK_CACHE[r.reg] = kidsIndex(r.reg))) : kidsIndex(r.reg); return !idx[r.id]; }
+function isLeaf(r){ if(r.d && r.d.asDoc) return true; var idx = DK_CACHE ? (DK_CACHE[r.reg] || (DK_CACHE[r.reg] = kidsIndex(r.reg))) : kidsIndex(r.reg); return !idx[r.id]; }
 function mxDef(reg, c){ var ro = rolesOf(reg); return {row:(c && c.row) || (reg.d.matrix && reg.d.matrix.row) || ro.tree || ro.status || '', col:(c && c.col) || (reg.d.matrix && reg.d.matrix.col) || ro.block || ''}; }
 
 /* owner mode: only fields the Owner can see, External records (for registers that publish to the Owner), never private registers */
@@ -134,7 +134,7 @@ var SLIDE_DATA = {
     var rows = groupRecs(reg, list, row).filter(function(g){ return hd.indexOf('g:' + g.label) < 0; }).map(function(g){ return {label:g.label, color:g.color || '', cells:cols.map(function(cc){ return aggCell(reg, g.items.filter(function(r){ return asArr(r.d[cf.key]).indexOf(cc.v) >= 0; }), c.val); }), tot:aggCell(reg, g.items, c.val)}; });
     return {reg:regLab(reg), rowName:{en:rfd.en, zh:rfd.zh || ''}, cols:cols, rows:rows, val:c.val, total:{cells:cols.map(function(cc){ return aggCell(reg, list.filter(function(r){ return asArr(r.d[cf.key]).indexOf(cc.v) >= 0; }), c.val); }), all:aggCell(reg, list, c.val)}}; },
   lookahead:function(c, ctx){ var A = ctx.asOf, dow = (new Date(A * 864e5).getUTCDay() + 6) % 7, from = A - dow, to = from + (c.weeks || 3) * 7 - 1, rows = [];
-    usable(ctx, c.regs).forEach(function(reg){ var bf = rf(reg, 'block'); recsOf(reg.id).forEach(function(r){ if(!recOk(ctx, reg, r) || isDone(reg, r) || (c.hide || []).indexOf('r:' + r.id) >= 0) return; var p = planOf(reg, r); if(!p) return;
+    usable(ctx, c.regs).forEach(function(reg){ var bf = rf(reg, 'block'); recsOf(reg.id).forEach(function(r){ if(!recOk(ctx, reg, r) || !isLeaf(r) || isDone(reg, r) || (c.hide || []).indexOf('r:' + r.id) >= 0) return; var p = planOf(reg, r); if(!p) return;
       var inWin = p.s <= to && p.f >= from, late = p.f < from; if(!inWin && !(late && c.overdue)) return;
       var pv = progressOf(reg, r); rows.push({id:r.id, reg:regLab(reg), no:recNo(reg, r), t:recPair(reg, r), s:p.s, f:p.f, pct:pv == null ? null : Math.round(pv), st:stPair(reg, r), od:p.f < A, ms:isMilestone(reg, r) || p.s === p.f, blocks:bf ? asArr(r.d[bf.key]) : null}); }); });
     rows.sort(function(a, b){ return (b.od - a.od) || a.s - b.s; });
@@ -156,7 +156,9 @@ var SLIDE_DATA = {
     if(gf){ list.forEach(function(r){ gof[r.id] = tblGroup(reg, r, gf, gl); }); list = list.filter(function(r){ return hd.indexOf('g:' + gof[r.id].k) < 0; });
       var pos = {}; list.forEach(function(r, i){ pos[r.id] = i; }); list.sort(function(a, b){ return (gof[a.id].o - gof[b.id].o) || (pos[a.id] - pos[b.id]); }); }
     var sf2 = rf(reg, 'status');
-    function stCounts(rs){ if(!sf2) return []; return optsOf(sf2).map(function(o){ return {en:o.en, zh:o.zh || '', color:o.color, n:rs.filter(function(r){ return r.d[sf2.key] === o.v; }).length}; }).filter(function(x){ return x.n; }); }
+    function stCounts(rs){ if(!sf2) return []; rs = rs.filter(isLeaf); return optsOf(sf2).map(function(o){ return {en:o.en, zh:o.zh || '', color:o.color, n:rs.filter(function(r){ return asArr(val(r, sf2))[0] === o.v; }).length}; }).filter(function(x){ return x.n; }); }
+    /* v3.4.7: a package counts its documents — items and the sub-items under them, not heading items */
+    function gDocs(rs){ var out = []; (function w(a, g){ a.forEach(function(r){ out.push(r); if(g < 6) w(kidsL[r.id] || [], g + 1); }); })(rs, 0); return out.filter(isLeaf); }
     /* v3.4.6: an item's sub-items follow it (under discipline headings); they are hidden until the item is opened */
     var inL = {}, kidsL = {}; list.forEach(function(r){ inL[r.id] = 1; });
     list.forEach(function(r){ var p = r.d.parent; if(p && p !== r.id && inL[p]) (kidsL[p] = kidsL[p] || []).push(r); });
@@ -174,7 +176,7 @@ var SLIDE_DATA = {
     function rowOf(r, lv, pid){ var ks = kidsL[r.id] || [], kd = ks.filter(function(k){ return isDone(reg, k); }).length;
       return {id:r.id, hl:recNo(reg, r) + ' ' + (r.d[ro.title] || ''), od:isOverdue(reg, r), dep:lv || 0, lv:lv || 0, pid:pid || null, kn:ks.length, kd:kd, kc:ks.length, c:fs.map(function(x){
         if(x.key === ro.title) return {t:recPair(reg, r)};
-        if(x.type === 'select' && !x.multi && !x.list){ var o = optOf(x, r.d[x.key]); return o ? {s:{en:o.en, zh:o.zh || '', color:o.color}} : {v:''}; }
+        if(x.type === 'select' && !x.multi && !x.list){ var o = optOf(x, asArr(val(r, x))[0]); return o ? {s:{en:o.en, zh:o.zh || '', color:o.color}} : {v:''}; }
         if(x.type === 'percent' || (x.type === 'calc' && x.calc && x.calc.op === 'pct')){ var pv = val(r, x); if(pv == null && x.key === ro.progress) pv = progressOf(reg, r); return {p:pv == null ? null : Math.round(pv)}; }
         if(x.type === 'tree'){ var n = treeNode(x, r.d[x.key]); return {v: n ? treeLabel(n) : ''}; }
         if(x.type === 'select' && x.list === 'blocks') return {b:asArr(r.d[x.key])};
@@ -182,18 +184,18 @@ var SLIDE_DATA = {
     var rows = [], topSet = {}; tops.forEach(function(r){ topSet[r.id] = 1; });
     if(gf){ var cur = null, grs = [];
       list.forEach(function(r){ if(!topSet[r.id]) return; var g = gof[r.id]; if(!cur || cur.k !== g.k){ cur = {k:g.k, en:g.en, zh:g.zh, items:[]}; grs.push(cur); } cur.items.push(r); });
-      grs.forEach(function(g){ rows.push({g:1, k:g.k, en:g.en, zh:g.zh, n:g.items.length, st:c.gst === false ? [] : stCounts(g.items)}); rows = rows.concat(withKids(g.items)); }); }
+      grs.forEach(function(g){ var gd = gDocs(g.items); rows.push({g:1, k:g.k, en:g.en, zh:g.zh, n:gd.length, st:c.gst === false ? [] : stCounts(gd)}); rows = rows.concat(withKids(g.items)); }); }
     else rows = withKids(tops);
     return {reg:regLab(reg), cols:fs.map(function(x){ return {en:x.en, zh:x.zh || '', type:x.type, key:x.key, title:x.key === ro.title}; }), per:c.per || 12, dense:!!c.dense,
-      sum:c.sum ? {n:list.length, od:list.filter(function(r){ return isOverdue(reg, r); }).length, st:stCounts(list)} : null, rows:rows}; },
+      sum:c.sum ? {n:list.filter(isLeaf).length, od:list.filter(function(r){ return isOverdue(reg, r); }).length, st:stCounts(list)} : null, rows:rows}; },
   breakdown:function(c, ctx){ var reg = getReg(c.reg); if(!regOk(ctx, reg)) return {err:'reg'};
     var ro = rolesOf(reg), by = c.by || ro.tree || ro.block, sf = rf(reg, 'status'); if(!fieldOf(reg, by) || !sf) return {err:'cfg'};
     var list = recsOf(reg.id).filter(function(r){ return recOk(ctx, reg, r) && isLeaf(r); }), opts = optsOf(sf);
     return {reg:regLab(reg), by:{en:fieldOf(reg, by).en, zh:fieldOf(reg, by).zh || ''}, legend:opts.map(function(o){ return {en:o.en, zh:o.zh || '', color:o.color}; }),
-      groups:groupRecs(reg, list, by).filter(function(g){ return (c.hide || []).indexOf('g:' + g.label) < 0; }).map(function(g){ return {label:g.label, n:g.items.length, done:g.items.filter(function(r){ return isDone(reg, r); }).length, segs:opts.map(function(o){ return g.items.filter(function(r){ return r.d[sf.key] === o.v; }).length; })}; })}; },
+      groups:groupRecs(reg, list, by).filter(function(g){ return (c.hide || []).indexOf('g:' + g.label) < 0; }).map(function(g){ return {label:g.label, n:g.items.length, done:g.items.filter(function(r){ return isDone(reg, r); }).length, segs:opts.map(function(o){ return g.items.filter(function(r){ return asArr(val(r, sf))[0] === o.v; }).length; })}; })}; },
   punch:function(c, ctx){ var reg = getReg(c.reg); if(!regOk(ctx, reg)) return {err:'reg'};
     var A = ctx.asOf, pf = fieldOf(reg, 'prio') || dataFields(reg).filter(function(f){ return f.type === 'select' && !f.multi && f.key !== rolesOf(reg).status && !f.list; })[0], bf = rf(reg, 'block');
-    var all = recsOf(reg.id).filter(function(r){ return recOk(ctx, reg, r); }), open = all.filter(function(r){ return !isDone(reg, r); });
+    var all = recsOf(reg.id).filter(function(r){ return recOk(ctx, reg, r) && isLeaf(r); }), open = all.filter(function(r){ return !isDone(reg, r); });
     var prios = pf ? optsOf(pf).map(function(o){ return {v:o.v, en:o.en, zh:o.zh || '', color:o.color}; }) : [], blocks = bf ? optsOf(bf).map(function(o){ return {v:o.v, color:o.color}; }) : [];
     var closedF = fieldOf(reg, 'closed'), closedWk = closedF ? all.filter(function(r){ var n = d2n(r.d.closed); return n != null && n > A - 7 && n <= A; }).length : null;
     var grid = prios.map(function(p){ return blocks.map(function(b){ return open.filter(function(r){ return r.d[pf.key] === p.v && asArr(r.d[bf.key]).indexOf(b.v) >= 0; }).length; }); });

@@ -1340,3 +1340,13 @@ svg.gdeps path.mk{fill:var(--muted);stroke:none} svg.gdeps path.mk.bad{fill:var(
 .grow.kgrp .gleft{background:color-mix(in srgb,var(--surface2) 55%,var(--surface))}
 .grow.kgrp .gspan{display:flex;align-items:center;gap:6px;min-height:28px}
 .rcgh{font-size:12px;font-weight:600;color:var(--ink2,var(--ink));margin:4px 0 -2px}
+/* v3.4.7 · heading items (纲领): figures come from their sub-items, so they read as summaries, not inputs */
+.tbl tr.hdr .tt1{font-weight:600}
+td.hdv{cursor:default}
+td.hdv .mono,.hdv .mono{color:var(--muted)}
+.ro.hdv{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-height:34px}
+.sumv.hdv{display:flex;align-items:center;min-height:34px}
+/* v3.4.7 · team invite on the sign-in page; the note on a whole-site link's menu */
+.invb{background:var(--accent-soft);border:1px solid color-mix(in srgb,var(--accent) 30%,transparent);border-radius:10px;padding:10px 12px;margin:12px 0 4px;line-height:1.5}
+.svis{margin:14px 12px 4px;font-size:12px}
+.invnew .in{font-family:var(--mono,monospace);font-size:12px}

@@ -161,6 +161,8 @@ function impPlan(m, reg, apply){
       if(!tg || tg.id === ex.id){ warn.push(T('Row ' + rn + ': nothing called ', '第 ' + rn + ' 行：找不到 ') + a.into); return; }
       var mb = mergeBlock(reg, tg, ex); if(mb){ warn.push(recNo(reg, ex) + T(' is not merged: ', ' 不合并：') + mb); return; }
       acts.push({rec:ex, into:tg}); return; }
+    /* v3.4.7: a heading item's status, progress and dates come from its sub-items — the file's copies of them are not written back */
+    if(ex && isHead(reg, ex)) HEAD_ROLES.forEach(function(hr){ var hk = ro[hr]; if(hk && hk in d && headLocked(reg, ex, fieldOf(reg, hk))) delete d[hk]; });
     if(ex) updates.push({rec:ex, d:d}); else adds.push(d);
   });
   /* a record that is deleted or merged is not also a merge target */

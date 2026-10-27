@@ -30,7 +30,7 @@ SLIDE_DATA.timeline = function(c, ctx){
   regs.forEach(function(reg){ var idx = kidsIndex(reg.id);
     recsOf(reg.id).forEach(function(r){
       if(!recOk(ctx, reg, r) || isHidden(c, 'r:' + r.id)) return;
-      var ms = isMilestone(reg, r); if(c.only === 'ms' && !ms) return; if(c.only !== 'ms' && idx[r.id]) return;
+      var ms = isMilestone(reg, r); if(c.only === 'ms' && !ms) return; if(c.only !== 'ms' && idx[r.id] && !r.d.asDoc) return;
       var mi = msInfo(reg, r, A); if(!mi.plan && !mi.base && !(mi.act && mi.act.f != null)) return; if(c.hideDone && mi.done) return;
       var lane = laneOf(reg, r, c.lanes || 'reg'), lk = c.lanes === 'reg' || !c.lanes ? (c.regs || []).indexOf(reg.id) : (function(){ var key = c.lanes === 'tree' ? rolesOf(reg).tree : c.lanes === 'block' ? rolesOf(reg).block : c.lanes; return key && fieldOf(reg, key) ? (c.regs || []).indexOf(reg.id) * 1e6 + groupKey(reg, r, key)[0].o : (c.regs || []).indexOf(reg.id) * 1e6; })(); if(isHidden(c, 'g:' + lane)) return;
       var pv = progressOf(reg, r);

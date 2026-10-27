@@ -228,6 +228,9 @@ function cleanOpts(opts){ var seen = {}; for(var i = 0; i < opts.length; i++){ v
 function selIds(reg){ return Object.keys(S.sel).filter(function(id){ var r = S.sel[id] && getRec(id); return r && r.reg === reg.id; }); }
 function bulkApply(reg, f, value){
   var ids = selIds(reg); if(!ids.length || !f) return;
+  /* v3.4.7: a heading's status, progress and dates come from its sub-items — they are left as they are */
+  var hk = ids.filter(function(id){ var r = getRec(id); return r && headLocked(reg, r, f); });
+  if(hk.length){ ids = ids.filter(function(id){ return hk.indexOf(id) < 0; }); toast(T(hk.length + ' heading item(s) left out — their ' + (f.en || f.key) + ' comes from their sub-items', hk.length + ' 个纲领未改：其' + (f.zh || f.en || f.key) + '由子项汇总')); if(!ids.length) return; }
   var v = value; if(f.type === 'select' && f.multi && v != null) v = [v]; if(v == null) v = f.type === 'select' && f.multi ? [] : '';
   var ro0 = rolesOf(reg), dch = (f.key === ro0.start || f.key === ro0.finish) ? ids.map(function(id){ var r = getRec(id); return {id:id, was:r ? planOf(reg, r) : null}; }) : null;   // v3.4: followers of moved items
   setRecs(ids.map(function(id){ return {rec:getRec(id), patch:mk(f.key, clone(v))}; }), null, {check:true}).then(function(res){ if(res && res.cancelled){ renderMain(); return; } var n = ids.length - ((res && res.skipped) || 0); toast(T('Updated ' + n, '已更新 ' + n + ' 项') + (res && res.failed ? T(' · ' + res.failed + ' not saved', ' · ' + res.failed + ' 项未保存') : '') + (res && res.skipped ? T(' · ' + res.skipped + ' skipped: ', ' · ' + res.skipped + ' 项未改：') + res.note : '')); S.bulkF = null; renderMain(); if(dch && typeof depAfterBatch === 'function') depAfterBatch(dch); });
@@ -381,6 +384,7 @@ document.addEventListener('change', function(e){
   if(el.classList.contains('rowsel')){ S.sel[el.dataset.id] = el.checked; S.bulkDel = false; renderMain(); return; }
   if(el.dataset.colk){ var cur = tableCols(reg).map(function(f){ return f.key; }), k = el.dataset.colk, i = cur.indexOf(k); if(el.checked && i < 0) cur.push(k); if(!el.checked && i >= 0) cur.splice(i, 1); var ord = dataFields(reg).map(function(f){ return f.key; }); cur.sort(function(a, b){ return ord.indexOf(a) - ord.indexOf(b); }); S.rcols[S.reg] = cur; saveUI(); renderMain(); return; }
   if(el.dataset.act === 'extTog' && rec){ setRec(rec, {ext:el.checked}, {silent:true}); return; }
+  if(el.dataset.act === 'asDocTog' && rec){ setRec(rec, {asDoc:el.checked || null}, {silent:true}); return; }   // v3.4.7: a heading item counted as a document too
   if((d = el.dataset.df) && rec){ var rg = getReg(rec.reg), f = fieldOf(rg, d), v = el.type === 'checkbox' ? el.checked : el.value;
     if(f.type === 'number') v = num(v); if(f.type === 'percent') v = v === '' ? null : clamp(Math.round(+v || 0), 0, 100);
     if(f.type === 'date' && (d === rolesOf(rg).start || d === rolesOf(rg).finish)) datesSet(rg, rec, dateFix(rg, rec, d, v)); else setRec(rec, mk(d, v)); return; }
@@ -421,7 +425,8 @@ document.addEventListener('submit', function(e){
     var a = S.auth, email = ($('#aEmail') || {}).value, pw = ($('#aPw') || {}).value, name = ($('#aName') || {}).value;
     a.err = ''; a.msg = ''; a.busy = true; renderGate();
     var pr = a.tab === 'in' ? STORE.signIn(email, pw) : a.tab === 'up' ? STORE.signUp(email, pw, name) : STORE.reset(email);
-    pr.then(function(r){ a.busy = false; if(r && r.error) a.err = r.error.message; else if(a.tab === 'up') a.msg = (r && r.data && r.data.session) ? T('Account created. Opening…', '注册成功，正在进入…') : T('Account created. If you are not signed in automatically, confirm your email, then sign in.', '注册成功。如未自动登录，请确认邮箱后再登录。'); else if(a.tab === 'reset') a.msg = T('If that email has an account, a reset link is on its way.', '如该邮箱已注册，重置链接已发出。'); renderGate(); })
+    pr.then(function(r){ a.busy = false; if(a.tab === 'up' && !(r && r.error)) invTok(null);   /* the invite was used when the account was made (v3.4.7) */
+      if(r && r.error) a.err = r.error.message; else if(a.tab === 'up') a.msg = (r && r.data && r.data.session) ? T('Account created. Opening…', '注册成功，正在进入…') : T('Account created. If you are not signed in automatically, confirm your email, then sign in.', '注册成功。如未自动登录，请确认邮箱后再登录。'); else if(a.tab === 'reset') a.msg = T('If that email has an account, a reset link is on its way.', '如该邮箱已注册，重置链接已发出。'); renderGate(); })
       .catch(function(err){ a.busy = false; a.err = String(err && err.message || err); renderGate(); });
   }
   if(fm.id === 'fRecover'){ STORE.setPassword(($('#aPw') || {}).value).then(function(r){ if(r.error){ S.auth.err = r.error.message; renderGate(); return; } S.recovery = false; toast(T('Password saved', '密码已保存')); STORE.boot(true); }); }
@@ -471,8 +476,10 @@ document.addEventListener('drop', function(e){ var col = e.target.closest && e.t
 /* ---------------- start ---------------- */
 window.addEventListener('resize', function(){ clearTimeout(window.__rz); window.__rz = setTimeout(function(){ if(S.page === 'reg' || S.page === 'schedule') renderMain(); }, 200); });
 (function boot(){
-  var C = window.WW_CONFIG || {}, sm = /^#s=([A-Za-z0-9_-]{20,64})$/.exec(location.hash || '');
+  var C = window.WW_CONFIG || {}, sm = /^#s=([A-Za-z0-9_-]{20,64})$/.exec(location.hash || ''), im = /^#inv=([A-Za-z0-9_-]{20,64})$/.exec(location.hash || '');
   if(sm){ startPublic(sm[1], C); window.__ww = {S:S, get STORE(){ return STORE; }}; return; }   // a public link: read-only page, no sign-in
+  /* v3.4.7: a team invite link — kept in this browser until the account is made, and taken off the address bar */
+  if(im){ invTok(im[1]); S.auth = Object.assign(S.auth || {}, {tab:'up'}); try{ history.replaceState(null, '', location.pathname + location.search); }catch(e){} }
   if(C.supabaseUrl && C.supabaseKey && window.supabase){ STORE = CloudStore(C.supabaseUrl, C.supabaseKey); renderAll(); STORE.init(); }
   else { STORE = DemoStore(); renderAll(); }
   window.__ww = {S:S, get STORE(){ return STORE; }};

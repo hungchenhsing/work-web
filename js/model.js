@@ -6,6 +6,8 @@ function role(){ return (STORE && STORE.me && STORE.me.role) || 'none'; }
 function myId(){ return (STORE && STORE.me && STORE.me.id) || ''; }
 function isInternal(){ return ['admin','editor','viewer'].indexOf(role()) >= 0; }
 function canTeamEdit(){ return role() === 'admin' || role() === 'editor'; }
+/* v3.4.7: someone who opened a whole-site public link — reads what the link carries, changes nothing */
+function isVisitor(){ return !!(STORE && STORE.mode === 'public' && STORE.site); }
 /* ---------- lookup indexes ----------
    DATA_VER goes up on every data change (notify() bumps it synchronously, right after the store mutates), so lookups
    are rebuilt once per change instead of scanning all records on every call. */
@@ -62,7 +64,7 @@ function treePath(f, id){ var out = [], n = treeNode(f, id), g = 0; while(n && g
 function treeDesc(f, id){ var set = {}; (function w(x){ set[x] = 1; treeKids(f, x).forEach(function(k){ w(k.id); }); })(id); return set; }
 function treeDfs(f, cb){ (function w(pid, d){ treeKids(f, pid).forEach(function(n){ cb(n, d); w(n.id, d + 1); }); })('', 0); }
 function treeLabel(n){ return n ? (n.code ? n.code + ' ' : '') + nm(n) : ''; }
-function newKey(reg, base){ var k = slug(base) || 'field', i = 1, out = k; while(fieldOf(reg, out) || ['id','star','ext','base','parent','ms','dep','rel'].indexOf(out) >= 0){ out = k + '_' + (++i); } return out; }
+function newKey(reg, base){ var k = slug(base) || 'field', i = 1, out = k; while(fieldOf(reg, out) || ['id','star','ext','base','parent','ms','dep','rel','asDoc'].indexOf(out) >= 0){ out = k + '_' + (++i); } return out; }
 
 /* values */
 function num(v){ if(v === '' || v == null) return null; var n = typeof v === 'number' ? v : parseFloat(String(v).replace(/,/g, '')); return isNaN(n) ? null : n; }
@@ -75,6 +77,8 @@ function calcVal(op, a, b){
 function val(rec, f){
   if(!rec || !f) return null;
   var d = rec.d || {};
+  /* v3.4.7: a heading item takes its status, progress and dates from its sub-items */
+  if(rec.id && rec.reg && !d.asDoc){ var ki = kidsIndex(rec.reg)[rec.id]; if(ki && ki.length){ var hg = getReg(rec.reg), hr = hg && headRoleOf(hg, f.key); if(hr){ var hv = headRoll(hg, rec); if(hv && hv[hr] !== undefined) return hv[hr]; } } }
   if(f.type === 'calc' && f.calc && f.calc.op === 'lk') return typeof lkCalc === 'function' && rec.id ? lkCalc(rec, f).v : null;
   if(f.type === 'calc' && f.calc) return calcVal(f.calc.op, d[f.calc.a], d[f.calc.b]);
   if(f.type === 'percent' && f.auto){ var c = calcVal(f.auto.op || 'pct', d[f.auto.a], d[f.auto.b]); if(c != null) return clamp(c, 0, 100); }
@@ -105,15 +109,59 @@ function recTitle2(reg, rec){ var r = rolesOf(reg); if(S.lang !== 'both') return
 function recNo(reg, rec){ var k = rolesOf(reg).no; return k ? (rec.d[k] || '') : ''; }
 function recLabel(rec){ var reg = getReg(rec.reg); if(!reg) return ''; var n = recNo(reg, rec); return (n ? n + ' · ' : '') + (recTitle(reg, rec) || T('Untitled', '未命名')); }
 function planOf(reg, rec){
-  var r = rolesOf(reg), s = r.start ? d2n(rec.d[r.start]) : null, f = r.finish ? d2n(rec.d[r.finish]) : null;
+  var r = rolesOf(reg), s = r.start ? d2n(headOr(reg, rec, 'start', rec.d[r.start])) : null, f = r.finish ? d2n(headOr(reg, rec, 'finish', rec.d[r.finish])) : null;
   if(s == null) s = f; if(f == null) f = s; if(s == null) return null;
   if(f < s){ var t = s; s = f; f = t; } return {s:s, f:f};
 }
-function statusOpt(reg, rec){ var f = rf(reg, 'status'); return f ? optOf(f, rec.d[f.key]) : null; }
+function statusOpt(reg, rec){ var f = rf(reg, 'status'); if(!f) return null; var v = headOr(reg, rec, 'status', rec.d[f.key]); return optOf(f, Array.isArray(v) ? v[0] : v); }
 function isDone(reg, rec){ var o = statusOpt(reg, rec); return !!(o && o.done); }
-function progressOf(reg, rec, noRoll){ var f = rf(reg, 'progress'); var v = f ? num(val(rec, f)) : null; if(v == null){ if(isDone(reg, rec)) return 100; if(!noRoll){ var ru = rollup(reg, rec); if(ru) return ru.pct; } return statusOpt(reg, rec) ? 0 : null; } return clamp(v, 0, 100); }
+function progressOf(reg, rec, noRoll){ if(isHead(reg, rec)){ var hp = headRoll(reg, rec); if(hp && hp.progress != null) return hp.progress; } var f = rf(reg, 'progress'); var v = f ? num(val(rec, f)) : null; if(v == null){ if(isDone(reg, rec)) return 100; if(!noRoll){ var ru = rollup(reg, rec); if(ru) return ru.pct; } return statusOpt(reg, rec) ? 0 : null; } return clamp(v, 0, 100); }
 function asOfN(){ var a = S.asOfLocal || cfg().asOf; return d2n(a) != null ? d2n(a) : TODAY; }
-function isOverdue(reg, rec){ if(isDone(reg, rec)) return false; var p = planOf(reg, rec); return !!p && p.f < asOfN(); }
+/* a heading item is never overdue itself — its sub-items are */
+function isOverdue(reg, rec){ if(isHead(reg, rec) || isDone(reg, rec)) return false; var p = planOf(reg, rec); return !!p && p.f < asOfN(); }
+
+/* ---------- v3.4.7 · heading items (纲领) ----------
+   An item that holds sub-items is a heading, not a document — unless it is marked "Also a document" (d.asDoc).
+   A heading is left out of every count (items, done, overdue, status breakdowns, averages); its status, progress and
+   dates come from its sub-items and cannot be typed. */
+var HEAD_ROLES = ['status', 'progress', 'start', 'finish', 'astart', 'afinish'];
+function isHead(reg, rec){ return !!rec && !!rec.id && !(rec.d && rec.d.asDoc) && !!(kidsIndex(rec.reg)[rec.id] || []).length; }
+function countedOf(reg, list){ return (list || []).filter(function(r){ return !isHead(reg || getReg(r.reg), r); }); }
+function headRoleOf(reg, key){ var ro = rolesOf(reg); for(var i = 0; i < HEAD_ROLES.length; i++) if(ro[HEAD_ROLES[i]] && ro[HEAD_ROLES[i]] === key) return HEAD_ROLES[i]; return null; }
+/* a field of a heading that shows its sub-items' figures (and so cannot be edited there) */
+function headLocked(reg, rec, f){ if(!f || !isHead(reg, rec)) return false; var hr = headRoleOf(reg, f.key); return !!hr && !(hr === 'progress' && isAutoNow(rec, f)); }
+function headOr(reg, rec, role, own){ if(!isHead(reg, rec)) return own; var h = headRoll(reg, rec); return h && h[role] !== undefined ? h[role] : own; }
+/* the status an item in progress gets: "In progress" if the list has it */
+function inProgOpt(opts){ return opts.filter(function(o){ return o.v === 'in_progress'; })[0] || opts.filter(function(o){ return !o.done && (/in progress|ongoing|\bwip\b/i.test(o.en || '') || /进行|進行|处理中|處理中/.test(o.zh || '')); })[0] || null; }
+function headRoll(reg, rec){
+  var c = memo('hr:' + reg.id, function(){ return {}; });
+  if(Object.prototype.hasOwnProperty.call(c, rec.id)) return c[rec.id];
+  c[rec.id] = null;   /* a loop of parents stops here */
+  var kids = childrenOf(rec), ro = rolesOf(reg), out = {}; if(!kids.length) return null;
+  var sf = rf(reg, 'status');
+  if(sf){
+    var opts = optsOf(sf), sts = kids.map(function(k){ var v = val(k, sf); return Array.isArray(v) ? v[0] : v; }), dn = kids.filter(function(k){ return isDone(reg, k); }).length, st = null;
+    var tally = function(arr){ var n = {}, best = null; arr.forEach(function(v){ if(v == null || v === '') return; n[v] = (n[v] || 0) + 1; });
+      Object.keys(n).forEach(function(v){ var o = optOf(sf, v), oi = o ? opts.indexOf(o) : 1e6; if(!best || n[v] > n[best] || (n[v] === n[best] && oi < (optOf(sf, best) ? opts.indexOf(optOf(sf, best)) : 1e6))) best = v; }); return best; };
+    if(dn === kids.length) st = tally(sts.filter(function(v){ var o = optOf(sf, v); return o && o.done; }));
+    else if(sts.every(function(v){ return v === sts[0]; })) st = sts[0];
+    else {
+      var first = opts[0] && opts[0].v, started = dn > 0 || kids.some(function(k, i){ var v = sts[i], p = progressOf(reg, k, true); return (v != null && v !== '' && v !== first) || (p != null && p > 0); });
+      if(!started) st = first || null;
+      else { var ip = inProgOpt(opts), nd = function(v){ var o = optOf(sf, v); return !(o && o.done); };   /* not all done: never a done status */
+        st = ip ? ip.v : tally(sts.filter(function(v){ return v !== first && nd(v); })) || tally(sts.filter(nd)) || first || null; }
+    }
+    out.status = st == null ? null : sf.multi ? [st] : st;
+  }
+  var ru = rollup(reg, rec, kids), pf = rf(reg, 'progress'); if(ru && !(pf && isAutoNow(rec, pf))) out.progress = ru.pct;
+  var s = null, e = null; kids.forEach(function(k){ var p = planOf(reg, k); if(p){ s = s == null ? p.s : Math.min(s, p.s); e = e == null ? p.f : Math.max(e, p.f); } });
+  /* what the sub-items do not give stays empty — a heading never shows its own old figures as theirs */
+  out.start = s != null ? n2d(s) : null; out.finish = e != null ? n2d(e) : null;
+  var af = ro.astart && fieldOf(reg, ro.astart), ff = ro.afinish && fieldOf(reg, ro.afinish);
+  if(af){ var as = null; kids.forEach(function(k){ var x = d2n(val(k, af)); if(x != null) as = as == null ? x : Math.min(as, x); }); out.astart = as != null ? n2d(as) : null; }
+  if(ff){ var ae = null, all = kids.every(function(k){ var x = d2n(val(k, ff)); if(x != null) ae = ae == null ? x : Math.max(ae, x); return x != null; }); out.afinish = all && ae != null ? n2d(ae) : null; }
+  c[rec.id] = out; return out;
+}
 function isMilestone(reg, rec){ if(reg && reg.d.allMs) return true; if(rec.d.ms) return true; var f = rf(reg, 'kind'); if(!f) return false; var o = optOf(f, rec.d[f.key]); return !!(o && o.ms); }
 function blocksOf(reg, rec){ var f = rf(reg, 'block'); return f ? asArr(rec.d[f.key]) : []; }
 function openFb(id){ return ((STORE && STORE.fb) || []).filter(function(f){ return f.item_id === id && f.status === 'open'; }).length; }
@@ -124,11 +172,15 @@ function childrenOf(rec){ return (kidsIndex(rec.reg)[rec.id] || []).slice(); }
 function parentRec(rec){ return rec && rec.d.parent && rec.d.parent !== rec.id ? getRec(rec.d.parent) : null; }
 function depthOf(rec){ var d = 0, p = parentRec(rec), g = 0; while(p && g++ < 10){ d++; p = parentRec(p); } return d; }
 function descendantsOf(rec){ var out = [], idx = kidsIndex(rec.reg); (function w(id, g){ if(g > 10) return; (idx[id] || []).forEach(function(k){ out.push(k); w(k.id, g + 1); }); })(rec.id, 0); return out; }
+var ROLL_IN = {};   /* items being rolled up right now: a loop of parents (A under B under A) stops instead of overflowing */
 function rollup(reg, rec, kids){
-  kids = kids || childrenOf(rec); if(!kids.length) return null;
-  var done = kids.filter(function(k){ return isDone(reg, k); }).length, ps = kids.map(function(k){ return progressOf(reg, k); }).filter(function(x){ return x != null; });
-  var pctv = ps.length ? Math.round(ps.reduce(function(s, x){ return s + x; }, 0) / ps.length) : Math.round(done / kids.length * 100);
-  return {n:kids.length, done:done, pct:pctv};
+  kids = kids || childrenOf(rec); if(!kids.length || ROLL_IN[rec.id]) return null;
+  ROLL_IN[rec.id] = 1;
+  try{
+    var done = kids.filter(function(k){ return isDone(reg, k); }).length, ps = kids.map(function(k){ return progressOf(reg, k); }).filter(function(x){ return x != null; });
+    var pctv = ps.length ? Math.round(ps.reduce(function(s, x){ return s + x; }, 0) / ps.length) : Math.round(done / kids.length * 100);
+    return {n:kids.length, done:done, pct:pctv};
+  } finally { delete ROLL_IN[rec.id]; }
 }
 function nextChildNo(reg, parent){
   var k = rolesOf(reg).no; if(!k) return ''; var base = parent.d[k]; if(!base) return nextNo(reg);
@@ -358,7 +410,7 @@ function matchRec(reg, rec, f, skipNode){
     if(!hit) return false;
   }
   for(var k in f.fx){ var want = f.fx[k]; if(!want || !want.length) continue; var fd = fieldOf(reg, k); if(!fd) continue;
-    var have = fd.type === 'check' ? [rec.d[k] ? '1' : '0'] : asArr(rec.d[k]);
+    var have = fd.type === 'check' ? [rec.d[k] ? '1' : '0'] : asArr(val(rec, fd));
     if(!have.length && want.indexOf('__none') >= 0) continue;
     if(!have.some(function(x){ return want.indexOf(x) >= 0; })) return false; }
   if(f.from || f.to){ var p = planOf(reg, rec); if(!p) return false; if(f.from && p.f < d2n(f.from)) return false; if(f.to && p.s > d2n(f.to)) return false; }
@@ -378,7 +430,7 @@ function groupable(reg){ return dataFields(reg).filter(function(f){ return ['sel
 function groupKey(reg, rec, key){
   if(!key || key === 'none') return [{k:'all', label:'', o:0}];
   var f = fieldOf(reg, key); if(!f) return [{k:'all', label:'', o:0}];
-  var v = rec.d[key];
+  var v = val(rec, f);
   if(f.type === 'select'){
     var arr = asArr(v); if(!arr.length) return [{k:'_n', label:T('(empty)', '（空）'), o:1e9}];
     var opts = optsOf(f), x = arr[0], o = optOf(f, x);

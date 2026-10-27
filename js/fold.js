@@ -55,16 +55,18 @@ function oTree(reg, list){
 }
 /* figures of a folder: done / total, overdue, progress, plan span */
 function oStats(reg, recs){
+  recs = countedOf(reg, recs);   /* v3.4.7: heading items are not counted */
   var dn = 0, od = 0, ps = [], s = Infinity, e = -Infinity;
   recs.forEach(function(r){ if(isDone(reg, r)) dn++; if(isOverdue(reg, r)) od++; var p = progressOf(reg, r); if(p != null) ps.push(p); var pl = planOf(reg, r); if(pl){ s = Math.min(s, pl.s); e = Math.max(e, pl.f); } });
   return {n:recs.length, dn:dn, od:od, pct:ps.length ? Math.round(ps.reduce(function(a, b){ return a + b; }, 0) / ps.length) : null, s:isFinite(s) ? s : null, e:isFinite(e) ? e : null};
 }
 function oLabel(k){ return (k.n.code ? k.n.code + ' ' : '') + nm(k.n); }
-/* "8 items · 56 sub-items": items inside another item are counted apart (v3.4.4) */
+/* "8 items · 56 sub-items": items inside another item are counted apart (v3.4.4); heading items are not counted but named (v3.4.7) */
 function oCount(k){
   var sub = k.kids.length, ids = {}; k.all.forEach(function(r){ ids[r.id] = 1; });
-  var inner = k.all.filter(function(r){ return r.d.parent && ids[r.d.parent]; }).length, top = k.all.length - inner;
-  return L(top + (top === 1 ? ' item' : ' items'), top + ' 项') + (inner ? ' · ' + L(inner + (inner === 1 ? ' sub-item' : ' sub-items'), inner + ' 个子项') : '') + (sub ? ' · ' + L(sub + (sub === 1 ? ' sub-folder' : ' sub-folders'), sub + ' 个子目录') : '');
+  var hd = k.all.filter(function(r){ return isHead(getReg(r.reg), r); }).length;
+  var inner = k.all.filter(function(r){ return r.d.parent && ids[r.d.parent] && !isHead(getReg(r.reg), r); }).length, top = k.all.length - inner - hd;
+  return L(top + (top === 1 ? ' item' : ' items'), top + ' 项') + (inner ? ' · ' + L(inner + (inner === 1 ? ' sub-item' : ' sub-items'), inner + ' 个子项') : '') + (hd ? ' · ' + L(hd + (hd === 1 ? ' heading' : ' headings'), hd + ' 个纲领') : '') + (sub ? ' · ' + L(sub + (sub === 1 ? ' sub-folder' : ' sub-folders'), sub + ' 个子目录') : '');
 }
 function oToggle(reg, k, open, cls){
   if(!k.all.length && !k.kids.length) return '<span class="cx0" aria-hidden="true"></span>';

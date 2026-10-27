@@ -59,13 +59,16 @@ language sql stable security definer set search_path = public as $$
   select coalesce((select role from public.profiles where id = auth.uid()), 'none')
 $$;
 
--- new sign-ups get a profile; the very first one becomes admin
+-- new sign-ups get a profile; the very first one becomes admin; someone signing up through a team invite link gets
+-- that link's role at once (v3.4.7 — invite_take, in the section at the end)
 create or replace function public.handle_new_user() returns trigger
 language plpgsql security definer set search_path = public as $$
+declare r text;
 begin
+  if not exists (select 1 from public.profiles) then r := 'admin';
+  else r := coalesce(public.invite_take(new.raw_user_meta_data->>'invite', new.id, new.email), 'pending'); end if;
   insert into public.profiles (id, email, name, role)
-  values (new.id, new.email, coalesce(new.raw_user_meta_data->>'name', ''),
-          case when not exists (select 1 from public.profiles) then 'admin' else 'pending' end)
+  values (new.id, new.email, coalesce(new.raw_user_meta_data->>'name', ''), r)
   on conflict (id) do nothing;
   return new;
 end $$;
@@ -370,7 +373,7 @@ create policy ww_files_delete on storage.objects for delete to authenticated
 -- Admins and editors create, revoke and delete links on the site (Settings → Public links).
 create table if not exists public.shares (
   id text primary key check (id ~ '^[A-Za-z0-9_-]{20,64}$'),
-  data jsonb not null default '{}'::jsonb,       -- {kind: reg|deck|overview, mode: snap|live, title, lang, cfg, snap}
+  data jsonb not null default '{}'::jsonb,       -- {kind: reg|deck|overview|site, mode: snap|live, title, lang, cfg, snap}
   revoked boolean not null default false,
   expires_at timestamptz,
   views integer not null default 0,
@@ -383,9 +386,11 @@ alter table public.shares enable row level security;
 drop policy if exists shares_read on public.shares;
 create policy shares_read on public.shares for select to authenticated using (public.my_role() in ('admin','editor'));
 drop policy if exists shares_insert on public.shares;
-create policy shares_insert on public.shares for insert to authenticated with check (public.my_role() in ('admin','editor'));
+create policy shares_insert on public.shares for insert to authenticated with check (public.my_role() in ('admin','editor')
+  and (public.my_role() = 'admin' or data->'cfg'->'scope' is distinct from '"team"'::jsonb));   -- v3.4.7: a team site link (every field) is made by an admin
 drop policy if exists shares_update on public.shares;
-create policy shares_update on public.shares for update to authenticated using (public.my_role() in ('admin','editor')) with check (public.my_role() in ('admin','editor'));
+create policy shares_update on public.shares for update to authenticated using (public.my_role() in ('admin','editor'))
+  with check (public.my_role() in ('admin','editor') and (public.my_role() = 'admin' or data->'cfg'->'scope' is distinct from '"team"'::jsonb));
 drop policy if exists shares_delete on public.shares;
 create policy shares_delete on public.shares for delete to authenticated using (public.my_role() in ('admin','editor'));
 revoke all on public.shares from anon;
@@ -450,6 +455,8 @@ language sql immutable as $$
 
 -- the public copy of some registers: whitelisted register settings, allowed fields only, allowed records only.
 -- p_opt: {strict: true} — register views: External fields plus No. and title, nothing extra for charts;
+--        {team: true} — site links made for the team (v3.4.7): every field except files, links and sub-tables, and every
+--        record, also in registers published to the Owner;
 --        {cols: [...]} — only these columns (plus No., title and package); {filter: {fx, node}} — only matching records;
 --        {ids: [...]} — only these records (a snapshot of a register view, frozen as the publisher saw it).
 drop function if exists public.share_project(text[]);
@@ -457,7 +464,7 @@ drop function if exists public.share_project(text[], boolean);
 create or replace function public.share_project(p_regs text[], p_opt jsonb default '{}'::jsonb) returns jsonb
 language plpgsql stable security definer set search_path = '' as $$
 declare
-  g record; fs jsonb; ro jsonb; keys text[]; allk text[]; gated boolean; lib boolean; is_strict boolean; flds jsonb; rls jsonb; rs jsonb; c jsonb;
+  g record; fs jsonb; ro jsonb; keys text[]; allk text[]; gated boolean; lib boolean; is_strict boolean; is_team boolean; flds jsonb; rls jsonb; rs jsonb; c jsonb;
   cols text[]; idset jsonb; flt jsonb; fx jsonb; nmode text; nset jsonb; tk text; nd text; tf jsonb; tn jsonb; u record;
   lst text[] := '{}'; full_l text[] := '{}'; used_l text[] := '{}'; out_regs jsonb := '[]'::jsonb; out_recs jsonb := '[]'::jsonb;
   role_keys constant text[] := array['no','title','title2','start','finish','progress','status','block','tree','kind','astart','afinish','base'];
@@ -466,6 +473,7 @@ declare
 begin
   p_opt := case when jsonb_typeof(p_opt) = 'object' then p_opt else '{}'::jsonb end;
   is_strict := coalesce(p_opt->'strict' = 'true'::jsonb, false);
+  is_team := coalesce(p_opt->'team' = 'true'::jsonb, false);
   cols := case when jsonb_typeof(p_opt->'cols') = 'array' then array(select x #>> '{}' from jsonb_array_elements(p_opt->'cols') x where jsonb_typeof(x) = 'string') end;
   idset := case when jsonb_typeof(p_opt->'ids') = 'array' then coalesce((select jsonb_object_agg(x #>> '{}', true) from jsonb_array_elements(p_opt->'ids') x where jsonb_typeof(x) = 'string'), '{}'::jsonb) end;
   flt := p_opt->'filter';
@@ -481,7 +489,7 @@ begin
     select coalesce(array_agg(distinct k), '{}') into keys from (
       select public.share_str(f->'key') as k from jsonb_array_elements(fs) f
        where coalesce(public.share_str(f->'type'), '') <> all(bad_types)
-         and (f->'ext' = 'true'::jsonb or (lib and public.share_str(f->'key') = any(lib_keys)))
+         and (f->'ext' = 'true'::jsonb or is_team or (lib and public.share_str(f->'key') = any(lib_keys)))
       union select public.share_str(e.value) from jsonb_each(ro) e where e.key = any(case when is_strict then array['no','title','title2'] else role_keys end)
       union select public.share_str(f->'auto'->'a') from jsonb_array_elements(fs) f where not is_strict and f->'key' = ro->'progress' and jsonb_typeof(f->'key') = 'string'
       union select public.share_str(f->'auto'->'b') from jsonb_array_elements(fs) f where not is_strict and f->'key' = ro->'progress' and jsonb_typeof(f->'key') = 'string'
@@ -529,9 +537,9 @@ begin
     end if;
     rs := coalesce((select jsonb_agg(jsonb_build_object('id', r.id, 'reg', r.register_id, 'd',
         (select coalesce(jsonb_object_agg(e.key, e.value), '{}'::jsonb) from jsonb_each(case when jsonb_typeof(r.data) = 'object' then r.data else '{}'::jsonb end) e
-          where e.key = any(keys) or (e.key in ('parent', 'ms', 'ext') and not (e.key = any(allk))))) order by r.created_at, r.id)
+          where e.key = any(keys) or (e.key in ('parent', 'ms', 'ext', 'asDoc') and not (e.key = any(allk))))) order by r.created_at, r.id)
       from public.records r where r.register_id = g.id
-        and (not gated or r.data->'ext' = 'true'::jsonb)
+        and (not gated or is_team or r.data->'ext' = 'true'::jsonb)
         and (idset is null or idset ? r.id)
         and (jsonb_array_length(fx) = 0 or public.share_fx(r.data, fx))
         and (nmode = 'all'
@@ -561,7 +569,8 @@ language sql immutable as $$
 create or replace function public.share_opt(d jsonb, stage text) returns jsonb
 language sql immutable as $$
   select case when d->'kind' = '"reg"'::jsonb then public.share_obj(jsonb_build_object('strict', true, 'cols', d->'cfg'->'cols',
-    'filter', case when stage <> 'check' then d->'cfg'->'filter' end, 'ids', case when stage = 'freeze' then d->'cfg'->'ids' end)) else '{}'::jsonb end $$;
+    'filter', case when stage <> 'check' then d->'cfg'->'filter' end, 'ids', case when stage = 'freeze' then d->'cfg'->'ids' end))
+    when d->'kind' = '"site"'::jsonb and d->'cfg'->'scope' = '"team"'::jsonb then '{"team": true}'::jsonb else '{}'::jsonb end $$;
 
 -- a snapshot keeps its values, but follows today's permissions: registers made private, fields no longer External,
 -- records no longer marked for the Owner drop out of it (and so do list entries only they used)
@@ -620,10 +629,12 @@ language sql immutable as $$
   select case when jsonb_typeof(e) = 'object' and e->'k' = '"data"'::jsonb then e || public.share_obj(jsonb_build_object('cfg', public.share_cfg(e->>'type', e->'cfg'))) else e end $$;
 create or replace function public.share_logo(l jsonb) returns jsonb
 language sql immutable as $$ select case when jsonb_typeof(l->'path') = 'string' then jsonb_build_object('path', l->'path') end $$;
-create or replace function public.share_deck(p_id text, p jsonb) returns jsonb
+-- p_aud: the audience the visitor's copy is built for — 'owner', except presentations in a team site link (v3.4.7)
+drop function if exists public.share_deck(text, jsonb);
+create or replace function public.share_deck(p_id text, p jsonb, p_aud text default 'owner') returns jsonb
 language sql immutable as $$
   select jsonb_build_object('id', p_id, 'd', public.share_obj(jsonb_build_object('no', p->'no', 'title', p->'title', 'titleZh', p->'titleZh', 'date', p->'date',
-    'lang', p->'lang', 'presenter', p->'presenter', 'aud', 'owner',
+    'lang', p->'lang', 'presenter', p->'presenter', 'aud', case when p_aud = 'internal' then 'internal' else 'owner' end,
     'theme', case when jsonb_typeof(p->'theme') = 'object' then public.share_obj(jsonb_build_object('color', p->'theme'->'color', 'foot', p->'theme'->'foot',
       'footText', p->'theme'->'footText', 'conf', p->'theme'->'conf', 'style', p->'theme'->'style', 'agenda', p->'theme'->'agenda',
       'logoL', public.share_logo(p->'theme'->'logoL'), 'logoR', public.share_logo(p->'theme'->'logoR'))) end,
@@ -643,14 +654,14 @@ language sql immutable as $$
 do $$ declare f text; begin
   foreach f in array array['share_obj(jsonb)', 'share_truthy(jsonb)', 'share_str(jsonb)', 'share_arr(jsonb)', 'share_field(jsonb)', 'share_fx(jsonb,jsonb)',
     'share_lists(jsonb,text[],text[],text[])', 'share_listuse(jsonb,jsonb,jsonb,jsonb)', 'share_regs(jsonb)', 'share_opt(jsonb,text)', 'share_recheck(jsonb,jsonb)',
-    'share_pcfg(text,jsonb)', 'share_cfg(text,jsonb)', 'share_el(jsonb)', 'share_logo(jsonb)', 'share_deck(text,jsonb)', 'share_media(jsonb,jsonb)'] loop
+    'share_pcfg(text,jsonb)', 'share_cfg(text,jsonb)', 'share_el(jsonb)', 'share_logo(jsonb)', 'share_deck(text,jsonb,text)', 'share_media(jsonb,jsonb)'] loop
     execute 'revoke all on function public.' || f || ' from public, anon, authenticated';
   end loop; end $$;
 
 -- what a visitor's browser asks for: one link, nothing else
 create or replace function public.share_get(p_token text) returns jsonb
 language plpgsql security definer set search_path = '' as $$
-declare s public.shares; d jsonb; regs text[]; dk record; dj jsonb;
+declare s public.shares; d jsonb; regs text[]; dk record; dj jsonb; dids text[]; dl jsonb; md jsonb; team boolean;
 begin
   if p_token is null or p_token !~ '^[A-Za-z0-9_-]{20,64}$' then return null; end if;
   select * into s from public.shares where id = p_token;
@@ -666,7 +677,21 @@ begin
        and g.visibility = 'team' and g.data->'kind' = '"decks"'::jsonb and r.data->'aud' is distinct from '"internal"'::jsonb;
     if not found then return null; end if;
   end if;
-  if d->'mode' = '"live"'::jsonb then
+  if d->'kind' = '"site"'::jsonb then
+    -- v3.4.7: the whole site, read-only and always live: the chosen registers and presentations. Owner rules, or every field
+    -- of the chosen team registers when the link was made for the team (cfg.scope = 'team'); Internal presentations only then.
+    team := d->'cfg'->'scope' = '"team"'::jsonb;
+    dids := array(select x #>> '{}' from jsonb_array_elements(case when jsonb_typeof(d->'cfg'->'decks') = 'array' then d->'cfg'->'decks' else '[]'::jsonb end) x where jsonb_typeof(x) = 'string');
+    dl := '[]'::jsonb; md := '{}'::jsonb;
+    for dk in select r.id, r.data from public.records r join public.registers g on g.id = r.register_id
+               where r.id = any(dids) and jsonb_typeof(r.data) = 'object' and g.visibility = 'team' and g.data->'kind' = '"decks"'::jsonb
+                 and (team or r.data->'aud' is distinct from '"internal"'::jsonb)
+               order by array_position(dids, r.id) loop
+      dj := public.share_deck(dk.id, dk.data, case when team then coalesce(public.share_str(dk.data->'aud'), 'owner') else 'owner' end);
+      dl := dl || jsonb_build_array(dj); md := md || public.share_media(s.data->'media', dj);
+    end loop;
+    d := (d - 'snap' - 'media') || jsonb_build_object('mode', 'live', 'live', public.share_project(regs, public.share_opt(d, 'live')), 'decks', dl, 'media', md);
+  elsif d->'mode' = '"live"'::jsonb then
     d := (d - 'snap' - 'media') || jsonb_build_object('live', public.share_project(regs, public.share_opt(d, 'live')));
     if d->'kind' = '"deck"'::jsonb then
       dj := public.share_deck(dk.id, dk.data);
@@ -1506,3 +1531,91 @@ begin
   if tg_op = 'UPDATE' then new.updated_at := now(); end if;
   return new;
 end $$;
+
+-- =====================================================================
+-- v3.4.7: team invite links — one link for the team; whoever creates an account through it gets its role at once
+-- =====================================================================
+-- An invite is a random id (20+ characters) with a role (editor or viewer), an optional end date and a switch to withdraw
+-- it. The database checks it when an account is created with it (handle_new_user, above) or when someone who signed up
+-- earlier and is still waiting opens it (invite_redeem). Everyone who joined through it is listed with it, so the admin
+-- can see who came in and change their role. Only admins see, make, withdraw or delete invites.
+create table if not exists public.invites (
+  id text primary key check (id ~ '^[A-Za-z0-9_-]{20,64}$'),
+  role text not null default 'editor' check (role in ('editor','viewer')),
+  note text check (note is null or length(note) <= 200),
+  revoked boolean not null default false,
+  expires_at timestamptz,
+  uses integer not null default 0,
+  used jsonb not null default '[]'::jsonb,
+  created_at timestamptz not null default now(),
+  created_by uuid default auth.uid()
+);
+alter table public.invites enable row level security;
+drop policy if exists invites_read on public.invites;
+create policy invites_read on public.invites for select to authenticated using (public.my_role() = 'admin');
+drop policy if exists invites_insert on public.invites;
+create policy invites_insert on public.invites for insert to authenticated with check (public.my_role() = 'admin');
+drop policy if exists invites_update on public.invites;
+create policy invites_update on public.invites for update to authenticated using (public.my_role() = 'admin') with check (public.my_role() = 'admin');
+drop policy if exists invites_delete on public.invites;
+create policy invites_delete on public.invites for delete to authenticated using (public.my_role() = 'admin');
+revoke all on public.invites from anon;
+grant select, insert, update, delete on public.invites to authenticated;
+
+-- what the sign-in page shows before there is an account: the role the link gives (nothing when it is not valid)
+create or replace function public.invite_peek(p_token text) returns jsonb
+language plpgsql stable security definer set search_path = '' as $$
+declare i public.invites;
+begin
+  if p_token is null or p_token !~ '^[A-Za-z0-9_-]{20,64}$' then return null; end if;
+  select * into i from public.invites where id = p_token;
+  if not found or i.revoked or (i.expires_at is not null and i.expires_at <= now()) then return null; end if;
+  return jsonb_build_object('role', i.role, 'expires_at', i.expires_at);
+end $$;
+revoke all on function public.invite_peek(text) from public;
+grant execute on function public.invite_peek(text) to anon, authenticated;
+
+-- uses an invite for one account: its role, or null when the link is not valid (counted and listed with the invite)
+create or replace function public.invite_take(p_token text, p_uid uuid, p_email text) returns text
+language plpgsql security definer set search_path = '' as $$
+declare i public.invites;
+begin
+  if p_token is null or p_token !~ '^[A-Za-z0-9_-]{20,64}$' or p_uid is null then return null; end if;
+  select * into i from public.invites where id = p_token for update;
+  if not found or i.revoked or (i.expires_at is not null and i.expires_at <= now()) then return null; end if;
+  update public.invites set uses = uses + 1, used = used || jsonb_build_array(jsonb_build_object('id', p_uid, 'email', p_email, 'at', now())) where id = i.id;
+  return i.role;
+end $$;
+revoke all on function public.invite_take(text, uuid, text) from public, anon, authenticated;
+
+-- An account that has ever had access is marked (had_access). When an admin takes access away (sets it back to
+-- "Waiting"), an invite link cannot give it back — only the admin can.
+alter table public.profiles add column if not exists had_access boolean not null default false;
+update public.profiles set had_access = true where role <> 'pending' and not had_access;
+create or replace function public.guard_profile_access() returns trigger
+language plpgsql as $$
+begin
+  new.had_access := coalesce(new.had_access, false) or new.role <> 'pending' or (tg_op = 'UPDATE' and old.had_access);
+  return new;
+end $$;
+drop trigger if exists guard_profile_access on public.profiles;
+create trigger guard_profile_access before insert or update on public.profiles for each row execute function public.guard_profile_access();
+
+-- someone who signed up earlier and is still waiting opens an invite link: they get its role. An account that already
+-- has a role keeps it, and one whose access an admin took away gets nothing (the invite is not used either way).
+create or replace function public.invite_redeem(p_token text) returns text
+language plpgsql security definer set search_path = '' as $$
+declare cur text; em text; r text; had boolean;
+begin
+  if auth.uid() is null then raise exception 'Not signed in' using errcode = '42501'; end if;
+  select p.role, p.email, p.had_access into cur, em, had from public.profiles p where p.id = auth.uid();
+  if cur is null then return null; end if;
+  if cur <> 'pending' then return cur; end if;
+  if had then return null; end if;
+  r := public.invite_take(p_token, auth.uid(), em);
+  if r is null then return null; end if;
+  update public.profiles set role = r where id = auth.uid();
+  return r;
+end $$;
+revoke all on function public.invite_redeem(text) from public, anon;
+grant execute on function public.invite_redeem(text) to authenticated;
