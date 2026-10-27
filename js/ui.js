@@ -311,7 +311,7 @@ function cellHtml(reg, f, rec, opts){
   switch(f.type){
     case 'select':
       if(f.list === 'blocks') return blockChips(v, f);
-      if(isEmpty(v)) return '<span class="muted">—</span>';
+      if(isEmpty(v)){ var os = rec && headOrSum(reg, rec, f); if(os) return chip(os.ok === os.n ? 'green' : os.ok ? 'amber' : 'grey', esc(T('Accepted ' + os.ok + '/' + os.n, '接受 ' + os.ok + '/' + os.n))); return '<span class="muted">—</span>'; }
       if(f.list === 'people' || f.list === 'subcon') return '<span class="ppl">' + asArr(v).map(function(x){ var o = optOf(f, x); return esc(o ? nm(o) : x); }).join(', ') + '</span>';
       return asArr(v).map(function(x){ return optChip(optOf(f, x), x); }).join(' ');
     case 'tree': return treeCellHtml(f, v);   // v3.4.2: the top level, the full place as a tooltip
@@ -490,7 +490,7 @@ function renderDrawer(){
     (canSchemaEdit(reg) ? '<button type="button" data-act="fieldsOpen" data-v="' + esc(reg.id) + '">' + uic('gear', 14) + ' ' + L('Fields of this register', '本台账字段') + '</button>' : '') +
     (ed ? '<hr><button type="button" class="dang" data-act="delAsk">' + uic('trash', 14) + ' ' + (desc ? L('Delete with ' + desc + ' sub-items…', '连同 ' + desc + ' 个子项删除…') : L('Delete…', '删除…')) + '</button>' : '') + '</div></details>';
   var es = relsOf(rec).filter(function(e){ return e.t !== 'men' && getRec(e.id); });
-  var chips = (rf(reg, 'block') ? blockChips(rec.d[rf(reg, 'block').key], rf(reg, 'block')) : '') + (isOverdue(reg, rec) ? chip('red', L('Overdue', '逾期')) : '') + (!ed ? chip('grey', L('Read only', '只读')) : '') +
+  var chips = (rf(reg, 'block') ? blockChips(val(rec, rf(reg, 'block')), rf(reg, 'block')) : '') + (isOverdue(reg, rec) ? chip('red', L('Overdue', '逾期')) : '') + (!ed ? chip('grey', L('Read only', '只读')) : '') +
     (ownerGated(reg) && !isPrivate(reg) ? (ed ? '<label class="chip c-violet tog"><input type="checkbox" data-act="extTog"' + (rec.d.ext ? ' checked' : '') + '>' + uic('eye', 12) + ' ' + L('Owner can see', '业主可见') + '</label>' : (rec.d.ext ? chip('violet', uic('eye', 12) + ' ' + L('Owner can see', '业主可见')) : '')) : '') +
     (kids.length && !trn ? (ed ? '<label class="chip c-grey tog" title="' + esc(T('An item with sub-items is a heading: it is not counted and takes its status, progress and dates from its sub-items. Tick to count it as a document too.', '有子项的事项是纲领：不计入数量，状态、进度和日期由子项汇总。勾选后它本身也计为一份文件。')) + '"><input type="checkbox" data-act="asDocTog"' + (rec.d.asDoc ? ' checked' : '') + '>' + L('Counted as a document', '计为一份文件') + '</label>' : '') + (rec.d.asDoc ? (ed ? '' : chip('grey', L('Counted as a document', '计为一份文件'))) : chip('grey', L('Heading · not counted', '纲领 · 不计数'))) : '') +
     (!lib && !es.length && ed ? '<button type="button" class="rchip add" data-act="linkOpen" data-id="' + esc(rec.id) + '">' + uic('plus', 12) + ' ' + L('Link', '关联') + '</button>' : '');

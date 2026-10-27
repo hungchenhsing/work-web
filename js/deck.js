@@ -176,10 +176,10 @@ var SLIDE_DATA = {
     function rowOf(r, lv, pid){ var ks = kidsL[r.id] || [], kd = ks.filter(function(k){ return isDone(reg, k); }).length;
       return {id:r.id, hl:recNo(reg, r) + ' ' + (r.d[ro.title] || ''), od:isOverdue(reg, r), dep:lv || 0, lv:lv || 0, pid:pid || null, kn:ks.length, kd:kd, kc:ks.length, c:fs.map(function(x){
         if(x.key === ro.title) return {t:recPair(reg, r)};
-        if(x.type === 'select' && !x.multi && !x.list){ var o = optOf(x, asArr(val(r, x))[0]); return o ? {s:{en:o.en, zh:o.zh || '', color:o.color}} : {v:''}; }
+        if(x.type === 'select' && !x.multi && !x.list){ var o = optOf(x, asArr(val(r, x))[0]); return o ? {s:{en:o.en, zh:o.zh || '', color:o.color}} : {v:headOrSum(reg, r, x) ? textOf(reg, x, r) : ''}; }
         if(x.type === 'percent' || (x.type === 'calc' && x.calc && x.calc.op === 'pct')){ var pv = val(r, x); if(pv == null && x.key === ro.progress) pv = progressOf(reg, r); return {p:pv == null ? null : Math.round(pv)}; }
         if(x.type === 'tree'){ var n = treeNode(x, r.d[x.key]); return {v: n ? treeLabel(n) : ''}; }
-        if(x.type === 'select' && x.list === 'blocks') return {b:asArr(r.d[x.key])};
+        if(x.type === 'select' && x.list === 'blocks') return {b:asArr(val(r, x))};
         return {v:textOf(reg, x, r), m:x.type === 'date' || x.type === 'number' || x.key === ro.no}; })}; }
     var rows = [], topSet = {}; tops.forEach(function(r){ topSet[r.id] = 1; });
     if(gf){ var cur = null, grs = [];

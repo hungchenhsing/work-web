@@ -56,7 +56,9 @@ function ownerGated(reg){ return !!reg && (!!reg.d.ownerPublish || reg.d.kind ==
 function rolesOf(reg){ return (reg && reg.d.roles) || {}; }
 function rf(reg, roleName){ var k = rolesOf(reg)[roleName]; return k ? fieldOf(reg, k) : null; }
 function optsOf(f){ if(!f) return []; if(f.list){ if(f.list === 'people'){ var po = peopleOpts(); if(po) return po; } var l = lists()[f.list]; return (l && l.opts) || []; } return f.opts || []; }
-function optOf(f, v){ return optsOf(f).filter(function(o){ return o.v === v; })[0] || null; }
+function optOf(f, v){ if(v === '__head') return HEAD_OPT; return optsOf(f).filter(function(o){ return o.v === v; })[0] || null; }
+/* v3.4.7: the category a heading item shows (it is not one of the list's options and cannot be chosen) */
+var HEAD_OPT = {v:'__head', en:'Heading', zh:'纲领', color:'grey'};
 function treeNodes(f){ return (f && f.tree) || []; }
 function treeNode(f, id){ return treeNodes(f).filter(function(n){ return n.id === id; })[0] || null; }
 function treeKids(f, pid){ return treeNodes(f).filter(function(n){ return (n.parent || '') === (pid || ''); }); }
@@ -78,7 +80,7 @@ function val(rec, f){
   if(!rec || !f) return null;
   var d = rec.d || {};
   /* v3.4.7: a heading item takes its status, progress and dates from its sub-items */
-  if(rec.id && rec.reg && !d.asDoc){ var ki = kidsIndex(rec.reg)[rec.id]; if(ki && ki.length){ var hg = getReg(rec.reg), hr = hg && headRoleOf(hg, f.key); if(hr){ var hv = headRoll(hg, rec); if(hv && hv[hr] !== undefined) return hv[hr]; } } }
+  if(rec.id && rec.reg && !d.asDoc && f.key){ var ki = kidsIndex(rec.reg)[rec.id]; if(ki && ki.length){ var hg = getReg(rec.reg); if(hg && headRule(hg, f)){ var hv = headRoll(hg, rec); if(hv && Object.prototype.hasOwnProperty.call(hv.k, f.key)) return hv.k[f.key]; } } }
   if(f.type === 'calc' && f.calc && f.calc.op === 'lk') return typeof lkCalc === 'function' && rec.id ? lkCalc(rec, f).v : null;
   if(f.type === 'calc' && f.calc) return calcVal(f.calc.op, d[f.calc.a], d[f.calc.b]);
   if(f.type === 'percent' && f.auto){ var c = calcVal(f.auto.op || 'pct', d[f.auto.a], d[f.auto.b]); if(c != null) return clamp(c, 0, 100); }
@@ -88,7 +90,7 @@ function isAutoNow(rec, f){ return f && f.type === 'percent' && f.auto && calcVa
 function asArr(v){ return v == null || v === '' ? [] : Array.isArray(v) ? v : [v]; }
 function textOf(reg, f, rec, raw){
   var v = raw !== undefined ? raw : val(rec, f);
-  if(isEmpty(v)) return '';
+  if(isEmpty(v)){ var os = raw === undefined && rec && reg ? headOrSum(reg, rec, f) : null; return os ? T('Accepted ' + os.ok + '/' + os.n, '接受 ' + os.ok + '/' + os.n) : ''; }
   switch(f.type){
     case 'select': return asArr(v).map(function(x){ var o = optOf(f, x); return o ? nm(o) : x; }).join(', ');
     case 'tree': var n = treeNode(f, v); return n ? treeLabel(n) : '';
@@ -128,9 +130,26 @@ var HEAD_ROLES = ['status', 'progress', 'start', 'finish', 'astart', 'afinish'];
 function isHead(reg, rec){ return !!rec && !!rec.id && !(rec.d && rec.d.asDoc) && !!(kidsIndex(rec.reg)[rec.id] || []).length; }
 function countedOf(reg, list){ return (list || []).filter(function(r){ return !isHead(reg || getReg(r.reg), r); }); }
 function headRoleOf(reg, key){ var ro = rolesOf(reg); for(var i = 0; i < HEAD_ROLES.length; i++) if(ro[HEAD_ROLES[i]] && ro[HEAD_ROLES[i]] === key) return HEAD_ROLES[i]; return null; }
+/* which fields of a heading come from its sub-items, and how (per register):
+   status / progress / dates (roles) · kind: the category shows "Heading" · union: block, discipline and people fields list
+   every value of the sub-items · or: Owner result (all the same, or "Accepted n/m") · sum: number fields add up */
+var HEAD_UNION_LISTS = ['blocks', 'disc', 'people'];
+function headRules(reg){ return memo('hrule:' + reg.id, function(){ var ro = rolesOf(reg), m = {};
+  dataFields(reg).forEach(function(f){ if(!f.key) return; var hr = headRoleOf(reg, f.key);
+    if(hr) m[f.key] = hr;
+    else if(f.key === ro.kind && f.type === 'select') m[f.key] = 'kind';
+    else if(f.key === 'ownerResult' && f.type === 'select') m[f.key] = 'or';
+    else if(f.type === 'select' && (f.key === ro.block || HEAD_UNION_LISTS.indexOf(f.list) >= 0)) m[f.key] = 'union';
+    else if(f.type === 'number') m[f.key] = 'sum'; });
+  return m; }); }
+function headRule(reg, f){ return f && f.key ? headRules(reg)[f.key] || null : null; }
 /* a field of a heading that shows its sub-items' figures (and so cannot be edited there) */
-function headLocked(reg, rec, f){ if(!f || !isHead(reg, rec)) return false; var hr = headRoleOf(reg, f.key); return !!hr && !(hr === 'progress' && isAutoNow(rec, f)); }
-function headOr(reg, rec, role, own){ if(!isHead(reg, rec)) return own; var h = headRoll(reg, rec); return h && h[role] !== undefined ? h[role] : own; }
+function headLocked(reg, rec, f){ return !!f && !!headRule(reg, f) && isHead(reg, rec); }
+function headOr(reg, rec, role, own){ if(!isHead(reg, rec)) return own; var h = headRoll(reg, rec), k = rolesOf(reg)[role]; return h && k && Object.prototype.hasOwnProperty.call(h.k, k) ? h.k[k] : h && h[role] !== undefined ? h[role] : own; }
+/* an Owner result option that counts as accepted */
+function orOk(o){ return !!o && (!!o.done || /^accept/i.test(o.v || '') || o.color === 'green'); }
+/* a heading's Owner result when its sub-items differ: "Accepted 3/11" */
+function headOrSum(reg, rec, f){ if(!f || headRule(reg, f) !== 'or' || !isHead(reg, rec)) return null; var h = headRoll(reg, rec); return h && h.orSum && h.k[f.key] == null ? h.orSum : null; }
 /* the status an item in progress gets: "In progress" if the list has it */
 function inProgOpt(opts){ return opts.filter(function(o){ return o.v === 'in_progress'; })[0] || opts.filter(function(o){ return !o.done && (/in progress|ongoing|\bwip\b/i.test(o.en || '') || /进行|進行|处理中|處理中/.test(o.zh || '')); })[0] || null; }
 function headRoll(reg, rec){
@@ -153,17 +172,36 @@ function headRoll(reg, rec){
     }
     out.status = st == null ? null : sf.multi ? [st] : st;
   }
-  var ru = rollup(reg, rec, kids), pf = rf(reg, 'progress'); if(ru && !(pf && isAutoNow(rec, pf))) out.progress = ru.pct;
-  var s = null, e = null; kids.forEach(function(k){ var p = planOf(reg, k); if(p){ s = s == null ? p.s : Math.min(s, p.s); e = e == null ? p.f : Math.max(e, p.f); } });
+  /* the other fields that come from the sub-items (headRules) */
+  var rules = headRules(reg), k = out.k = {};
+  Object.keys(rules).forEach(function(key){ var f = fieldOf(reg, key), r = rules[key]; if(!f) return;
+    if(r === 'kind') k[key] = f.multi ? ['__head'] : '__head';
+    else if(r === 'union'){ var seen = {}, vs = []; kids.forEach(function(kd){ asArr(val(kd, f)).forEach(function(v){ if(v != null && v !== '' && !seen[v]){ seen[v] = 1; vs.push(v); } }); });
+      var ord = optsOf(f).map(function(o){ return o.v; }); vs.sort(function(a, b){ var x = ord.indexOf(a), y = ord.indexOf(b); return (x < 0 ? 1e6 : x) - (y < 0 ? 1e6 : y); });
+      k[key] = !vs.length ? null : f.multi || vs.length > 1 ? vs : vs[0]; }
+    else if(r === 'sum'){ var tot = null; kids.forEach(function(kd){ var x = num(val(kd, f)); if(x != null) tot = (tot || 0) + x; }); k[key] = tot == null ? null : Math.round(tot * 1e6) / 1e6; }
+    else if(r === 'or'){ var ov = kids.map(function(kd){ return asArr(val(kd, f))[0]; }), oks = ov.filter(function(v){ return orOk(optOf(f, v)); });
+      if(!ov.some(function(v){ return v != null && v !== ''; })) k[key] = null;
+      else if(oks.length === kids.length){ var cnt = {}, best = null; oks.forEach(function(v){ cnt[v] = (cnt[v] || 0) + 1; if(!best || cnt[v] > cnt[best]) best = v; }); k[key] = f.multi ? [best] : best; }
+      else if(ov.every(function(v){ return v === ov[0]; })) k[key] = f.multi ? [ov[0]] : ov[0];
+      else { k[key] = null; out.orSum = {ok:oks.length, n:kids.length}; } } });
+  var ru = rollup(reg, rec, kids), pf = rf(reg, 'progress');
+  /* progress: from summed quantities when the register calculates it from them, else the sub-items' average */
+  if(pf && pf.auto && rules[pf.auto.a] === 'sum' && rules[pf.auto.b] === 'sum' && num(k[pf.auto.a]) != null && num(k[pf.auto.b])){ var cq = calcVal(pf.auto.op || 'pct', k[pf.auto.a], k[pf.auto.b]); if(cq != null) out.progress = clamp(Math.round(cq), 0, 100); }
+  if(out.progress == null && ru) out.progress = ru.pct;
+  var s = null, e = null; kids.forEach(function(kd){ var p = planOf(reg, kd); if(p){ s = s == null ? p.s : Math.min(s, p.s); e = e == null ? p.f : Math.max(e, p.f); } });
   /* what the sub-items do not give stays empty — a heading never shows its own old figures as theirs */
   out.start = s != null ? n2d(s) : null; out.finish = e != null ? n2d(e) : null;
   var af = ro.astart && fieldOf(reg, ro.astart), ff = ro.afinish && fieldOf(reg, ro.afinish);
-  if(af){ var as = null; kids.forEach(function(k){ var x = d2n(val(k, af)); if(x != null) as = as == null ? x : Math.min(as, x); }); out.astart = as != null ? n2d(as) : null; }
-  if(ff){ var ae = null, all = kids.every(function(k){ var x = d2n(val(k, ff)); if(x != null) ae = ae == null ? x : Math.max(ae, x); return x != null; }); out.afinish = all && ae != null ? n2d(ae) : null; }
+  if(af){ var as = null; kids.forEach(function(kd){ var x = d2n(val(kd, af)); if(x != null) as = as == null ? x : Math.min(as, x); }); out.astart = as != null ? n2d(as) : null; }
+  if(ff){ var ae = null, all = kids.every(function(kd){ var x = d2n(val(kd, ff)); if(x != null) ae = ae == null ? x : Math.max(ae, x); return x != null; }); out.afinish = all && ae != null ? n2d(ae) : null; }
+  /* the role fields by their own keys, so every reader (val, filters, exports) sees the same */
+  HEAD_ROLES.forEach(function(r){ var key = ro[r]; if(key && rules[key] && out[r] !== undefined) k[key] = out[r]; });
+  if(pf && rules[pf.key] && out.progress != null) k[pf.key] = out.progress;
   c[rec.id] = out; return out;
 }
-function isMilestone(reg, rec){ if(reg && reg.d.allMs) return true; if(rec.d.ms) return true; var f = rf(reg, 'kind'); if(!f) return false; var o = optOf(f, rec.d[f.key]); return !!(o && o.ms); }
-function blocksOf(reg, rec){ var f = rf(reg, 'block'); return f ? asArr(rec.d[f.key]) : []; }
+function isMilestone(reg, rec){ if(reg && reg.d.allMs) return true; if(rec.d.ms) return true; var f = rf(reg, 'kind'); if(!f) return false; var o = optOf(f, asArr(val(rec, f))[0]); return !!(o && o.ms); }
+function blocksOf(reg, rec){ var f = rf(reg, 'block'); return f ? asArr(val(rec, f)) : []; }
 function openFb(id){ return ((STORE && STORE.fb) || []).filter(function(f){ return f.item_id === id && f.status === 'open'; }).length; }
 
 /* sub-items (a record can hold child records, e.g. a drawing list under one as-built package) */
@@ -435,6 +473,7 @@ function groupKey(reg, rec, key){
     var arr = asArr(v); if(!arr.length) return [{k:'_n', label:T('(empty)', '（空）'), o:1e9}];
     var opts = optsOf(f), x = arr[0], o = optOf(f, x);
     if(arr.length > 1 && f.list === 'blocks') return [{k:'_multi', label:T('Several blocks', '多区域'), o:9e8}];
+    if(o === HEAD_OPT) return [{k:'v:__head', label:nm(o), color:o.color, o:9e8}];   /* headings: their own group, last before the empty one; nothing to set */
     return [{k:'v:' + x, label: o ? nm(o) : x, color: o && o.color, o: o ? opts.indexOf(o) : 5e8, set:(function(){ var s = {}; s[key] = f.multi ? [x] : x; return s; })()}];
   }
   if(f.type === 'tree'){ var path = treePath(f, v), l1 = path[0]; if(!l1) return [{k:'_n', label:T('Unclassified', '未分类'), o:1e9}];

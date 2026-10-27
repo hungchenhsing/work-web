@@ -94,6 +94,8 @@ function phaseRange(n){
 function impConvert(reg, f, raw, ctx){
   if(raw instanceof Date) raw = parseDate(raw);
   var s = String(raw == null ? '' : raw).trim(); if(s === '') return undefined;
+  /* v3.4.7: what an exported heading shows from its sub-items ("Heading", "Accepted 3/11") is never an option to add */
+  if(f.type === 'select' && (/^(heading|纲领|綱領)(\s*(纲领|綱領))?$/i.test(s) || /^(accepted|接受)\s+\d+\s*\/\s*\d+$/i.test(s))) return undefined;
   switch(f.type){
     case 'date': return parseDate(raw) || undefined;
     case 'number': return num(s) == null ? undefined : num(s);
@@ -161,8 +163,9 @@ function impPlan(m, reg, apply){
       if(!tg || tg.id === ex.id){ warn.push(T('Row ' + rn + ': nothing called ', '第 ' + rn + ' 行：找不到 ') + a.into); return; }
       var mb = mergeBlock(reg, tg, ex); if(mb){ warn.push(recNo(reg, ex) + T(' is not merged: ', ' 不合并：') + mb); return; }
       acts.push({rec:ex, into:tg}); return; }
-    /* v3.4.7: a heading item's status, progress and dates come from its sub-items — the file's copies of them are not written back */
-    if(ex && isHead(reg, ex)) HEAD_ROLES.forEach(function(hr){ var hk = ro[hr]; if(hk && hk in d && headLocked(reg, ex, fieldOf(reg, hk))) delete d[hk]; });
+    /* v3.4.7: what a heading item shows from its sub-items (status, progress, dates, category, Owner result, quantities, blocks,
+       disciplines, people) is not written back from the file */
+    if(ex && isHead(reg, ex)) Object.keys(d).forEach(function(hk){ if(headLocked(reg, ex, fieldOf(reg, hk))) delete d[hk]; });
     if(ex) updates.push({rec:ex, d:d}); else adds.push(d);
   });
   /* a record that is deleted or merged is not also a merge target */
