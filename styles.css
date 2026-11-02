@@ -1350,3 +1350,5 @@ td.hdv .mono,.hdv .mono{color:var(--muted)}
 .invb{background:var(--accent-soft);border:1px solid color-mix(in srgb,var(--accent) 30%,transparent);border-radius:10px;padding:10px 12px;margin:12px 0 4px;line-height:1.5}
 .svis{margin:14px 12px 4px;font-size:12px}
 .invnew .in{font-family:var(--mono,monospace);font-size:12px}
+/* v3.4.9 · the category field's options carry a "Counted" tick */
+.oed.cnt .oedh,.oed.cnt .oedr{grid-template-columns:110px minmax(120px,1fr) minmax(100px,1fr) 100px 40px 56px 96px;min-width:660px}

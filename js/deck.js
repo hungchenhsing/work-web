@@ -40,6 +40,8 @@ function bil1(o){ return o ? esc(S.lang === 'zh' ? (o.zh || o.en || '') : (o.en 
 function recPair(reg, r){ var ro = rolesOf(reg); return {en:(ro.title && r.d[ro.title]) || '', zh:(ro.title2 && r.d[ro.title2]) || ''}; }
 function stPair(reg, r){ var o = statusOpt(reg, r); return o ? {en:o.en, zh:o.zh || '', color:o.color, done:!!o.done} : null; }
 var DK_CACHE = null;
+/* v3.4.9: what slides count — not heading items, not items whose category is not counted (activities) */
+function isCnt(r){ return isLeaf(r) && !noCount(getReg(r.reg), r); }
 function isLeaf(r){ if(r.d && r.d.asDoc) return true; var idx = DK_CACHE ? (DK_CACHE[r.reg] || (DK_CACHE[r.reg] = kidsIndex(r.reg))) : kidsIndex(r.reg); return !idx[r.id]; }
 function mxDef(reg, c){ var ro = rolesOf(reg); return {row:(c && c.row) || (reg.d.matrix && reg.d.matrix.row) || ro.tree || ro.status || '', col:(c && c.col) || (reg.d.matrix && reg.d.matrix.col) || ro.block || ''}; }
 
@@ -121,7 +123,7 @@ var SLIDE_DATA = {
     return {title:{en:d.title || '', zh:d.titleZh || ''}, sub:c.sub || '', date:d.date || '', presenter:c.presenter || d.presenter || '', project:{en:pc.projectEn, zh:pc.projectZh},
       meeting: m && mr ? {no:recNo(mr, m), loc:m.d.loc || '', time:m.d.time || ''} : null}; },
   kpi:function(c, ctx){ var A = ctx.asOf, tot = 0, done = 0, od = 0, due = 0, wsum = 0, wn = 0;
-    var items = usable(ctx, c.regs).map(function(reg){ var rs = recsOf(reg.id).filter(function(r){ return recOk(ctx, reg, r) && isLeaf(r); });
+    var items = usable(ctx, c.regs).map(function(reg){ var rs = recsOf(reg.id).filter(function(r){ return recOk(ctx, reg, r) && isCnt(r); });
       var dn = rs.filter(function(r){ return isDone(reg, r); }).length, o = rs.filter(function(r){ if(isDone(reg, r)) return false; var p = planOf(reg, r); return p && p.f < A; }).length;
       var d14 = rs.filter(function(r){ if(isDone(reg, r)) return false; var p = planOf(reg, r); return p && p.f >= A && p.f <= A + 14; }).length, pc = pctOf(reg, rs);
       tot += rs.length; done += dn; od += o; due += d14; if(pc != null){ wsum += pc * rs.length; wn += rs.length; }
@@ -130,7 +132,7 @@ var SLIDE_DATA = {
   matrix:function(c, ctx){ var reg = getReg(c.reg); if(!regOk(ctx, reg)) return {err:'reg'};
     var md = mxDef(reg, c), row = md.row, col = md.col, cf = fieldOf(reg, col), rfd = fieldOf(reg, row);
     if(!cf || !rfd) return {err:'cfg'};
-    var hd = (c.hide || []), list = recsOf(reg.id).filter(function(r){ return recOk(ctx, reg, r) && isLeaf(r); }), cols = optsOf(cf).filter(function(o){ return hd.indexOf('c:' + o.v) < 0; }).map(function(o){ return {v:o.v, en:o.en, zh:o.zh || '', color:o.color}; });
+    var hd = (c.hide || []), list = recsOf(reg.id).filter(function(r){ return recOk(ctx, reg, r) && isCnt(r); }), cols = optsOf(cf).filter(function(o){ return hd.indexOf('c:' + o.v) < 0; }).map(function(o){ return {v:o.v, en:o.en, zh:o.zh || '', color:o.color}; });
     var rows = groupRecs(reg, list, row).filter(function(g){ return hd.indexOf('g:' + g.label) < 0; }).map(function(g){ return {label:g.label, color:g.color || '', cells:cols.map(function(cc){ return aggCell(reg, g.items.filter(function(r){ return asArr(r.d[cf.key]).indexOf(cc.v) >= 0; }), c.val); }), tot:aggCell(reg, g.items, c.val)}; });
     return {reg:regLab(reg), rowName:{en:rfd.en, zh:rfd.zh || ''}, cols:cols, rows:rows, val:c.val, total:{cells:cols.map(function(cc){ return aggCell(reg, list.filter(function(r){ return asArr(r.d[cf.key]).indexOf(cc.v) >= 0; }), c.val); }), all:aggCell(reg, list, c.val)}}; },
   lookahead:function(c, ctx){ var A = ctx.asOf, dow = (new Date(A * 864e5).getUTCDay() + 6) % 7, from = A - dow, to = from + (c.weeks || 3) * 7 - 1, rows = [];
@@ -156,9 +158,9 @@ var SLIDE_DATA = {
     if(gf){ list.forEach(function(r){ gof[r.id] = tblGroup(reg, r, gf, gl); }); list = list.filter(function(r){ return hd.indexOf('g:' + gof[r.id].k) < 0; });
       var pos = {}; list.forEach(function(r, i){ pos[r.id] = i; }); list.sort(function(a, b){ return (gof[a.id].o - gof[b.id].o) || (pos[a.id] - pos[b.id]); }); }
     var sf2 = rf(reg, 'status');
-    function stCounts(rs){ if(!sf2) return []; rs = rs.filter(isLeaf); return optsOf(sf2).map(function(o){ return {en:o.en, zh:o.zh || '', color:o.color, n:rs.filter(function(r){ return asArr(val(r, sf2))[0] === o.v; }).length}; }).filter(function(x){ return x.n; }); }
+    function stCounts(rs){ if(!sf2) return []; rs = rs.filter(isCnt); return optsOf(sf2).map(function(o){ return {en:o.en, zh:o.zh || '', color:o.color, n:rs.filter(function(r){ return asArr(val(r, sf2))[0] === o.v; }).length}; }).filter(function(x){ return x.n; }); }
     /* v3.4.7: a package counts its documents — items and the sub-items under them, not heading items */
-    function gDocs(rs){ var out = []; (function w(a, g){ a.forEach(function(r){ out.push(r); if(g < 6) w(kidsL[r.id] || [], g + 1); }); })(rs, 0); return out.filter(isLeaf); }
+    function gDocs(rs){ var out = []; (function w(a, g){ a.forEach(function(r){ out.push(r); if(g < 6) w(kidsL[r.id] || [], g + 1); }); })(rs, 0); return out.filter(isCnt); }
     /* v3.4.6: an item's sub-items follow it (under discipline headings); they are hidden until the item is opened */
     var inL = {}, kidsL = {}; list.forEach(function(r){ inL[r.id] = 1; });
     list.forEach(function(r){ var p = r.d.parent; if(p && p !== r.id && inL[p]) (kidsL[p] = kidsL[p] || []).push(r); });
@@ -187,15 +189,15 @@ var SLIDE_DATA = {
       grs.forEach(function(g){ var gd = gDocs(g.items); rows.push({g:1, k:g.k, en:g.en, zh:g.zh, n:gd.length, st:c.gst === false ? [] : stCounts(gd)}); rows = rows.concat(withKids(g.items)); }); }
     else rows = withKids(tops);
     return {reg:regLab(reg), cols:fs.map(function(x){ return {en:x.en, zh:x.zh || '', type:x.type, key:x.key, title:x.key === ro.title}; }), per:c.per || 12, dense:!!c.dense,
-      sum:c.sum ? {n:list.filter(isLeaf).length, od:list.filter(function(r){ return isOverdue(reg, r); }).length, st:stCounts(list)} : null, rows:rows}; },
+      sum:c.sum ? {n:list.filter(isCnt).length, od:list.filter(function(r){ return isOverdue(reg, r); }).length, st:stCounts(list)} : null, rows:rows}; },
   breakdown:function(c, ctx){ var reg = getReg(c.reg); if(!regOk(ctx, reg)) return {err:'reg'};
     var ro = rolesOf(reg), by = c.by || ro.tree || ro.block, sf = rf(reg, 'status'); if(!fieldOf(reg, by) || !sf) return {err:'cfg'};
-    var list = recsOf(reg.id).filter(function(r){ return recOk(ctx, reg, r) && isLeaf(r); }), opts = optsOf(sf);
+    var list = recsOf(reg.id).filter(function(r){ return recOk(ctx, reg, r) && isCnt(r); }), opts = optsOf(sf);
     return {reg:regLab(reg), by:{en:fieldOf(reg, by).en, zh:fieldOf(reg, by).zh || ''}, legend:opts.map(function(o){ return {en:o.en, zh:o.zh || '', color:o.color}; }),
       groups:groupRecs(reg, list, by).filter(function(g){ return (c.hide || []).indexOf('g:' + g.label) < 0; }).map(function(g){ return {label:g.label, n:g.items.length, done:g.items.filter(function(r){ return isDone(reg, r); }).length, segs:opts.map(function(o){ return g.items.filter(function(r){ return asArr(val(r, sf))[0] === o.v; }).length; })}; })}; },
   punch:function(c, ctx){ var reg = getReg(c.reg); if(!regOk(ctx, reg)) return {err:'reg'};
     var A = ctx.asOf, pf = fieldOf(reg, 'prio') || dataFields(reg).filter(function(f){ return f.type === 'select' && !f.multi && f.key !== rolesOf(reg).status && !f.list; })[0], bf = rf(reg, 'block');
-    var all = recsOf(reg.id).filter(function(r){ return recOk(ctx, reg, r) && isLeaf(r); }), open = all.filter(function(r){ return !isDone(reg, r); });
+    var all = recsOf(reg.id).filter(function(r){ return recOk(ctx, reg, r) && isCnt(r); }), open = all.filter(function(r){ return !isDone(reg, r); });
     var prios = pf ? optsOf(pf).map(function(o){ return {v:o.v, en:o.en, zh:o.zh || '', color:o.color}; }) : [], blocks = bf ? optsOf(bf).map(function(o){ return {v:o.v, color:o.color}; }) : [];
     var closedF = fieldOf(reg, 'closed'), closedWk = closedF ? all.filter(function(r){ var n = d2n(r.d.closed); return n != null && n > A - 7 && n <= A; }).length : null;
     var grid = prios.map(function(p){ return blocks.map(function(b){ return open.filter(function(r){ return r.d[pf.key] === p.v && asArr(r.d[bf.key]).indexOf(b.v) >= 0; }).length; }); });

@@ -231,9 +231,10 @@ function setUnused(){
 /* ================= option / tree editors ================= */
 function optEditor(opts, o){
   o = o || {};
-  return '<div class="oed"><div class="oedh"><span>' + L('Code', '代码') + '</span><span>' + L('Name (EN)', '英文名') + '</span><span>' + L('Name (中)', '中文名') + '</span><span>' + L('Colour', '颜色') + '</span>' + (o.done ? '<span title="' + esc(T('Counts as complete', '视为完成')) + '">' + L('Done', '完成') + '</span>' : '') + '<span></span></div>' + opts.map(function(x, i){
+  return '<div class="oed' + (o.count ? ' cnt' : '') + '"><div class="oedh"><span>' + L('Code', '代码') + '</span><span>' + L('Name (EN)', '英文名') + '</span><span>' + L('Name (中)', '中文名') + '</span><span>' + L('Colour', '颜色') + '</span>' + (o.done ? '<span title="' + esc(T('Counts as complete', '视为完成')) + '">' + L('Done', '完成') + '</span>' : '') + (o.count ? '<span title="' + esc(T('Untick for categories that are not documents (e.g. Activity): their items stay in the lists but are left out of counts and statistics', '不是文件的类别（如活动）取消勾选：其事项照常显示，但不计入数量和统计')) + '">' + L('Counted', '计数') + '</span>' : '') + '<span></span></div>' + opts.map(function(x, i){
     return '<div class="oedr"><input class="in" data-od="' + i + ':v" data-fk="od:' + i + ':v" value="' + esc(x.v) + '"><input class="in" data-od="' + i + ':en" data-fk="od:' + i + ':en" value="' + esc(x.en || '') + '"><input class="in" data-od="' + i + ':zh" data-fk="od:' + i + ':zh" value="' + esc(x.zh || '') + '"><select class="in" data-od="' + i + ':color">' + COLORS.map(function(c){ return '<option value="' + c + '"' + (x.color === c ? ' selected' : '') + '>' + esc(T(COLOR_NAMES[c][0], COLOR_NAMES[c][1])) + '</option>'; }).join('') + '</select>' +
       (o.done ? '<input type="checkbox" data-od="' + i + ':done"' + (x.done ? ' checked' : '') + ' aria-label="Done">' : '') +
+      (o.count ? '<input type="checkbox" data-od="' + i + ':count"' + (optCounts(x) ? ' checked' : '') + ' aria-label="' + esc(T('Counted', '计数')) + '">' : '') +
       '<span class="nowrap"><button type="button" class="ib" data-act="odMove" data-v="' + i + '" data-d="-1"' + (i ? '' : ' disabled') + '>' + uic('up', 13) + '</button><button type="button" class="ib" data-act="odMove" data-v="' + i + '" data-d="1"' + (i < opts.length - 1 ? '' : ' disabled') + '>' + uic('down', 13) + '</button><button type="button" class="ib" data-act="odDel" data-v="' + i + '">' + uic('x', 13) + '</button></span></div>';
   }).join('') + '<button type="button" class="btn sm" data-act="odAdd">' + uic('plus', 13) + ' ' + L('Add option', '新增选项') + '</button></div>';
 }
@@ -339,7 +340,8 @@ function fieldExtra(reg, f, i, d, ls, regs){
   if(f.type !== 'section') h += '<label class="fl">' + L('Column width (px)', '列宽（像素）') + '<input class="in" type="number" min="60" max="600" step="10" placeholder="' + esc(T('auto', '自动')) + '" data-fm="' + i + ':w" value="' + esc(f.w || '') + '"><span class="note">' + L('60–600, or empty for automatic', '60–600，留空为自动') + '</span></label>';
   if(f.type === 'select'){
     h += '<label class="fl">' + L('Options come from', '选项来源') + '<select class="in" data-fm="' + i + ':list"><option value="">' + esc(T('This field’s own options', '本字段自己的选项')) + '</option>' + Object.keys(ls).map(function(k){ return '<option value="' + esc(k) + '"' + (f.list === k ? ' selected' : '') + '>' + esc(T('Shared list: ', '共享列表：') + nm(ls[k])) + '</option>'; }).join('') + '</select></label>' + defField(f, i) + '</div>';
-    if(!f.list){ S.odTarget = {fm:i}; h += optEditor(f.opts || [], {done:true}); }
+    var isKind = (d.roles || {}).kind === f.key;   /* v3.4.9: the category field says which categories are counted */
+    if(!f.list){ S.odTarget = {fm:i}; h += optEditor(f.opts || [], {done:true, count:isKind}); if(isKind) h += '<p class="note">' + L('Counted: untick categories that are not documents (e.g. Activity). Their items stay in the register and are tracked as usual, but are left out of item counts, done %, overdue and every statistic — like heading items.', '计数：不是文件的类别（如活动）取消勾选。这些事项照常留在台账里跟踪，但不计入事项数、完成率、逾期和各种统计，与纲领相同。') + '</p>'; }
     return h;
   }
   if(f.type === 'tree'){ S.tdTarget = {fm:i}; return h + '</div>' + treeEditor(f.tree || []); }

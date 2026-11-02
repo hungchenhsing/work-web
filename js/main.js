@@ -334,7 +334,7 @@ document.addEventListener('input', function(e){
   if(el.id === 'fileq'){ S.files.q = el.value; clearTimeout(qT); qT = setTimeout(renderMain, 200); return; }
   if(el.id === 'popq'){ S.pop.q = el.value; renderPop(); var p = $('#popq'); if(p){ p.focus(); p.setSelectionRange(p.value.length, p.value.length); } return; }
   if((d = el.dataset.fm)){ fmSet(d, el); return; }
-  if((d = el.dataset.od)){ var p1 = d.split(':'), a = odArr(); if(a[+p1[0]] && p1[1] !== 'color' && p1[1] !== 'done') a[+p1[0]][p1[1]] = el.value; return; }
+  if((d = el.dataset.od)){ var p1 = d.split(':'), a = odArr(); if(a[+p1[0]] && p1[1] !== 'color' && p1[1] !== 'done' && p1[1] !== 'count') a[+p1[0]][p1[1]] = el.value; return; }
   if((d = el.dataset.td)){ var p2 = d.split(':'), t = tdArr(); if(t[+p2[0]] && p2[1] !== 'parent') t[+p2[0]][p2[1]] = el.value; return; }
   if((d = el.dataset.cd)){ var p3 = d.split(':'), c = S.modal.cols[+p3[0]]; if(c && (p3[1] === 'en' || p3[1] === 'zh')) c[p3[1]] = el.value; return; }
   if((d = el.dataset.rs)){ if(el.type !== 'checkbox' && el.tagName !== 'SELECT') S.modal.d[d] = el.value; return; }
@@ -396,7 +396,7 @@ document.addEventListener('change', function(e){
   if(el.dataset.role){ STORE.setRole(el.dataset.role, el.value).then(function(){ toast(T('Role updated', '角色已更新')); }).catch(function(er){ toast(errText(er)); }); return; }
   if((d = el.dataset.fm)){ fmSet(d, el); return; }
   if((d = el.dataset.fmrole)){ S.modal.d.roles[d] = el.value; return; }
-  if((d = el.dataset.od)){ var q = d.split(':'), a = odArr(); if(a[+q[0]]) a[+q[0]][q[1]] = q[1] === 'done' ? el.checked : el.value; return; }
+  if((d = el.dataset.od)){ var q = d.split(':'), a = odArr(); if(a[+q[0]]) a[+q[0]][q[1]] = q[1] === 'done' || q[1] === 'count' ? el.checked : el.value; return; }
   if((d = el.dataset.td)){ var q2 = d.split(':'), t = tdArr(); if(t[+q2[0]]){ t[+q2[0]][q2[1]] = el.value; if(q2[1] === 'parent') rerenderDraft(); } return; }
   if((d = el.dataset.cd)){ var q3 = d.split(':'), c = S.modal.cols[+q3[0]]; if(!c) return; if(q3[1] === 'type'){ c.type = el.value; if(c.type === 'select' && !c.opts && !c.list) c.opts = []; if(c.type !== 'select'){ delete c.multi; } renderModal(); }
     else if(q3[1] === 'list'){ if(el.value) c.list = el.value; else { delete c.list; if(!c.opts) c.opts = []; } renderModal(); }

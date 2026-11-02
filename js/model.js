@@ -128,7 +128,13 @@ function isOverdue(reg, rec){ if(isHead(reg, rec) || isDone(reg, rec)) return fa
    dates come from its sub-items and cannot be typed. */
 var HEAD_ROLES = ['status', 'progress', 'start', 'finish', 'astart', 'afinish'];
 function isHead(reg, rec){ return !!rec && !!rec.id && !(rec.d && rec.d.asDoc) && !!(kidsIndex(rec.reg)[rec.id] || []).length; }
-function countedOf(reg, list){ return (list || []).filter(function(r){ return !isHead(reg || getReg(r.reg), r); }); }
+/* v3.4.9 · items whose category is not counted (Activity, unless changed in Fields & columns): shown and tracked like any
+   other item, but left out of counts and statistics, like heading items */
+function isActOpt(o){ return !!o && (o.v === 'activity' || /^activit/i.test(o.en || '') || /活动|活動/.test(o.zh || '')); }
+function optCounts(o){ if(!o || o === HEAD_OPT) return true; if(o.count === true) return true; if(o.count === false) return false; return !isActOpt(o); }
+function noCount(reg, rec){ var f = reg && rf(reg, 'kind'); if(!f || !rec) return false; return !optCounts(optOf(f, asArr(val(rec, f))[0])); }
+function isCounted(reg, rec){ return !isHead(reg, rec) && !noCount(reg, rec); }
+function countedOf(reg, list){ return (list || []).filter(function(r){ return isCounted(reg || getReg(r.reg), r); }); }
 function headRoleOf(reg, key){ var ro = rolesOf(reg); for(var i = 0; i < HEAD_ROLES.length; i++) if(ro[HEAD_ROLES[i]] && ro[HEAD_ROLES[i]] === key) return HEAD_ROLES[i]; return null; }
 /* which fields of a heading come from its sub-items, and how (per register):
    status / progress / dates (roles) · kind: the category shows "Heading" · union: block, discipline and people fields list
@@ -156,7 +162,10 @@ function headRoll(reg, rec){
   var c = memo('hr:' + reg.id, function(){ return {}; });
   if(Object.prototype.hasOwnProperty.call(c, rec.id)) return c[rec.id];
   c[rec.id] = null;   /* a loop of parents stops here */
-  var kids = childrenOf(rec), ro = rolesOf(reg), out = {}; if(!kids.length) return null;
+  var all = childrenOf(rec), ro = rolesOf(reg), out = {}; if(!all.length) return null;
+  /* figures (status, Owner result, quantities, progress) come from the counted sub-items when there are any; dates, the
+     category and the lists (blocks, disciplines, people) from all of them */
+  var kids = all.filter(function(kd){ return !noCount(reg, kd); }); if(!kids.length) kids = all;
   var sf = rf(reg, 'status');
   if(sf){
     var opts = optsOf(sf), sts = kids.map(function(k){ var v = val(k, sf); return Array.isArray(v) ? v[0] : v; }), dn = kids.filter(function(k){ return isDone(reg, k); }).length, st = null;
@@ -176,7 +185,7 @@ function headRoll(reg, rec){
   var rules = headRules(reg), k = out.k = {};
   Object.keys(rules).forEach(function(key){ var f = fieldOf(reg, key), r = rules[key]; if(!f) return;
     if(r === 'kind') k[key] = f.multi ? ['__head'] : '__head';
-    else if(r === 'union'){ var seen = {}, vs = []; kids.forEach(function(kd){ asArr(val(kd, f)).forEach(function(v){ if(v != null && v !== '' && !seen[v]){ seen[v] = 1; vs.push(v); } }); });
+    else if(r === 'union'){ var seen = {}, vs = []; all.forEach(function(kd){ asArr(val(kd, f)).forEach(function(v){ if(v != null && v !== '' && !seen[v]){ seen[v] = 1; vs.push(v); } }); });
       var ord = optsOf(f).map(function(o){ return o.v; }); vs.sort(function(a, b){ var x = ord.indexOf(a), y = ord.indexOf(b); return (x < 0 ? 1e6 : x) - (y < 0 ? 1e6 : y); });
       k[key] = !vs.length ? null : f.multi || vs.length > 1 ? vs : vs[0]; }
     else if(r === 'sum'){ var tot = null; kids.forEach(function(kd){ var x = num(val(kd, f)); if(x != null) tot = (tot || 0) + x; }); k[key] = tot == null ? null : Math.round(tot * 1e6) / 1e6; }
@@ -185,16 +194,16 @@ function headRoll(reg, rec){
       else if(oks.length === kids.length){ var cnt = {}, best = null; oks.forEach(function(v){ cnt[v] = (cnt[v] || 0) + 1; if(!best || cnt[v] > cnt[best]) best = v; }); k[key] = f.multi ? [best] : best; }
       else if(ov.every(function(v){ return v === ov[0]; })) k[key] = f.multi ? [ov[0]] : ov[0];
       else { k[key] = null; out.orSum = {ok:oks.length, n:kids.length}; } } });
-  var ru = rollup(reg, rec, kids), pf = rf(reg, 'progress');
+  var ru = rollup(reg, rec, all), pf = rf(reg, 'progress');
   /* progress: from summed quantities when the register calculates it from them, else the sub-items' average */
   if(pf && pf.auto && rules[pf.auto.a] === 'sum' && rules[pf.auto.b] === 'sum' && num(k[pf.auto.a]) != null && num(k[pf.auto.b])){ var cq = calcVal(pf.auto.op || 'pct', k[pf.auto.a], k[pf.auto.b]); if(cq != null) out.progress = clamp(Math.round(cq), 0, 100); }
   if(out.progress == null && ru) out.progress = ru.pct;
-  var s = null, e = null; kids.forEach(function(kd){ var p = planOf(reg, kd); if(p){ s = s == null ? p.s : Math.min(s, p.s); e = e == null ? p.f : Math.max(e, p.f); } });
+  var s = null, e = null; all.forEach(function(kd){ var p = planOf(reg, kd); if(p){ s = s == null ? p.s : Math.min(s, p.s); e = e == null ? p.f : Math.max(e, p.f); } });
   /* what the sub-items do not give stays empty — a heading never shows its own old figures as theirs */
   out.start = s != null ? n2d(s) : null; out.finish = e != null ? n2d(e) : null;
   var af = ro.astart && fieldOf(reg, ro.astart), ff = ro.afinish && fieldOf(reg, ro.afinish);
-  if(af){ var as = null; kids.forEach(function(kd){ var x = d2n(val(kd, af)); if(x != null) as = as == null ? x : Math.min(as, x); }); out.astart = as != null ? n2d(as) : null; }
-  if(ff){ var ae = null, all = kids.every(function(kd){ var x = d2n(val(kd, ff)); if(x != null) ae = ae == null ? x : Math.max(ae, x); return x != null; }); out.afinish = all && ae != null ? n2d(ae) : null; }
+  if(af){ var as = null; all.forEach(function(kd){ var x = d2n(val(kd, af)); if(x != null) as = as == null ? x : Math.min(as, x); }); out.astart = as != null ? n2d(as) : null; }
+  if(ff){ var ae = null, every = all.every(function(kd){ var x = d2n(val(kd, ff)); if(x != null) ae = ae == null ? x : Math.max(ae, x); return x != null; }); out.afinish = every && ae != null ? n2d(ae) : null; }
   /* the role fields by their own keys, so every reader (val, filters, exports) sees the same */
   HEAD_ROLES.forEach(function(r){ var key = ro[r]; if(key && rules[key] && out[r] !== undefined) k[key] = out[r]; });
   if(pf && rules[pf.key] && out.progress != null) k[pf.key] = out.progress;
@@ -213,6 +222,8 @@ function descendantsOf(rec){ var out = [], idx = kidsIndex(rec.reg); (function w
 var ROLL_IN = {};   /* items being rolled up right now: a loop of parents (A under B under A) stops instead of overflowing */
 function rollup(reg, rec, kids){
   kids = kids || childrenOf(rec); if(!kids.length || ROLL_IN[rec.id]) return null;
+  /* sub-items that are not counted (activities) do not count here either, unless there is nothing else */
+  var ck = kids.filter(function(k){ return !noCount(reg, k); }); if(ck.length) kids = ck;
   ROLL_IN[rec.id] = 1;
   try{
     var done = kids.filter(function(k){ return isDone(reg, k); }).length, ps = kids.map(function(k){ return progressOf(reg, k); }).filter(function(x){ return x != null; });

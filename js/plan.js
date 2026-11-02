@@ -98,7 +98,7 @@ function snapshots(){ var r = snapReg(); return r ? recsOf(r.id).map(function(x)
 function scurveCalc(o){
   var A = o.asOf, regs = o.regs, items = [];
   regs.forEach(function(reg){ var idx = kidsIndex(reg.id), bf = rf(reg, 'block');
-    recsOf(reg.id).forEach(function(r){ if(idx[r.id] && !r.d.asDoc) return; if(o.ctx && !recOk(o.ctx, reg, r)) return; if(o.blk && bf && asArr(r.d[bf.key]).length && asArr(r.d[bf.key]).indexOf(o.blk) < 0) return; if(o.hide && o.hide.indexOf('r:' + r.id) >= 0) return;
+    recsOf(reg.id).forEach(function(r){ if((idx[r.id] && !r.d.asDoc) || noCount(reg, r)) return; if(o.ctx && !recOk(o.ctx, reg, r)) return; if(o.blk && bf && asArr(r.d[bf.key]).length && asArr(r.d[bf.key]).indexOf(o.blk) < 0) return; if(o.hide && o.hide.indexOf('r:' + r.id) >= 0) return;
       var p = planOf(reg, r); if(!p) return; var w = o.weight && fieldOf(reg, o.weight) ? num(r.d[o.weight]) : 1; if(!w || w < 0) return;
       items.push({reg:reg, r:r, p:p, b:baseOf(reg, r), w:w}); }); });
   if(!items.length) return {err:'none'};
