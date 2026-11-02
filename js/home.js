@@ -24,7 +24,8 @@ function hwTitle(w){ var t = HW[w.t] || {en:w.t, zh:''}; if(w.t === 'view'){ var
 /* ================= the page ================= */
 function viewHome(){
   var c = cfg(), regs = allRegs(), A = asOfN(), ed = !!S.homeEdit;
-  var nOpen = 0, nOd = 0, nDue = 0; regs.forEach(function(r){ countedOf(r, recsOf(r.id)).forEach(function(x){ if(isDone(r, x)) return; nOpen++; if(isOverdue(r, x)) nOd++; else { var p = planOf(r, x); if(p && p.f >= A && p.f <= A + 14) nDue++; } }); });
+  /* v3.5: open items are documents; overdue and due soon are everything there is to act on (activities, goods… too) */
+  var nOpen = 0, nOd = 0, nDue = 0; regs.forEach(function(r){ actionOf(r, recsOf(r.id)).forEach(function(x){ if(isDone(r, x)) return; if(isCounted(r, x)) nOpen++; if(isOverdue(r, x)) nOd++; else { var p = planOf(r, x); if(p && p.f >= A && p.f <= A + 14) nDue++; } }); });
   var h = '<header class="tblk"><div class="tb-name"><div class="tb-nm"><h1 class="vtitle">' + L('Overview', '总览') + '</h1><span class="tb-sub">' + esc(c.projectEn) + (c.projectZh ? ' · ' + esc(c.projectZh) : '') + '</span></div></div><div class="tb-cells">' +
     '<div class="tb-c tb-asof"><span class="tb-l">' + L('Status date', '状态日期') + '</span><span class="tb-v">' + esc(n2d(A)) + '</span></div>' +
     '<div class="tb-c"><span class="tb-l">' + L('Open items', '未完成') + '</span><span class="tb-v">' + nOpen + '</span></div>' +
@@ -57,9 +58,9 @@ function hwHtml(w, i, n, ed){
   return '<section class="hw w-' + esc(wd) + (frame ? ' card sec' : ' sec') + (ed ? ' hw-ed' : '') + '" data-hw="' + esc(w.id) + '">' + bar + '<div class="hwb">' + title + body + '</div></section>';
 }
 function hwList(arr, A, max){ max = max || 12;
-  return arr.slice(0, max).map(function(e){ return '<button type="button" class="lrow2" data-act="openRec" data-id="' + esc(e.x.id) + '"><span class="ri c-' + esc(e.r.d.color || 'blue') + '">' + icon(e.r.d.icon, 13) + '</span><span class="mono muted">' + esc(recNo(e.r, e.x)) + '</span><span class="lt">' + esc(e.t != null ? e.t : recTitle(e.r, e.x) || '—') + (e.sub ? ' <span class="muted">· ' + esc(e.sub) + '</span>' : '') + '</span>' + (e.tag || '<span></span>') + '<span class="mono' + (e.f != null && e.f < A && !e.noOd ? ' od' : '') + '">' + esc(e.f != null ? md(n2d(e.f)) : '—') + '</span></button>'; }).join('') +
+  return arr.slice(0, max).map(function(e){ return '<button type="button" class="lrow2" data-act="openRec" data-id="' + esc(e.x.id) + '"><span class="ri c-' + esc(e.r.d.color || 'blue') + '">' + icon(e.r.d.icon, 13) + '</span><span class="mono muted">' + esc(recNo(e.r, e.x)) + '</span><span class="lt">' + kindMark(e.r, e.x) + esc(e.t != null ? e.t : recTitle(e.r, e.x) || '—') + (e.sub ? ' <span class="muted">· ' + esc(e.sub) + '</span>' : '') + '</span>' + (e.tag || '<span></span>') + '<span class="mono' + (e.f != null && e.f < A && !e.noOd ? ' od' : '') + '">' + esc(e.f != null ? md(n2d(e.f)) : '—') + '</span></button>'; }).join('') +
     (arr.length > max ? '<div class="note">+' + (arr.length - max) + '</div>' : ''); }
-function openItems(fn){ var out = [], A = asOfN(); allRegs().forEach(function(r){ countedOf(r, recsOf(r.id)).forEach(function(x){ if(isDone(r, x)) return; var p = planOf(r, x), e = fn(r, x, p, A); if(e) out.push(e); }); }); return out; }
+function openItems(fn){ var out = [], A = asOfN(); allRegs().forEach(function(r){ actionOf(r, recsOf(r.id)).forEach(function(x){ if(isDone(r, x)) return; var p = planOf(r, x), e = fn(r, x, p, A); if(e) out.push(e); }); }); return out; }
 var HW_R = {
   blocks:function(){
     var regs = allRegs(), bl = lists().blocks, bregs = regs.filter(function(r){ return rf(r, 'block'); });
@@ -67,9 +68,9 @@ var HW_R = {
     return {head:'<span class="blegend"><span><i class="lgbar"></i>' + L('average progress', '平均进度') + '</span><span><b>4</b> ' + L('open items', '未完成项') + '</span><span class="odn"><b>1!</b> ' + L('overdue', '逾期') + '</span></span>',
       body:'<div class="blocks">' + bl.opts.map(function(b){
         var rows = bregs.map(function(r){
-          var its = countedOf(r, recsOf(r.id)).filter(function(x){ return blocksOf(r, x).indexOf(b.v) >= 0; }); if(!its.length) return '';
+          var acts = actionOf(r, recsOf(r.id)).filter(function(x){ return blocksOf(r, x).indexOf(b.v) >= 0; }), its = countedOf(r, acts); if(!acts.length) return '';
           var ps = its.map(function(x){ return progressOf(r, x); }).filter(function(x){ return x != null; }), avg = ps.length ? Math.round(ps.reduce(function(s, x){ return s + x; }, 0) / ps.length) : null;
-          var open = its.filter(function(x){ return !isDone(r, x); }).length, od = its.filter(function(x){ return isOverdue(r, x); }).length;
+          var open = its.filter(function(x){ return !isDone(r, x); }).length, od = acts.filter(function(x){ return isOverdue(r, x); }).length;
           return '<button type="button" class="brow" data-act="goBlock" data-v="' + esc(r.id + '|' + b.v) + '"><span class="ri c-' + esc(r.d.color || 'blue') + '">' + icon(r.d.icon, 13) + '</span><span class="bn">' + esc(regName(r)) + '</span>' + (avg != null ? pbar(avg) : '<span></span>') + '<span class="mono muted" title="' + esc(T(open + ' open' + (od ? ', ' + od + ' overdue' : ''), open + ' 项未完成' + (od ? '，' + od + ' 项逾期' : ''))) + '">' + open + (od ? ' <b class="odn">' + od + '!</b>' : '') + '</span></button>';
         }).join('');
         return '<div class="bcard"><div class="bh"><span class="ar c-' + esc(b.color) + '">' + esc(b.v) + '</span> <b>' + esc(nm(b)) + '</b></div>' + (rows || '<div class="note">' + L('Nothing yet', '暂无') + '</div>') + '</div>';
@@ -78,8 +79,8 @@ var HW_R = {
   regs:function(c){
     var A = asOfN(), pickd = asArr(c.regs), regs = allRegs().filter(function(r){ return !pickd.length || pickd.indexOf(r.id) >= 0; });
     return {body:'<div class="rgrid">' + regs.map(function(r){
-      var its = countedOf(r, recsOf(r.id)), done = its.filter(function(x){ return isDone(r, x); }).length, od = its.filter(function(x){ return isOverdue(r, x); }).length;
-      var due = its.filter(function(x){ var p = planOf(r, x); return p && !isDone(r, x) && p.f >= A && p.f <= A + 14; }).length;
+      var acts = actionOf(r, recsOf(r.id)), its = countedOf(r, acts), done = its.filter(function(x){ return isDone(r, x); }).length, od = acts.filter(function(x){ return isOverdue(r, x); }).length;
+      var due = acts.filter(function(x){ var p = planOf(r, x); return p && !isDone(r, x) && p.f >= A && p.f <= A + 14; }).length;
       var sf = rf(r, 'status'), segs = sf && its.length ? optsOf(sf).map(function(o){ var k = its.filter(function(x){ return asArr(val(x, sf))[0] === o.v; }).length; return k ? '<span class="cb-' + esc(o.color) + '" style="width:' + (k / its.length * 100) + '%" title="' + esc(nm(o) + ': ' + k) + '"></span>' : ''; }).join('') : '';
       return '<button type="button" class="rcard card" data-act="reg" data-v="' + esc(r.id) + '"><div class="rch"><span class="ri c-' + esc(r.d.color || 'blue') + '">' + icon(r.d.icon, 18) + '</span><b>' + esc(regName(r)) + '</b>' + (isPrivate(r) ? uic('lock', 13) : '') + '</div>' +
         '<div class="rcn"><span><b class="mono">' + its.length + '</b> ' + L('items', '项') + '</span>' + (sf ? '<span><b class="mono">' + pct(done, its.length) + '%</b> ' + L('done', '完成') + '</span>' : '') + (od ? '<span class="odn"><b class="mono">' + od + '</b> ' + L('overdue', '逾期') + '</span>' : '') + (due ? '<span><b class="mono">' + due + '</b> ' + L('due ≤14d', '14天内到期') + '</span>' : '') + '</div>' + (segs ? '<span class="stack">' + segs + '</span>' : '') + '</button>';

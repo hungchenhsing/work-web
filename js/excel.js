@@ -17,6 +17,7 @@ function guessField(reg, header){
   if(/^对外$|^external$|^external对外$|^对外external$|^业主可见$|^ownercansee$|^ownercansee业主可见$/.test(n)) return '__ext';
   if(/^重点$|^key$|^key重点$|^重点key$|^★/.test(n)) return '__star';
   if(/^(level|层级|層級)+$/.test(n)) return '';   // v3.4.6: the export's Level column is not data
+  if(/^(itemkind|事项种类|事項種類)+$/.test(n)) return '';   // v3.5: nor is its Item kind column (it follows the Type)
   if(/parent|上级|父项/.test(n)) return '__parent';
   if(/^(action|操作|处理方式|處理方式)+$/.test(n)) return '__act';   // v3.4.4: "Action 操作" (not "Action items" / "Action by")
   var best = '', bl = 0;
@@ -263,13 +264,15 @@ function regSheet(reg, list, opts){
   });
   if(tree){
     var rowOf = {}; list.forEach(function(r, i){ rowOf[r.id] = rows[i]; });
-    var ti = fs.map(function(f){ return f.key; }).indexOf(ro.title), aoa = [['Level 层级'].concat(head)], lev = [{}], merges = [], ncol = head.length + 1;
+    /* v3.5: a Kind column (document / activity / index / goods / heading) to filter on in Excel */
+    var kcol = !!rf(reg, 'kind'), kx = function(r){ var k = ITEM_KIND[recKind(reg, r)]; return k[0] + ' ' + k[1]; };
+    var ti = fs.map(function(f){ return f.key; }).indexOf(ro.title), aoa = [['Level 层级'].concat(kcol ? ['Item kind 事项种类'] : [], head)], lev = [{}], merges = [], ncol = head.length + 1 + (kcol ? 1 : 0);
     tree.forEach(function(x){
       if(x.h){ var hr = [x.h]; for(var i = 1; i < ncol; i++) hr.push(''); aoa.push(hr); lev.push({level:0}); merges.push({s:{r:aoa.length - 1, c:0}, e:{r:aoa.length - 1, c:Math.min(ncol - 1, 6)}}); return; }
       var row = rowOf[x.r.id].slice(); if(ti >= 0 && x.lv > 1 && row[ti] !== '') row[ti] = new Array(x.lv).join('    ') + row[ti];
-      aoa.push([x.lv].concat(row)); lev.push({level:Math.min(7, x.lv - (rf(reg, 'tree') ? 0 : 1))}); });
+      aoa.push([x.lv].concat(kcol ? [kx(x.r)] : [], row)); lev.push({level:Math.min(7, x.lv - (rf(reg, 'tree') ? 0 : 1))}); });
     var wt = XLSX.utils.aoa_to_sheet(aoa);
-    wt['!cols'] = [{wch:8}].concat(fs.map(function(f){ return {wch: f.type === 'long' || f.key === ro.title ? 40 : f.type === 'sub' ? 50 : 14}; }));
+    wt['!cols'] = [{wch:8}].concat(kcol ? [{wch:14}] : [], fs.map(function(f){ return {wch: f.type === 'long' || f.key === ro.title ? 40 : f.type === 'sub' ? 50 : 14}; }));
     wt['!rows'] = lev; wt['!merges'] = merges; wt['!outline'] = {above:true};
     return wt;
   }

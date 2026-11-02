@@ -128,13 +128,45 @@ function isOverdue(reg, rec){ if(isHead(reg, rec) || isDone(reg, rec)) return fa
    dates come from its sub-items and cannot be typed. */
 var HEAD_ROLES = ['status', 'progress', 'start', 'finish', 'astart', 'afinish'];
 function isHead(reg, rec){ return !!rec && !!rec.id && !(rec.d && rec.d.asDoc) && !!(kidsIndex(rec.reg)[rec.id] || []).length; }
-/* v3.4.9 · items whose category is not counted (Activity, unless changed in Fields & columns): shown and tracked like any
-   other item, but left out of counts and statistics, like heading items */
-function isActOpt(o){ return !!o && (o.v === 'activity' || /^activit/i.test(o.en || '') || /活动|活動/.test(o.zh || '')); }
-function optCounts(o){ if(!o || o === HEAD_OPT) return true; if(o.count === true) return true; if(o.count === false) return false; return !isActOpt(o); }
-function noCount(reg, rec){ var f = reg && rf(reg, 'kind'); if(!f || !rec) return false; return !optCounts(optOf(f, asArr(val(rec, f))[0])); }
-function isCounted(reg, rec){ return !isHead(reg, rec) && !noCount(reg, rec); }
+/* v3.5 · what kind of thing an item is. Only documents are counted (item counts, done %, status breakdowns, S-curves,
+   slide figures); the others are listed and tracked as usual and are counted on their own:
+     doc   — a document handed to the Owner (has a number, revision, review)
+     act   — an activity or event: a test, an inspection, a notice, a handover step, a milestone
+     idx   — an index of other documents (the MDL, a master document index): counting it would count them twice
+     goods — spare parts, tools, materials: delivered, not submitted
+     head  — a heading item that holds sub-items (automatic)
+   The kind comes from the category (the register's type field): each option says which kind it is (Fields & columns →
+   Type → Kind); an option that does not say is read from its name. Registers without a category: every item is "doc". */
+var ITEM_KIND = {doc:['Document', '文件', 'Documents', '文件'], act:['Activity', '活动', 'Activities', '活动'], idx:['Index', '索引', 'Indexes', '索引'], goods:['Goods', '物资', 'Goods', '物资'], head:['Heading', '纲领', 'Headings', '纲领']};
+var KIND_ORDER = ['doc', 'act', 'goods', 'idx', 'head'];
+function optKind(o){
+  if(!o || o === HEAD_OPT) return 'doc';
+  if(o.cls && ITEM_KIND[o.cls] && o.cls !== 'head') return o.cls;
+  if(o.count === false) return 'act'; if(o.count === true) return 'doc';   /* set in v3.4.9 */
+  var t = [o.v, o.en, o.zh].join(' ');
+  if(/activit|活动|活動|milestone|里程碑|\btasks?\b|任务|任務|\bevents?\b|事件/i.test(t)) return 'act';
+  if(/spare|\btools?\b|备品|備品|备件|備件|工具|物资|物資|\bgoods\b|material|材料/i.test(t)) return 'goods';
+  if(/\bindex\b|索引|\bMDL\b/i.test(t)) return 'idx';
+  return 'doc';
+}
+function recKind(reg, rec){
+  if(!rec) return 'doc'; reg = reg || getReg(rec.reg); if(!reg) return 'doc';
+  var c = memo('kind:' + reg.id, function(){ return {}; }); if(rec.id && Object.prototype.hasOwnProperty.call(c, rec.id)) return c[rec.id];
+  var k = 'doc'; if(isHead(reg, rec)) k = 'head'; else { var f = rf(reg, 'kind'); if(f) k = optKind(optOf(f, asArr(val(rec, f))[0])); }
+  if(rec.id) c[rec.id] = k; return k;
+}
+function kindName(k, n){ var x = ITEM_KIND[k] || ITEM_KIND.doc; return n != null && n !== 1 ? T(x[2], x[3]) : T(x[0], x[1]); }
+function noCount(reg, rec){ var k = recKind(reg, rec); return k !== 'doc' && k !== 'head'; }
+function isCounted(reg, rec){ return recKind(reg, rec) === 'doc'; }
 function countedOf(reg, list){ return (list || []).filter(function(r){ return isCounted(reg || getReg(r.reg), r); }); }
+/* what can be late or due: everything but heading items (overdue is about what to act on, not a statistic) */
+function actionOf(reg, list){ return (list || []).filter(function(r){ return !isHead(reg || getReg(r.reg), r); }); }
+function kindCounts(reg, list){ var o = {doc:0, act:0, idx:0, goods:0, head:0}; (list || []).forEach(function(r){ o[recKind(reg, r)]++; }); return o; }
+/* the small mark before a title that says what an item is (documents have none; headings have their ▸) */
+var KIND_ICON = {act:'cal', idx:'list', goods:'box'};
+function kindMark(reg, rec){ var k = recKind(reg, rec); if(!KIND_ICON[k]) return '';
+  var ic = k === 'act' ? uic('cal', 12) : icon(KIND_ICON[k], 12);
+  return '<span class="kmk k-' + k + '" title="' + esc(kindName(k) + ' · ' + T('not counted as a document', '不计入文件数')) + '" aria-label="' + esc(kindName(k)) + '">' + ic + '</span>'; }
 function headRoleOf(reg, key){ var ro = rolesOf(reg); for(var i = 0; i < HEAD_ROLES.length; i++) if(ro[HEAD_ROLES[i]] && ro[HEAD_ROLES[i]] === key) return HEAD_ROLES[i]; return null; }
 /* which fields of a heading come from its sub-items, and how (per register):
    status / progress / dates (roles) · kind: the category shows "Heading" · union: block, discipline and people fields list
@@ -450,7 +482,7 @@ async function undoAudit(a){
 }
 
 /* filters per register */
-function rfil(regId){ return S.rf[regId] || (S.rf[regId] = {q:'', fx:{}, from:'', to:'', od:false, star:false, ext:false, node:'all'}); }
+function rfil(regId){ return S.rf[regId] || (S.rf[regId] = {q:'', fx:{}, from:'', to:'', od:false, star:false, ext:false, node:'all', cls:''}); }
 function filterFields(reg){ return dataFields(reg).filter(function(f){ return f.type === 'select' || f.type === 'check'; }); }
 function matchRec(reg, rec, f, skipNode){
   f = f || rfil(reg.id);
@@ -467,12 +499,13 @@ function matchRec(reg, rec, f, skipNode){
   if(f.due){ var pd = planOf(reg, rec), A0 = asOfN(); if(!pd || isDone(reg, rec) || pd.f < A0 || pd.f > A0 + 14) return false; }   // v3.2: due in the next 14 days
   if(f.star && !rec.d.star) return false;
   if(f.ext && !rec.d.ext) return false;
+  if(f.cls && recKind(reg, rec) !== f.cls) return false;   /* v3.5: one kind only */
   if(f.cmo){ var cf = typeof cmField === 'function' ? cmField(reg) : null; if(!cf || !cmStats(cf, cmRows(rec, cf)).open) return false; }   // v3.3.1
   if(!skipNode && f.node && f.node !== 'all'){ var tf = rf(reg, 'tree'); if(tf){ if(f.node === 'none'){ if(rec.d[tf.key] && treeNode(tf, rec.d[tf.key])) return false; } else if(!treeDesc(tf, f.node)[rec.d[tf.key]]) return false; } }
   return true;
 }
 function filteredRecs(reg){ var f = rfil(reg.id); return recsOf(reg.id).filter(function(r){ return matchRec(reg, r, f); }); }
-function activeFilterCount(reg){ var f = rfil(reg.id), n = 0; for(var k in f.fx) if(f.fx[k] && f.fx[k].length) n++; return n + (f.q ? 1 : 0) + (f.from || f.to ? 1 : 0) + (f.od ? 1 : 0) + (f.due ? 1 : 0) + (f.star ? 1 : 0) + (f.ext ? 1 : 0) + (f.cmo ? 1 : 0) + (f.node && f.node !== 'all' ? 1 : 0); }
+function activeFilterCount(reg){ var f = rfil(reg.id), n = 0; for(var k in f.fx) if(f.fx[k] && f.fx[k].length) n++; return n + (f.q ? 1 : 0) + (f.from || f.to ? 1 : 0) + (f.od ? 1 : 0) + (f.due ? 1 : 0) + (f.star ? 1 : 0) + (f.ext ? 1 : 0) + (f.cmo ? 1 : 0) + (f.node && f.node !== 'all' ? 1 : 0) + (f.cls ? 1 : 0); }
 
 /* grouping */
 function groupable(reg){ return dataFields(reg).filter(function(f){ return ['select','tree','check','date','text'].indexOf(f.type) >= 0; }); }

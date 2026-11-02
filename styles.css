@@ -1351,4 +1351,17 @@ td.hdv .mono,.hdv .mono{color:var(--muted)}
 .svis{margin:14px 12px 4px;font-size:12px}
 .invnew .in{font-family:var(--mono,monospace);font-size:12px}
 /* v3.4.9 · the category field's options carry a "Counted" tick */
-.oed.cnt .oedh,.oed.cnt .oedr{grid-template-columns:110px minmax(120px,1fr) minmax(100px,1fr) 100px 40px 56px 96px;min-width:660px}
+.oed.cnt .oedh,.oed.cnt .oedr{grid-template-columns:110px minmax(120px,1fr) minmax(100px,1fr) 100px 40px 110px 96px;min-width:720px}
+/* v3.5 · what an item is: a small mark before the title (documents have none), counts per kind under the register name */
+.kmk{display:inline-flex;vertical-align:-1px;margin-right:5px;color:var(--muted)}
+.kmk .ic{width:12px;height:12px}
+.kmk.k-act{color:var(--teal,#0f766e)}
+.kmk.k-idx{color:var(--violet,#6d28d9)}
+.kmk.k-goods{color:var(--warn,#b45309)}
+.tb-kinds{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.kbtn{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line);background:var(--surface);color:var(--ink2,var(--ink));border-radius:999px;padding:2px 9px;font-size:12px;cursor:pointer;line-height:1.6}
+.kbtn b{font-weight:600}
+.kbtn:hover{border-color:var(--accent)}
+.kbtn.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.kbtn .ic{width:12px;height:12px}
+.kchip .kmk{color:inherit}

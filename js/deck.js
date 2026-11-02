@@ -123,9 +123,9 @@ var SLIDE_DATA = {
     return {title:{en:d.title || '', zh:d.titleZh || ''}, sub:c.sub || '', date:d.date || '', presenter:c.presenter || d.presenter || '', project:{en:pc.projectEn, zh:pc.projectZh},
       meeting: m && mr ? {no:recNo(mr, m), loc:m.d.loc || '', time:m.d.time || ''} : null}; },
   kpi:function(c, ctx){ var A = ctx.asOf, tot = 0, done = 0, od = 0, due = 0, wsum = 0, wn = 0;
-    var items = usable(ctx, c.regs).map(function(reg){ var rs = recsOf(reg.id).filter(function(r){ return recOk(ctx, reg, r) && isCnt(r); });
-      var dn = rs.filter(function(r){ return isDone(reg, r); }).length, o = rs.filter(function(r){ if(isDone(reg, r)) return false; var p = planOf(reg, r); return p && p.f < A; }).length;
-      var d14 = rs.filter(function(r){ if(isDone(reg, r)) return false; var p = planOf(reg, r); return p && p.f >= A && p.f <= A + 14; }).length, pc = pctOf(reg, rs);
+    var items = usable(ctx, c.regs).map(function(reg){ var ra = recsOf(reg.id).filter(function(r){ return recOk(ctx, reg, r) && isLeaf(r); }), rs = ra.filter(isCnt);   /* v3.5: documents counted; overdue / due: all there is to act on */
+      var dn = rs.filter(function(r){ return isDone(reg, r); }).length, o = ra.filter(function(r){ if(isDone(reg, r)) return false; var p = planOf(reg, r); return p && p.f < A; }).length;
+      var d14 = ra.filter(function(r){ if(isDone(reg, r)) return false; var p = planOf(reg, r); return p && p.f >= A && p.f <= A + 14; }).length, pc = pctOf(reg, rs);
       tot += rs.length; done += dn; od += o; due += d14; if(pc != null){ wsum += pc * rs.length; wn += rs.length; }
       return {id:reg.id, reg:regLab(reg), n:rs.length, done:dn, od:o, due:d14, pct:pc}; });
     return {items:items, tot:tot, done:done, od:od, due:due, pct: wn ? Math.round(wsum / wn) : null, hideT:(c.hide || []).filter(function(k){ return /^t:/.test(k); })}; },
