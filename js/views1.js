@@ -36,7 +36,7 @@ function viewRegister(reg){
 function treePanel(reg, tf){
   if(uiPref('treeHide', false) && !(S.treeEdit && S.treeEdit[reg.id])){ var f0 = rfil(reg.id), on = f0.node && f0.node !== 'all' ? treeNode(tf, f0.node) : null;
     return '<aside class="tree rail"><button type="button" class="railb" data-act="treeTog" aria-expanded="false" title="' + esc(T('Show ', '显示') + T1(tf.en, tf.zh)) + '">' + uic('right', 14) + '<span>' + esc(T1(tf.en, tf.zh)) + (on ? ': ' + esc((on.code ? on.code + ' ' : '') + nm(on)) : '') + '</span></button></aside>'; }
-  var f = rfil(reg.id), base = countedOf(reg, recsOf(reg.id)).filter(function(r){ return matchRec(reg, r, f, true); }), cnt = {};   /* counts leave heading items out (v3.4.7) */
+  var f = rfil(reg.id), base = shownOf(reg, recsOf(reg.id)).filter(function(r){ return matchRec(reg, r, f, true); }), cnt = {};   /* counts leave heading items out (v3.4.7); the kind picked at the top (v3.5) */
   base.forEach(function(r){ treePath(tf, r.d[tf.key]).forEach(function(n){ cnt[n.id] = (cnt[n.id] || 0) + 1; }); });
   var none = base.filter(function(r){ return !treeNode(tf, r.d[tf.key]); }).length;
   var te = !!(S.treeEdit && S.treeEdit[reg.id]) && canSchemaEdit(reg);
@@ -56,12 +56,16 @@ function regHead(reg, list, all, ed){
   /* v3.5: documents are counted (headings, activities, indexes and goods are counted on their own, below the name);
      overdue and due soon are everything there is to act on */
   var kc = kindCounts(reg, all), mixed = kc.act + kc.idx + kc.goods > 0, acts = actionOf(reg, all);
-  list = countedOf(reg, list); all = countedOf(reg, all);
+  /* the kind buttons count what the other filters leave (so they add up to the rows shown); a kind stays listed at 0 */
+  var f0 = Object.assign({}, f, {cls:''}), narrowed = activeFilterCount(reg) - (f.cls ? 1 : 0) > 0 || (f.node && f.node !== 'all'), kcF = narrowed ? kindCounts(reg, all.filter(function(r){ return matchRec(reg, r, f0); })) : kc;
+  /* looking at one kind other than documents: the figures are about that kind */
+  var kf = shownKind(reg);
+  list = shownOf(reg, list); all = shownOf(reg, all);
   var done = sf ? all.filter(function(x){ return isDone(reg, x); }).length : 0, od = 0, due = 0;
   if(ro.finish || ro.start) acts.forEach(function(x){ if(isOverdue(reg, x)) od++; else if(!isDone(reg, x)){ var p = planOf(reg, x); if(p && p.f >= A && p.f <= A + 14) due++; } });
-  var cells = [[mixed ? L('Documents', '文件') : L('Items', '项'), list.length === all.length ? String(all.length) : list.length + ' / ' + all.length, '', '']];
+  var cells = [[kf ? kindNameL(kf, 2) : mixed ? L('Documents', '文件') : L('Items', '项'), list.length === all.length ? String(all.length) : list.length + ' / ' + all.length, '', '']];
   var kinds = KIND_ORDER.filter(function(k){ return kc[k]; }), kline = kinds.length > 1 ? '<span class="tb-kinds" role="group" aria-label="' + esc(T('Show one kind', '只看一种')) + '">' + kinds.map(function(k){ var on = f.cls === k;
-      return '<button type="button" class="kbtn k-' + k + (on ? ' on' : '') + '" data-act="kindFil" data-v="' + k + '" aria-pressed="' + on + '" title="' + esc(on ? T('Show all kinds', '显示全部种类') : T('Show only these', '只看这一种')) + '">' + (KIND_ICON[k] ? (k === 'act' ? uic('cal', 12) : icon(KIND_ICON[k], 12)) : '') + kindName(k, kc[k]) + ' <b class="mono">' + kc[k] + '</b></button>'; }).join('') + '</span>' : '';
+      return '<button type="button" class="kbtn k-' + k + (on ? ' on' : '') + '" data-act="kindFil" data-v="' + k + '" aria-pressed="' + on + '" title="' + esc(on ? T('Show all kinds', '显示全部种类') : T('Show only these', '只看这一种')) + '">' + (KIND_ICON[k] ? (k === 'act' ? uic('cal', 12) : icon(KIND_ICON[k], 12)) : '') + kindNameL(k, kcF[k]) + ' <b class="mono">' + kcF[k] + '</b></button>'; }).join('') + '</span>' : '';
   if(sf) cells.push([L('Done', '完成'), pct(done, all.length) + '%', '', '']);
   if(ro.finish || ro.start){ cells.push([L('Overdue', '逾期'), String(od), od ? ' bad' : '', 'tbOd', f.od]); cells.push([L('Due in 14 days', '14 天内到期'), String(due), due ? ' soon' : '', 'tbDue', f.due]); }
   return '<header class="tblk"><div class="tb-name"><span class="ri big c-' + esc(reg.d.color || 'blue') + '">' + icon(reg.d.icon, 20) + '</span><div class="tb-nm"><h1 class="vtitle">' + regNameL(reg) + '</h1>' +
@@ -153,7 +157,7 @@ function viewTable(reg, list){
   var tvis = [];
   if(oOn) body = oTableBody(reg, list, cols, ed);
   groups.forEach(function(g){
-    if(gk !== 'none'){ var colp = !!S.gcol[reg.id + g.k], gdoc = countedOf(reg, g.items), dn = gdoc.filter(function(x){ return isDone(reg, x); }).length;
+    if(gk !== 'none'){ var colp = !!S.gcol[reg.id + g.k], gdoc = shownOf(reg, g.items), dn = gdoc.filter(function(x){ return isDone(reg, x); }).length;
       body += '<tr class="grp"><td colspan="' + span + '"><button type="button" class="glb" data-act="gcol" data-v="' + esc(reg.id + g.k) + '">' + (colp ? '▸' : '▾') + ' ' + (g.color ? '<span class="sw c-' + esc(g.color) + '"></span>' : '') + '<b>' + esc(g.label) + '</b> <span class="muted mono">' + (g.k === 'v:__head' ? g.items.length : (rf(reg, 'status') ? dn + '/' : '') + gdoc.length) + '</span></button>' + (ed && g.set ? ' <button type="button" class="btn sm" data-act="grpAdd" data-v="' + esc(JSON.stringify(g.set)) + '">+ ' + L('Add here', '在此新增') + '</button>' : '') + '</td></tr>';
       if(colp) return; }
     body += hierRows(reg, g.items, cols, ed, 0, tvis);
@@ -252,7 +256,7 @@ function viewBoard(reg, list){
 /* ---------------- block matrix (PV) ---------------- */
 function matrixAgg(reg, items){
   var m = matrixCfg(reg);
-  items = countedOf(reg, items);   /* v3.4.7: heading items are not counted */
+  items = shownOf(reg, items);   /* v3.4.7: heading items are not counted; v3.5: the kind picked at the top */
   if(!items.length) return null;
   if(m.val === 'count') return {v:items.length, t:String(items.length)};
   if(m.val === 'open'){ var o = items.filter(function(r){ return !isDone(reg, r); }).length; return {v:o, t:String(o), bad:o > 0}; }
@@ -273,7 +277,7 @@ function viewMatrix(reg, list){
   var groups = groupRecs(reg, list, m.row);
   var t = '<table class="mx"><thead><tr><th>' + L(rfd ? rfd.en : '', rfd ? rfd.zh : '') + '</th>' + cols.map(function(c){ return '<th><span class="ar c-' + esc(c.o.color) + '">' + esc(c.v) + '</span> ' + esc(nm(c.o)) + '</th>'; }).join('') + '<th>' + L('Total', '合计') + '</th></tr></thead><tbody>';
   groups.forEach(function(g){
-    t += '<tr><th class="mr">' + (g.color ? '<span class="sw c-' + esc(g.color) + '"></span>' : '') + esc(g.label) + ' <span class="muted mono">' + countedOf(reg, g.items).length + '</span></th>' + cols.map(function(c){
+    t += '<tr><th class="mr">' + (g.color ? '<span class="sw c-' + esc(g.color) + '"></span>' : '') + esc(g.label) + ' <span class="muted mono">' + shownOf(reg, g.items).length + '</span></th>' + cols.map(function(c){
       var its = g.items.filter(function(r){ return asArr(r.d[cf.key]).indexOf(c.v) >= 0; }), a = matrixAgg(reg, its);
       if(!a) return '<td class="mc mc0">·</td>';
       return '<td class="mc" style="' + (m.val === 'progress' ? heat(a.v) : a.bad ? 'background:var(--bad-soft)' : '') + '"><button type="button" class="mcb" data-act="mxCell" data-v="' + esc(JSON.stringify({g:g.k, c:c.v})) + '"><b class="mono">' + esc(a.t) + '</b>' + (a.sub ? '<span class="mono muted">' + esc(a.sub) + '</span>' : '') + '</button></td>';
@@ -333,7 +337,7 @@ function ganttHtml(sets, o){
   var body = '<div class="grow ghead"><div class="gleft" style="width:' + LW + 'px;grid-template-columns:' + tpl + '">' + LC.map(function(x){ return '<div class="gc">' + L(x[1], x[2]) + '</div>'; }).join('') + '</div><div class="gt" style="' + grid + ';height:40px">' + ticks + lines + '</div></div>';
   function grpRow(key, label, items, reg, color, set){
     var smn = Infinity, smx = -Infinity; items.forEach(function(x){ var p = planOf(x.reg, x.rec); if(p){ smn = Math.min(smn, p.s); smx = Math.max(smx, p.f); } });
-    var colp = !!S.gcol[key], gdoc = items.filter(function(x){ return isCounted(x.reg, x.rec); }), dn = gdoc.filter(function(x){ return isDone(x.reg, x.rec); }).length;
+    var colp = !!S.gcol[key], gdoc = items.filter(function(x){ var sk = shownKind(x.reg); return sk ? recKind(x.reg, x.rec) === sk : isCounted(x.reg, x.rec); }), dn = gdoc.filter(function(x){ return isDone(x.reg, x.rec); }).length;
     body += '<div class="grow ggrp"><div class="gleft" style="width:' + LW + 'px"><div class="gspan"><button type="button" class="glb" data-act="gcol" data-v="' + esc(key) + '">' + (colp ? '▸ ' : '▾ ') + (color ? '<span class="sw c-' + esc(color) + '"></span>' : '') + '<b>' + label + '</b> <span class="muted mono">' + dn + '/' + gdoc.length + '</span></button>' + (reg && set && canWrite(reg) ? '<button type="button" class="btn sm" data-act="grpAdd" data-reg="' + esc(reg.id) + '" data-v="' + esc(JSON.stringify(set)) + '">+</button>' : '') + '</div></div><div class="gt" style="' + grid + '">' + lines + (isFinite(smn) ? '<div class="sum" style="left:' + ((smn - mn) * px) + 'px;width:' + Math.max(px, (smx - smn + 1) * px) + 'px"></div>' : '') + '</div></div>';
     return colp;
   }

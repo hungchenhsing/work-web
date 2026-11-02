@@ -66,7 +66,7 @@ function treePath(f, id){ var out = [], n = treeNode(f, id), g = 0; while(n && g
 function treeDesc(f, id){ var set = {}; (function w(x){ set[x] = 1; treeKids(f, x).forEach(function(k){ w(k.id); }); })(id); return set; }
 function treeDfs(f, cb){ (function w(pid, d){ treeKids(f, pid).forEach(function(n){ cb(n, d); w(n.id, d + 1); }); })('', 0); }
 function treeLabel(n){ return n ? (n.code ? n.code + ' ' : '') + nm(n) : ''; }
-function newKey(reg, base){ var k = slug(base) || 'field', i = 1, out = k; while(fieldOf(reg, out) || ['id','star','ext','base','parent','ms','dep','rel','asDoc'].indexOf(out) >= 0){ out = k + '_' + (++i); } return out; }
+function newKey(reg, base){ var k = slug(base) || 'field', i = 1, out = k; while(fieldOf(reg, out) || ['id','star','ext','base','parent','ms','dep','rel','asDoc','itemKind'].indexOf(out) >= 0){ out = k + '_' + (++i); } return out; }
 
 /* values */
 function num(v){ if(v === '' || v == null) return null; var n = typeof v === 'number' ? v : parseFloat(String(v).replace(/,/g, '')); return isNaN(n) ? null : n; }
@@ -136,31 +136,52 @@ function isHead(reg, rec){ return !!rec && !!rec.id && !(rec.d && rec.d.asDoc) &
      goods — spare parts, tools, materials: delivered, not submitted
      head  — a heading item that holds sub-items (automatic)
    The kind comes from the category (the register's type field): each option says which kind it is (Fields & columns →
-   Type → Kind); an option that does not say is read from its name. Registers without a category: every item is "doc". */
+   Type → Kind); an option that does not say is read from its name. One item can be set apart by hand (d.itemKind: its
+   details, or Check kinds…) without changing its Type. Registers without a category: every item is "doc" unless set. */
 var ITEM_KIND = {doc:['Document', '文件', 'Documents', '文件'], act:['Activity', '活动', 'Activities', '活动'], idx:['Index', '索引', 'Indexes', '索引'], goods:['Goods', '物资', 'Goods', '物资'], head:['Heading', '纲领', 'Headings', '纲领']};
-var KIND_ORDER = ['doc', 'act', 'goods', 'idx', 'head'];
-function optKind(o){
-  if(!o || o === HEAD_OPT) return 'doc';
-  if(o.cls && ITEM_KIND[o.cls] && o.cls !== 'head') return o.cls;
-  if(o.count === false) return 'act'; if(o.count === true) return 'doc';   /* set in v3.4.9 */
-  var t = [o.v, o.en, o.zh].join(' ');
-  if(/activit|活动|活動|milestone|里程碑|\btasks?\b|任务|任務|\bevents?\b|事件/i.test(t)) return 'act';
-  if(/spare|\btools?\b|备品|備品|备件|備件|工具|物资|物資|\bgoods\b|material|材料/i.test(t)) return 'goods';
-  if(/\bindex\b|索引|\bMDL\b/i.test(t)) return 'idx';
+var KIND_ORDER = ['doc', 'act', 'goods', 'idx', 'head'], KIND_SET = ['doc', 'act', 'goods', 'idx'];
+/* reading a Type option's name: an index first (MDL, document index — not "index drawings"), then anything named as a
+   document (report, certificate, approval, list, record…) stays a document, then goods (spares, tools, equipment,
+   materials), then activities (activity, milestone, task, test, inspection, notice, training, meeting, handover) */
+var OPT_IDX = /(^|[^a-z0-9])(mdl|index(es)?)(?![a-z0-9])|索引|目录|目錄|drawing list|document list|图纸清单|圖紙清單|文件清单|文件清單/i, OPT_IDX_NOT = /index drawing|索引图|索引圖/i;
+var OPT_DOC = /report|certificat|approv|submi(t|ss)|warrant|质保|質保|保修|说明书|說明書|\blists?\b|record|\borders?\b|\bplans?\b|letter|minutes|manual|drawing|document|报告|報告|证书|證書|报审|報審|送审|送審|报批|報批|清单|清單|记录|記錄|函|纪要|紀要|手册|手冊|图纸|圖紙|文件|资料|資料/i;
+var OPT_GOODS = /spare|\btools?\b|备品|備品|备件|備件|工具|物资|物資|\bgoods\b|material|材料|equipment|设备|設備|consumable|耗材/i;
+var OPT_ACT = /activit|活动|活動|milestone|里程碑|\btasks?\b|任务|任務|\bevents?\b|事件|\btests?\b|testing|测试|測試|试验|試驗|inspection|检查|檢查|巡检|巡檢|验收|驗收|notice|notification|通知|training|培训|培訓|meeting|会议|會議|hand-?over|移交|tool ?box talk|班前/i;
+function optNameKind(o){
+  var t = [o.v, o.en, o.zh].filter(function(x){ return typeof x === 'string' && x; }).join(' ');
+  if(OPT_IDX.test(t) && !OPT_IDX_NOT.test(t)) return 'idx';
+  if(OPT_DOC.test(t)) return 'doc';
+  if(/tool ?box talk|班前/i.test(t)) return 'act';
+  if(OPT_GOODS.test(t)) return 'goods';
+  if(OPT_ACT.test(t)) return 'act';
   return 'doc';
 }
+function optKind(o){
+  if(!o || o === HEAD_OPT) return 'doc';
+  if(o.cls && KIND_SET.indexOf(o.cls) >= 0) return o.cls;
+  if(o.count === true) return 'doc';   /* v3.4.9 "Counted" ticked by hand */
+  var k = optNameKind(o); return o.count === false && k === 'doc' ? 'act' : k;   /* v3.4.9 "Counted" unticked: not a document */
+}
+function ownKind(rec){ var k = rec && rec.d && rec.d.itemKind; return typeof k === 'string' && KIND_SET.indexOf(k) >= 0 ? k : null; }
+/* the kind the Type gives (what an item is when it is not set by hand) */
+function typeKind(reg, rec){ var f = reg && rf(reg, 'kind'); return f ? optKind(optOf(f, asArr(val(rec, f))[0])) : 'doc'; }
 function recKind(reg, rec){
   if(!rec) return 'doc'; reg = reg || getReg(rec.reg); if(!reg) return 'doc';
   var c = memo('kind:' + reg.id, function(){ return {}; }); if(rec.id && Object.prototype.hasOwnProperty.call(c, rec.id)) return c[rec.id];
-  var k = 'doc'; if(isHead(reg, rec)) k = 'head'; else { var f = rf(reg, 'kind'); if(f) k = optKind(optOf(f, asArr(val(rec, f))[0])); }
+  var k = isHead(reg, rec) ? 'head' : ownKind(rec) || typeKind(reg, rec);
   if(rec.id) c[rec.id] = k; return k;
 }
 function kindName(k, n){ var x = ITEM_KIND[k] || ITEM_KIND.doc; return n != null && n !== 1 ? T(x[2], x[3]) : T(x[0], x[1]); }
+/* the same in markup (both languages in EN + 中) */
+function kindNameL(k, n){ var x = ITEM_KIND[k] || ITEM_KIND.doc; return n != null && n !== 1 ? L(x[2], x[3]) : L(x[0], x[1]); }
 function noCount(reg, rec){ var k = recKind(reg, rec); return k !== 'doc' && k !== 'head'; }
 function isCounted(reg, rec){ return recKind(reg, rec) === 'doc'; }
 function countedOf(reg, list){ return (list || []).filter(function(r){ return isCounted(reg || getReg(r.reg), r); }); }
 /* what can be late or due: everything but heading items (overdue is about what to act on, not a statistic) */
 function actionOf(reg, list){ return (list || []).filter(function(r){ return !isHead(reg || getReg(r.reg), r); }); }
+/* what a register page counts: its documents — or, while one other kind is picked at the top of the register, that kind */
+function shownKind(reg){ var f = reg && S.rf && S.rf[reg.id]; return f && f.cls && f.cls !== 'doc' && ITEM_KIND[f.cls] ? f.cls : null; }
+function shownOf(reg, list){ var k = shownKind(reg); return k ? (list || []).filter(function(r){ return recKind(reg || getReg(r.reg), r) === k; }) : countedOf(reg, list); }
 function kindCounts(reg, list){ var o = {doc:0, act:0, idx:0, goods:0, head:0}; (list || []).forEach(function(r){ o[recKind(reg, r)]++; }); return o; }
 /* the small mark before a title that says what an item is (documents have none; headings have their ▸) */
 var KIND_ICON = {act:'cal', idx:'list', goods:'box'};
@@ -496,7 +517,7 @@ function matchRec(reg, rec, f, skipNode){
     if(!have.some(function(x){ return want.indexOf(x) >= 0; })) return false; }
   if(f.from || f.to){ var p = planOf(reg, rec); if(!p) return false; if(f.from && p.f < d2n(f.from)) return false; if(f.to && p.s > d2n(f.to)) return false; }
   if(f.od && !isOverdue(reg, rec)) return false;
-  if(f.due){ var pd = planOf(reg, rec), A0 = asOfN(); if(!pd || isDone(reg, rec) || pd.f < A0 || pd.f > A0 + 14) return false; }   // v3.2: due in the next 14 days
+  if(f.due){ var pd = planOf(reg, rec), A0 = asOfN(); if(!pd || isHead(reg, rec) || isDone(reg, rec) || pd.f < A0 || pd.f > A0 + 14) return false; }   // v3.2: due in the next 14 days
   if(f.star && !rec.d.star) return false;
   if(f.ext && !rec.d.ext) return false;
   if(f.cls && recKind(reg, rec) !== f.cls) return false;   /* v3.5: one kind only */

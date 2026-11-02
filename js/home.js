@@ -24,8 +24,9 @@ function hwTitle(w){ var t = HW[w.t] || {en:w.t, zh:''}; if(w.t === 'view'){ var
 /* ================= the page ================= */
 function viewHome(){
   var c = cfg(), regs = allRegs(), A = asOfN(), ed = !!S.homeEdit;
-  /* v3.5: open items are documents; overdue and due soon are everything there is to act on (activities, goods… too) */
-  var nOpen = 0, nOd = 0, nDue = 0; regs.forEach(function(r){ actionOf(r, recsOf(r.id)).forEach(function(x){ if(isDone(r, x)) return; if(isCounted(r, x)) nOpen++; if(isOverdue(r, x)) nOd++; else { var p = planOf(r, x); if(p && p.f >= A && p.f <= A + 14) nDue++; } }); });
+  /* v3.5: open, overdue and due soon are everything there is to act on (activities, goods… too — not headings), in registers
+     that track a status (a contact list has nothing open) */
+  var nOpen = 0, nOd = 0, nDue = 0; regs.forEach(function(r){ var hasSt = !!rf(r, 'status'); actionOf(r, recsOf(r.id)).forEach(function(x){ if(isDone(r, x)) return; if(hasSt) nOpen++; if(isOverdue(r, x)) nOd++; else { var p = planOf(r, x); if(p && p.f >= A && p.f <= A + 14) nDue++; } }); });
   var h = '<header class="tblk"><div class="tb-name"><div class="tb-nm"><h1 class="vtitle">' + L('Overview', '总览') + '</h1><span class="tb-sub">' + esc(c.projectEn) + (c.projectZh ? ' · ' + esc(c.projectZh) : '') + '</span></div></div><div class="tb-cells">' +
     '<div class="tb-c tb-asof"><span class="tb-l">' + L('Status date', '状态日期') + '</span><span class="tb-v">' + esc(n2d(A)) + '</span></div>' +
     '<div class="tb-c"><span class="tb-l">' + L('Open items', '未完成') + '</span><span class="tb-v">' + nOpen + '</span></div>' +
@@ -70,7 +71,7 @@ var HW_R = {
         var rows = bregs.map(function(r){
           var acts = actionOf(r, recsOf(r.id)).filter(function(x){ return blocksOf(r, x).indexOf(b.v) >= 0; }), its = countedOf(r, acts); if(!acts.length) return '';
           var ps = its.map(function(x){ return progressOf(r, x); }).filter(function(x){ return x != null; }), avg = ps.length ? Math.round(ps.reduce(function(s, x){ return s + x; }, 0) / ps.length) : null;
-          var open = its.filter(function(x){ return !isDone(r, x); }).length, od = acts.filter(function(x){ return isOverdue(r, x); }).length;
+          var open = acts.filter(function(x){ return !isDone(r, x); }).length, od = acts.filter(function(x){ return isOverdue(r, x); }).length;   /* to act on, like overdue */
           return '<button type="button" class="brow" data-act="goBlock" data-v="' + esc(r.id + '|' + b.v) + '"><span class="ri c-' + esc(r.d.color || 'blue') + '">' + icon(r.d.icon, 13) + '</span><span class="bn">' + esc(regName(r)) + '</span>' + (avg != null ? pbar(avg) : '<span></span>') + '<span class="mono muted" title="' + esc(T(open + ' open' + (od ? ', ' + od + ' overdue' : ''), open + ' 项未完成' + (od ? '，' + od + ' 项逾期' : ''))) + '">' + open + (od ? ' <b class="odn">' + od + '!</b>' : '') + '</span></button>';
         }).join('');
         return '<div class="bcard"><div class="bh"><span class="ar c-' + esc(b.color) + '">' + esc(b.v) + '</span> <b>' + esc(nm(b)) + '</b></div>' + (rows || '<div class="note">' + L('Nothing yet', '暂无') + '</div>') + '</div>';
@@ -121,7 +122,7 @@ var HW_R = {
     if(s.k) list.sort(function(a, b){ var p = sortValue(reg, a, s.k), q = sortValue(reg, b, s.k); return (p < q ? -1 : p > q ? 1 : 0) * (s.d || 1); });
     var n = +c.n || 8;
     return {cnt:list.length, head:'<button type="button" class="lnk" data-act="hwOpenView" data-reg="' + esc(reg.id) + '" data-v="' + esc(x.id) + '">' + L('Open in ' + regName(reg), '在' + regName(reg) + '中打开') + '</button>',
-      body:list.length ? list.slice(0, n).map(function(r){ var p = planOf(reg, r), st = statusOpt(reg, r); return '<button type="button" class="lrow2 nori" data-act="openRec" data-id="' + esc(r.id) + '"><span class="mono muted">' + esc(recNo(reg, r)) + '</span><span class="lt">' + esc(recTitle(reg, r) || '—') + '</span>' + (st ? chip(st.color, esc(nm(st))) : '<span></span>') + '<span class="mono' + (isOverdue(reg, r) ? ' od' : '') + '">' + esc(p ? md(n2d(p.f)) : '') + '</span></button>'; }).join('') + (list.length > n ? '<div class="note">+' + (list.length - n) + '</div>' : '')
+      body:list.length ? list.slice(0, n).map(function(r){ var p = planOf(reg, r), st = statusOpt(reg, r); return '<button type="button" class="lrow2 nori" data-act="openRec" data-id="' + esc(r.id) + '"><span class="mono muted">' + esc(recNo(reg, r)) + '</span><span class="lt">' + kindMark(reg, r) + esc(recTitle(reg, r) || '—') + '</span>' + (st ? chip(st.color, esc(nm(st))) : '<span></span>') + '<span class="mono' + (isOverdue(reg, r) ? ' od' : '') + '">' + esc(p ? md(n2d(p.f)) : '') + '</span></button>'; }).join('') + (list.length > n ? '<div class="note">+' + (list.length - n) + '</div>' : '')
         : '<div class="note">' + L('Nothing in this view.', '此视图中没有记录。') + '</div>'};
   },
   note:function(c, w){

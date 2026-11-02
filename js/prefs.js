@@ -19,7 +19,7 @@ function uiPref(k, def){ var u = myPrefs().ui; if(u && hasOwn(u, k)) return u[k]
 function setPref(k, v){ LS.set('ww.' + k, v); var u = Object.assign({}, myPrefs().ui || {}); u[k] = v; savePref('ui', u); }
 
 /* ================= saved views ================= */
-var FIL0 = function(){ return {q:'', fx:{}, from:'', to:'', od:false, due:false, star:false, ext:false, node:'all'}; };
+var FIL0 = function(){ return {q:'', fx:{}, from:'', to:'', od:false, due:false, star:false, ext:false, node:'all', cls:''}; };
 function viewNow(reg){
   var id = reg.id;
   return {v:S.rv[id] || null, f:clone(rfil(id)), s:S.rs[id] ? clone(S.rs[id]) : null, g:S.rg[id] || null, gg:S.rg[id + ':g'] || null,
@@ -28,7 +28,7 @@ function viewNow(reg){
 function normFil(f){ f = f || {}; var fx = {}; Object.keys(f.fx || {}).forEach(function(k){ if(f.fx[k] && f.fx[k].length) fx[k] = f.fx[k].slice().sort(); });
   var cm = f.cm ? {st:(f.cm.st || []).slice().sort(), rev:f.cm.rev || 'cur', from:f.cm.from || '', to:f.cm.to || '', q:f.cm.q || ''} : null;
   if(cm && !cm.st.length && cm.rev === 'cur' && !cm.from && !cm.to && !cm.q) cm = null;
-  return {q:f.q || '', fx:fx, from:f.from || '', to:f.to || '', od:!!f.od, due:!!f.due, star:!!f.star, ext:!!f.ext, cmo:!!f.cmo, node:f.node || 'all', cm:cm}; }
+  return {q:f.q || '', fx:fx, from:f.from || '', to:f.to || '', od:!!f.od, due:!!f.due, star:!!f.star, ext:!!f.ext, cmo:!!f.cmo, node:f.node || 'all', cm:cm, cls:typeof f.cls === 'string' && ITEM_KIND[f.cls] ? f.cls : ''}; }
 function viewNorm(st){ st = st || {}; return {v:st.v || null, f:normFil(st.f), s:st.s || null, g:st.g && st.g !== 'none' && st.g !== '@tree' ? st.g : null, gg:st.gg || null, c:st.c && st.c.length ? st.c : null, b:st.b || null, mx:st.mx || null}; }
 function viewSame(a, b){ return sameData(viewNorm(a), viewNorm(b)); }
 function teamViews(reg){ return asArr(reg && reg.d.views).filter(function(x){ return x && x.id && x.st; }); }

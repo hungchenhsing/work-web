@@ -387,6 +387,7 @@ document.addEventListener('change', function(e){
   if(el.dataset.colk){ var cur = tableCols(reg).map(function(f){ return f.key; }), k = el.dataset.colk, i = cur.indexOf(k); if(el.checked && i < 0) cur.push(k); if(!el.checked && i >= 0) cur.splice(i, 1); var ord = dataFields(reg).map(function(f){ return f.key; }); cur.sort(function(a, b){ return ord.indexOf(a) - ord.indexOf(b); }); S.rcols[S.reg] = cur; saveUI(); renderMain(); return; }
   if(el.dataset.act === 'extTog' && rec){ setRec(rec, {ext:el.checked}, {silent:true}); return; }
   if(el.dataset.act === 'asDocTog' && rec){ setRec(rec, {asDoc:el.checked || null}, {silent:true}); return; }   // v3.4.7: a heading item counted as a document too
+  if(el.dataset.act === 'kindSet' && rec){ setRec(rec, {itemKind:KIND_SET.indexOf(el.value) >= 0 ? el.value : null}); return; }   // v3.5: this item's kind, apart from its Type
   if((d = el.dataset.df) && rec){ var rg = getReg(rec.reg), f = fieldOf(rg, d), v = el.type === 'checkbox' ? el.checked : el.value;
     if(f.type === 'number') v = num(v); if(f.type === 'percent') v = v === '' ? null : clamp(Math.round(+v || 0), 0, 100);
     if(f.type === 'date' && (d === rolesOf(rg).start || d === rolesOf(rg).finish)) datesSet(rg, rec, dateFix(rg, rec, d, v)); else setRec(rec, mk(d, v)); return; }

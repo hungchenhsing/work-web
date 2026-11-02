@@ -249,7 +249,7 @@ function viewMine(){
   G.forEach(function(g, gi){ var list = items.filter(function(e){ return e.grp === gi; }); if(!list.length) return;
     h += '<section class="card sec"><div class="sech"><h2>' + L(g[0], g[1]) + ' <span class="cnt">' + list.length + '</span></h2></div>' + list.map(function(e){
       var st = e.kind === 'rec' ? statusOpt(e.reg, e.rec) : null;
-      return '<button type="button" class="lrow2 mw" data-act="openRec" data-id="' + esc(e.rec.id) + '"><span class="ri c-' + esc(e.reg.d.color || 'blue') + '">' + icon(e.reg.d.icon, 13) + '</span><span class="mono muted">' + esc(e.no) + '</span><span class="lt">' + (e.kind === 'act' ? '<span class="chip c-grey">' + L('Action', '待办') + '</span> ' : '') + esc(e.title) + '</span><span class="mwst">' + (st ? optChip(st) : '') + '</span><span class="mono nowrap' + (gi === 0 ? ' od' : '') + '">' + (e.due != null ? esc(md(n2d(e.due))) : '') + '</span></button>';
+      return '<button type="button" class="lrow2 mw" data-act="openRec" data-id="' + esc(e.rec.id) + '"><span class="ri c-' + esc(e.reg.d.color || 'blue') + '">' + icon(e.reg.d.icon, 13) + '</span><span class="mono muted">' + esc(e.no) + '</span><span class="lt">' + (e.kind === 'act' ? '<span class="chip c-grey">' + L('Action', '待办') + '</span> ' : kindMark(e.reg, e.rec)) + esc(e.title) + '</span><span class="mwst">' + (st ? optChip(st) : '') + '</span><span class="mono nowrap' + (gi === 0 ? ' od' : '') + '">' + (e.due != null ? esc(md(n2d(e.due))) : '') + '</span></button>';
     }).join('') + '</section>';
   });
   return h;

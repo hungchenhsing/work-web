@@ -1365,3 +1365,7 @@ td.hdv .mono,.hdv .mono{color:var(--muted)}
 .kbtn.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
 .kbtn .ic{width:12px;height:12px}
 .kchip .kmk{color:inherit}
+.kchip select{border:0;background:transparent;color:inherit;font:inherit;padding:0 2px;margin:0;cursor:pointer;max-width:160px}
+.kchip select:focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-radius:4px}
+.kset{display:inline-flex;align-items:center;gap:2px}
+.kset .kmk{margin-right:2px}

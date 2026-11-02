@@ -537,7 +537,7 @@ begin
     end if;
     rs := coalesce((select jsonb_agg(jsonb_build_object('id', r.id, 'reg', r.register_id, 'd',
         (select coalesce(jsonb_object_agg(e.key, e.value), '{}'::jsonb) from jsonb_each(case when jsonb_typeof(r.data) = 'object' then r.data else '{}'::jsonb end) e
-          where e.key = any(keys) or (e.key in ('parent', 'ms', 'ext', 'asDoc') and not (e.key = any(allk))))) order by r.created_at, r.id)
+          where e.key = any(keys) or (e.key in ('parent', 'ms', 'ext', 'asDoc', 'itemKind') and not (e.key = any(allk))))) order by r.created_at, r.id)
       from public.records r where r.register_id = g.id
         and (not gated or is_team or r.data->'ext' = 'true'::jsonb)
         and (idset is null or idset ? r.id)

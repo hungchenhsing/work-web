@@ -103,7 +103,7 @@ function roleName(r){ var m = {admin:['Admin','管理员'], editor:['Editor','�
 function searchResults(){
   var q = S.q.toLowerCase(), out = [];
   allRegs().concat(libReg() ? [libReg()] : []).forEach(function(reg){ recsOf(reg.id).forEach(function(r){ if(out.length > 40) return; var t = (recNo(reg, r) + ' ' + (r.d[rolesOf(reg).title] || '') + ' ' + (r.d[rolesOf(reg).title2] || '') + ' ' + (r.d.docNo || '')).toLowerCase(); if(t.indexOf(q) >= 0) out.push({reg:reg, rec:r}); }); });
-  return '<div class="gres card">' + (out.length ? out.map(function(x){ return '<button type="button" data-act="openRec" data-id="' + esc(x.rec.id) + '">' + icon(x.reg.d.icon, 14) + '<span class="mono muted">' + esc(recNo(x.reg, x.rec)) + '</span> ' + esc(recTitle(x.reg, x.rec) || '—') + ' <span class="muted" style="margin-left:auto;font-size:12px">' + esc(regName(x.reg)) + '</span></button>'; }).join('') : '<div class="note" style="padding:10px">' + L('No matches', '没有匹配') + '</div>') + '</div>';
+  return '<div class="gres card">' + (out.length ? out.map(function(x){ return '<button type="button" data-act="openRec" data-id="' + esc(x.rec.id) + '">' + icon(x.reg.d.icon, 14) + '<span class="mono muted">' + esc(recNo(x.reg, x.rec)) + '</span> ' + kindMark(x.reg, x.rec) + esc(recTitle(x.reg, x.rec) || '—') + ' <span class="muted" style="margin-left:auto;font-size:12px">' + esc(regName(x.reg)) + '</span></button>'; }).join('') : '<div class="note" style="padding:10px">' + L('No matches', '没有匹配') + '</div>') + '</div>';
 }
 /* v3.2 · phones: a bottom bar (overview, my work, registers, search, more); registers and more open as sheets */
 function sidePages(){ if(isVisitor()) return [['home','home','Overview','总览'],['schedule','cal','Schedule','进度计划']].concat(deckReg() ? [['decks','present','Presentations','演示文稿']] : []);   /* v3.4.7: a site link shows only what it carries */
@@ -493,7 +493,7 @@ function renderDrawer(){
   var chips = (rf(reg, 'block') ? blockChips(val(rec, rf(reg, 'block')), rf(reg, 'block')) : '') + (isOverdue(reg, rec) ? chip('red', L('Overdue', '逾期')) : '') + (!ed ? chip('grey', L('Read only', '只读')) : '') +
     (ownerGated(reg) && !isPrivate(reg) ? (ed ? '<label class="chip c-violet tog"><input type="checkbox" data-act="extTog"' + (rec.d.ext ? ' checked' : '') + '>' + uic('eye', 12) + ' ' + L('Owner can see', '业主可见') + '</label>' : (rec.d.ext ? chip('violet', uic('eye', 12) + ' ' + L('Owner can see', '业主可见')) : '')) : '') +
     (kids.length && !trn ? (ed ? '<label class="chip c-grey tog" title="' + esc(T('An item with sub-items is a heading: it is not counted and takes its status, progress and dates from its sub-items. Tick to count it as a document too.', '有子项的事项是纲领：不计入数量，状态、进度和日期由子项汇总。勾选后它本身也计为一份文件。')) + '"><input type="checkbox" data-act="asDocTog"' + (rec.d.asDoc ? ' checked' : '') + '>' + L('Counted as a document', '计为一份文件') + '</label>' : '') + (rec.d.asDoc ? (ed ? '' : chip('grey', L('Counted as a document', '计为一份文件'))) : chip('grey', L('Heading · not counted', '纲领 · 不计数'))) : '') +
-    (noCount(reg, rec) ? '<span class="chip c-grey kchip" title="' + esc(T('Not a document: shown and tracked, but counted on its own, not in the document count. Its kind comes from its Type (Fields & columns → Type → Kind).', '不是文件：照常显示和跟踪，但单独计数，不计入文件数。种类由「类型」决定（字段与列 → 类型 → 种类）。')) + '">' + kindMark(reg, rec) + kindName(recKind(reg, rec)) + ' · ' + L('not in document count', '不计入文件数') + '</span>' : '') +
+    kindChip(reg, rec, ed) +
     (!lib && !es.length && ed ? '<button type="button" class="rchip add" data-act="linkOpen" data-id="' + esc(rec.id) + '">' + uic('plus', 12) + ' ' + L('Link', '关联') + '</button>' : '');
   var sf = lib || trn ? [] : sumFields(reg);
   var h = '<div class="scrim" data-act="close"></div><aside class="drawer' + (S.dwide ? ' wide' : '') + '" role="dialog" aria-modal="true" aria-label="' + esc(recLabel(rec)) + '"' + (w && !S.dwide ? ' style="width:' + w + 'px"' : '') + '><div class="dres" data-dres="1" title="' + esc(T('Drag to resize', '拖动调整宽度')) + '"></div>' +
@@ -639,7 +639,7 @@ function auditRowHtml(a, opts){
   var diff = '';
   if(a.action === 'update' && reg && a._light) diff = '<div class="diff"><div><span class="dk">' + esc((a.keys || []).map(function(k){ var f = fieldOf(reg, k); return f ? T1(f.en, f.zh) : k; }).join(', ')) + '</span></div></div>';
   else if(a.action === 'update' && reg){
-    diff = '<div class="diff">' + (a.keys || []).map(function(k){ var f = fieldOf(reg, k) || (k === 'parent' ? {key:k, en:'Belongs to', zh:'上级', type:'link'} : k === 'dep' ? {key:k, en:'Starts after', zh:'前置事项', type:'dep'} : k === 'rel' ? {key:k, en:'Related', zh:'相关', type:'rel'} : {key:k, en:({star:'Key', ext:'External', ms:'Milestone', baseStart:'Baseline start', baseFinish:'Baseline finish'})[k] || k, zh:({star:'重点', ext:'对外', ms:'里程碑', baseStart:'基准开始', baseFinish:'基准结束'})[k] || '', type: k === 'star' || k === 'ext' || k === 'ms' ? 'check' : 'text'});
+    diff = '<div class="diff">' + (a.keys || []).map(function(k){ var f = fieldOf(reg, k) || (k === 'parent' ? {key:k, en:'Belongs to', zh:'上级', type:'link'} : k === 'dep' ? {key:k, en:'Starts after', zh:'前置事项', type:'dep'} : k === 'rel' ? {key:k, en:'Related', zh:'相关', type:'rel'} : k === 'itemKind' ? {key:k, en:'Kind', zh:'种类', type:'select', opts:KIND_SET.map(function(x){ return {v:x, en:ITEM_KIND[x][0], zh:ITEM_KIND[x][1], color:'grey'}; })} : k === 'asDoc' ? {key:k, en:'Counted as a document', zh:'计为一份文件', type:'check'} : {key:k, en:({star:'Key', ext:'External', ms:'Milestone', baseStart:'Baseline start', baseFinish:'Baseline finish'})[k] || k, zh:({star:'重点', ext:'对外', ms:'里程碑', baseStart:'基准开始', baseFinish:'基准结束'})[k] || '', type: k === 'star' || k === 'ext' || k === 'ms' ? 'check' : 'text'});
       var ov = textOf(reg, f, null, (a.old || {})[k]), nv = textOf(reg, f, null, (a.new || {})[k]);
       if(f.type === 'sub' || f.type === 'files' || f.type === 'link'){ ov = textOf(reg, f, null, (a.old || {})[k]) || '—'; nv = textOf(reg, f, null, (a.new || {})[k]) || '—'; }
       if(f.type === 'long'){ ov = String(ov).slice(0, 80); nv = String(nv).slice(0, 80); }
@@ -715,3 +715,13 @@ function checkVersion(){
 setTimeout(checkVersion, 4000); setInterval(checkVersion, 10 * 60 * 1000);
 window.addEventListener('focus', function(){ if(!S.verAt || Date.now() - S.verAt > 60000){ S.verAt = Date.now(); checkVersion(); } });
 document.addEventListener('click', function(e){ var el = e.target.closest && e.target.closest('[data-act="appReload"]'); if(!el) return; location.replace(location.pathname + '?v=' + encodeURIComponent(S.newVer || Date.now()) + location.hash); });
+
+/* v3.5 · the item's kind in its details: from its Type unless set by hand here (documents are counted, the rest apart) */
+function kindChip(reg, rec, ed){
+  if(isHead(reg, rec) || !(rf(reg, 'kind') || ownKind(rec))) return '';
+  var k = recKind(reg, rec), own = ownKind(rec), tk = typeKind(reg, rec), out = k !== 'doc';
+  var tip = T('What this item is. Only documents are counted (item count, done %, statistics); activities, goods and indexes are tracked as usual and counted apart. The kind comes from the Type (Fields & columns → Type → Kind) unless it is set here.', '这个事项是什么。只有文件计入数量、完成率和统计；活动、物资、索引照常跟踪，单独计数。种类由「类型」决定（字段与列 → 类型 → 种类），也可在这里单独设定。');
+  if(!ed) return out ? '<span class="chip c-grey kchip" title="' + esc(tip) + '">' + kindMark(reg, rec) + kindNameL(k) + ' · ' + L('not in document count', '不计入文件数') + '</span>' : '';
+  return '<label class="chip c-grey kchip tog" title="' + esc(tip) + '">' + kindMark(reg, rec) + L('Kind', '种类') + ' <select data-act="kindSet" aria-label="' + esc(T('Kind', '种类')) + '"><option value=""' + (own ? '' : ' selected') + '>' + esc(T('From Type', '按类型') + ': ' + kindName(tk)) + '</option>' +
+    KIND_SET.map(function(x){ return '<option value="' + x + '"' + (own === x ? ' selected' : '') + '>' + esc(kindName(x)) + '</option>'; }).join('') + '</select>' + (out ? ' · ' + L('not in document count', '不计入文件数') : '') + '</label>';
+}

@@ -35,7 +35,7 @@ function treeCellHtml(f, v){
 function oOpen(reg){ var o = LS.get('ww.oOpen.' + reg.id, {}); return o && typeof o === 'object' ? o : {}; }
 function oOpenSet(reg, ids, on){ var o = oOpen(reg); ids.forEach(function(id){ if(on) o[id] = 1; else delete o[id]; }); LS.set('ww.oOpen.' + reg.id, o); }
 /* a search or filter other than the package is on: folders with matches open by themselves */
-function oFiltered(reg){ var f = rfil(reg.id); return !!(f.q || Object.keys(f.fx || {}).some(function(k){ return f.fx[k] && f.fx[k].length; }) || f.from || f.to || f.od || f.due || f.star || f.ext || f.cmo); }
+function oFiltered(reg){ var f = rfil(reg.id); return !!(f.q || Object.keys(f.fx || {}).some(function(k){ return f.fx[k] && f.fx[k].length; }) || f.from || f.to || f.od || f.due || f.star || f.ext || f.cmo || f.cls); }
 /* the outline is used for a register with a category tree, unless another grouping (or a flat list) is chosen */
 function oTableGroup(reg){
   var tf = rf(reg, 'tree'), g = S.rg[reg.id] || (reg.d.group && fieldOf(reg, reg.d.group) ? reg.d.group : (tf ? '@tree' : 'none'));
@@ -55,7 +55,7 @@ function oTree(reg, list){
 }
 /* figures of a folder: done / total, overdue, progress, plan span */
 function oStats(reg, recs){
-  var acts = actionOf(reg, recs); recs = countedOf(reg, recs);   /* v3.5: documents are counted; overdue is everything there is to act on */
+  var acts = actionOf(reg, recs); recs = shownOf(reg, recs);   /* v3.5: documents are counted (or the kind picked at the top); overdue is everything there is to act on */
   var dn = 0, od = acts.filter(function(r){ return isOverdue(reg, r); }).length, ps = [], s = Infinity, e = -Infinity;
   recs.forEach(function(r){ if(isDone(reg, r)) dn++; var p = progressOf(reg, r); if(p != null) ps.push(p); });
   acts.forEach(function(r){ var pl = planOf(reg, r); if(pl){ s = Math.min(s, pl.s); e = Math.max(e, pl.f); } });   /* the span covers every dated item */
@@ -68,7 +68,7 @@ function oCount(k){
   var sub = k.kids.length, ids = {}, kc = {doc:0, act:0, idx:0, goods:0, head:0}, inner = 0;
   k.all.forEach(function(r){ ids[r.id] = 1; });
   k.all.forEach(function(r){ var kd = recKind(getReg(r.reg), r); kc[kd]++; if(kd === 'doc' && r.d.parent && ids[r.d.parent]) inner++; });
-  var top = kc.doc - inner, rest = ['act', 'goods', 'idx', 'head'].filter(function(x){ return kc[x]; }).map(function(x){ return kc[x] + ' ' + kindName(x, kc[x]).toLowerCase(); });
+  var top = kc.doc - inner, rest = ['act', 'goods', 'idx', 'head'].filter(function(x){ return kc[x]; }).map(function(x){ return kc[x] + ' ' + kindNameL(x, kc[x]).toLowerCase(); });
   return L(top + (top === 1 ? ' item' : ' items'), top + ' 项') + (inner ? ' · ' + L(inner + (inner === 1 ? ' sub-item' : ' sub-items'), inner + ' 个子项') : '') + (rest.length ? ' · ' + rest.join(' · ') : '') + (sub ? ' · ' + L(sub + (sub === 1 ? ' sub-folder' : ' sub-folders'), sub + ' 个子目录') : '');
 }
 function oToggle(reg, k, open, cls){

@@ -105,13 +105,13 @@ function shareProject(src, ids, opt){
     ['kind', 'en', 'zh', 'icon', 'color', 'sec', 'prefix', 'tpl', 'ownerPublish', 'allMs', 'view', 'matrix'].forEach(function(k){ d[k] = shareCl(d0[k]); });
     d.roles = roles; d.fields = flds;
     regs.push({id:g.id, vis:'team', d:shareObj(d)});
-    /* parent / ms / ext / asDoc travel with records unless a field of that name exists (then the field rules apply) */
+    /* parent / ms / ext / asDoc / itemKind travel with records unless a field of that name exists (then the field rules apply) */
     var allk = shareSet(), fp = shareFilterPrep(fs, ro, opt.filter), rs = [];
     fs.forEach(function(f){ if(typeof f.key === 'string') allk[f.key] = 1; });
     (src.recs || []).forEach(function(r){
       if(!r || r.reg !== g.id) return; var rd = shareIsObj(r.d) ? r.d : {};
       if((gated && rd.ext !== true) || (only && !(typeof r.id === 'string' && only[r.id])) || !shareFilterRec(fp, rd)) return;
-      var o = {}; Object.keys(rd).forEach(function(k){ if(rd[k] !== undefined && (keys[k] || ((k === 'parent' || k === 'ms' || k === 'ext' || k === 'asDoc') && !allk[k]))) o[k] = clone(rd[k]); });
+      var o = {}; Object.keys(rd).forEach(function(k){ if(rd[k] !== undefined && (keys[k] || ((k === 'parent' || k === 'ms' || k === 'ext' || k === 'asDoc' || k === 'itemKind') && !allk[k]))) o[k] = clone(rd[k]); });
       rs.push({id:r.id, reg:r.reg, d:o});
     });
     recs = recs.concat(rs);
@@ -242,6 +242,7 @@ function shareFilter(reg, mode){
     if(f.from || f.to){ snapOnly.push(T('Date range', '日期范围')); f.from = ''; f.to = ''; }
     if(f.od){ snapOnly.push(T('Overdue only', '仅逾期')); f.od = false; }
     if(f.due){ snapOnly.push(T('Due in 14 days', '14 天内到期')); f.due = false; }
+    if(f.cls){ snapOnly.push(T('Kind', '种类') + ': ' + kindName(f.cls)); f.cls = ''; }   /* v3.5: the kind is worked out in the browser */
   }
   return {f:f, dropped:dropped, snapOnly:snapOnly};
 }

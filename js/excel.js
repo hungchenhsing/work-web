@@ -276,6 +276,7 @@ function regSheet(reg, list, opts){
     wt['!rows'] = lev; wt['!merges'] = merges; wt['!outline'] = {above:true};
     return wt;
   }
+  if(rf(reg, 'kind')){ head = head.concat(['Item kind 事项种类']); rows = rows.map(function(row, i){ var k = ITEM_KIND[recKind(reg, list[i])]; return row.concat([k[0] + ' ' + k[1]]); }); }   /* v3.5: in the flat sheet too (last, so templates keep their columns) */
   var ws = XLSX.utils.aoa_to_sheet([head].concat(rows));
   ws['!cols'] = fs.map(function(f){ return {wch: f.type === 'long' || f.key === rolesOf(reg).title ? 40 : f.type === 'sub' ? 50 : 14}; });
   ws['!freeze'] = {xSplit:0, ySplit:1};

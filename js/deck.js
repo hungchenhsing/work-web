@@ -144,7 +144,9 @@ var SLIDE_DATA = {
   table:function(c, ctx){ var reg = getReg(c.reg); if(!regOk(ctx, reg)) return {err:'reg'};
     var f = c.filter || {}, A = ctx.asOf, ro = rolesOf(reg), sf = rf(reg, 'status'), bf = rf(reg, 'block');
     var fx = clone(f.fx || {}); if(sf && f.st && f.st.length) fx[sf.key] = f.st; if(bf && f.blk && f.blk.length) fx[bf.key] = f.blk;
-    var mf = {q:f.q || '', fx:fx, from:f.from || '', to:f.to || '', od:false, star:!!f.star, ext:!!f.ext, node:f.node || 'all'};
+    var mf = {q:f.q || '', fx:fx, from:f.from || '', to:f.to || '', od:false, star:!!f.star, ext:!!f.ext, node:f.node || 'all', cls:typeof f.cls === 'string' && ITEM_KIND[f.cls] ? f.cls : ''};
+    /* v3.5: the figures count documents — or the one kind the view shows */
+    var cnt = mf.cls && mf.cls !== 'doc' ? function(r){ return isLeaf(r) && recKind(reg, r) === mf.cls; } : isCnt;
     var hd = c.hide || [], list;
     if(c.mode === 'pick') list = (c.picks || []).map(getRec).filter(function(r){ return r && r.reg === reg.id && recOk(ctx, reg, r) && hd.indexOf('r:' + r.id) < 0; });
     else {
@@ -158,9 +160,9 @@ var SLIDE_DATA = {
     if(gf){ list.forEach(function(r){ gof[r.id] = tblGroup(reg, r, gf, gl); }); list = list.filter(function(r){ return hd.indexOf('g:' + gof[r.id].k) < 0; });
       var pos = {}; list.forEach(function(r, i){ pos[r.id] = i; }); list.sort(function(a, b){ return (gof[a.id].o - gof[b.id].o) || (pos[a.id] - pos[b.id]); }); }
     var sf2 = rf(reg, 'status');
-    function stCounts(rs){ if(!sf2) return []; rs = rs.filter(isCnt); return optsOf(sf2).map(function(o){ return {en:o.en, zh:o.zh || '', color:o.color, n:rs.filter(function(r){ return asArr(val(r, sf2))[0] === o.v; }).length}; }).filter(function(x){ return x.n; }); }
+    function stCounts(rs){ if(!sf2) return []; rs = rs.filter(cnt); return optsOf(sf2).map(function(o){ return {en:o.en, zh:o.zh || '', color:o.color, n:rs.filter(function(r){ return asArr(val(r, sf2))[0] === o.v; }).length}; }).filter(function(x){ return x.n; }); }
     /* v3.4.7: a package counts its documents — items and the sub-items under them, not heading items */
-    function gDocs(rs){ var out = []; (function w(a, g){ a.forEach(function(r){ out.push(r); if(g < 6) w(kidsL[r.id] || [], g + 1); }); })(rs, 0); return out.filter(isCnt); }
+    function gDocs(rs){ var out = []; (function w(a, g){ a.forEach(function(r){ out.push(r); if(g < 6) w(kidsL[r.id] || [], g + 1); }); })(rs, 0); return out.filter(cnt); }
     /* v3.4.6: an item's sub-items follow it (under discipline headings); they are hidden until the item is opened */
     var inL = {}, kidsL = {}; list.forEach(function(r){ inL[r.id] = 1; });
     list.forEach(function(r){ var p = r.d.parent; if(p && p !== r.id && inL[p]) (kidsL[p] = kidsL[p] || []).push(r); });
@@ -175,8 +177,9 @@ var SLIDE_DATA = {
         gs[v].forEach(function(k){ out.push(rowOf(k, lv, r.id)); kidRows(k, lv + 1, out, guard + 1); }); });
     }
     function withKids(rs){ var out = []; rs.forEach(function(r){ out.push(rowOf(r, 0, null)); kidRows(r, 1, out, 0); }); return out; }
-    function rowOf(r, lv, pid){ var ks = kidsL[r.id] || [], kd = ks.filter(function(k){ return isDone(reg, k); }).length;
-      return {id:r.id, hl:recNo(reg, r) + ' ' + (r.d[ro.title] || ''), od:isOverdue(reg, r), dep:lv || 0, lv:lv || 0, pid:pid || null, kn:ks.length, kd:kd, kc:ks.length, c:fs.map(function(x){
+    function rowOf(r, lv, pid){ var ks = kidsL[r.id] || [], kk = ks.filter(isCnt), kd;   /* done n/m: the documents among the sub-items (all of them if none is), as the register shows */
+      if(!kk.length) kk = ks; kd = kk.filter(function(k){ return isDone(reg, k); }).length;
+      return {id:r.id, hl:recNo(reg, r) + ' ' + (r.d[ro.title] || ''), od:isOverdue(reg, r), dep:lv || 0, lv:lv || 0, pid:pid || null, kn:ks.length, kd:kd, kc:kk.length, c:fs.map(function(x){
         if(x.key === ro.title) return {t:recPair(reg, r)};
         if(x.type === 'select' && !x.multi && !x.list){ var o = optOf(x, asArr(val(r, x))[0]); return o ? {s:{en:o.en, zh:o.zh || '', color:o.color}} : {v:headOrSum(reg, r, x) ? textOf(reg, x, r) : ''}; }
         if(x.type === 'percent' || (x.type === 'calc' && x.calc && x.calc.op === 'pct')){ var pv = val(r, x); if(pv == null && x.key === ro.progress) pv = progressOf(reg, r); return {p:pv == null ? null : Math.round(pv)}; }
@@ -189,7 +192,7 @@ var SLIDE_DATA = {
       grs.forEach(function(g){ var gd = gDocs(g.items); rows.push({g:1, k:g.k, en:g.en, zh:g.zh, n:gd.length, st:c.gst === false ? [] : stCounts(gd)}); rows = rows.concat(withKids(g.items)); }); }
     else rows = withKids(tops);
     return {reg:regLab(reg), cols:fs.map(function(x){ return {en:x.en, zh:x.zh || '', type:x.type, key:x.key, title:x.key === ro.title}; }), per:c.per || 12, dense:!!c.dense,
-      sum:c.sum ? {n:list.filter(isCnt).length, od:list.filter(function(r){ return isOverdue(reg, r); }).length, st:stCounts(list)} : null, rows:rows}; },
+      sum:c.sum ? {n:list.filter(cnt).length, od:list.filter(function(r){ return isOverdue(reg, r); }).length, st:stCounts(list)} : null, rows:rows}; },
   breakdown:function(c, ctx){ var reg = getReg(c.reg); if(!regOk(ctx, reg)) return {err:'reg'};
     var ro = rolesOf(reg), by = c.by || ro.tree || ro.block, sf = rf(reg, 'status'); if(!fieldOf(reg, by) || !sf) return {err:'cfg'};
     var list = recsOf(reg.id).filter(function(r){ return recOk(ctx, reg, r) && isCnt(r); }), opts = optsOf(sf);

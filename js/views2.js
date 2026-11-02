@@ -52,7 +52,7 @@ function ownerSnapshot(reg){
   var list = sortRecs(reg, recsOf(reg.id).filter(function(r){ return r.d.ext && matchRec(reg, r); }));
   var tf = rf(reg, 'tree'), groups = tf ? groupRecs(reg, list, tf.key) : [{k:'all', label:'', items:list}];
   return {reg:{id:reg.id, en:reg.d.en, zh:reg.d.zh}, fields:fields.map(function(f){ return {key:f.key, en:f.en, zh:f.zh, type:f.type}; }),
-    groups:groups.map(function(g){ return {label:g.label, rows:g.items.map(function(r){ return {ref:{id:r.id, no:recNo(reg, r)}, cells:fields.map(function(f){ return f.type === 'select' ? asArr(val(r, f)).map(function(v){ var o = optOf(f, v); return o ? {en:o.en, zh:o.zh || ''} : {en:v, zh:''}; }).reduce(function(a, b){ return {en:a.en ? a.en + ', ' + b.en : b.en, zh:a.zh ? a.zh + '、' + b.zh : b.zh}; }, {en:'', zh:''}) : f.type === 'tree' ? (function(){ var n = treeNode(f, r.d[f.key]); return n ? {en:(n.code ? n.code + ' ' : '') + n.en, zh:n.zh || ''} : {en:'', zh:''}; })() : {en:textOf(reg, f, r), zh:''}; })}; })}; }), count:countedOf(reg, list).length};
+    groups:groups.map(function(g){ return {label:g.label, rows:g.items.map(function(r){ return {ref:{id:r.id, no:recNo(reg, r)}, cells:fields.map(function(f){ return f.type === 'select' ? asArr(val(r, f)).map(function(v){ var o = optOf(f, v); return o ? {en:o.en, zh:o.zh || ''} : {en:v, zh:''}; }).reduce(function(a, b){ return {en:a.en ? a.en + ', ' + b.en : b.en, zh:a.zh ? a.zh + '、' + b.zh : b.zh}; }, {en:'', zh:''}) : f.type === 'tree' ? (function(){ var n = treeNode(f, r.d[f.key]); return n ? {en:(n.code ? n.code + ' ' : '') + n.en, zh:n.zh || ''} : {en:'', zh:''}; })() : {en:textOf(reg, f, r), zh:''}; })}; })}; }), count:countedOf(reg, list).length, rows:list.length};
 }
 function ownerTable(snap, opts){
   opts = opts || {};
@@ -80,8 +80,8 @@ function viewOwner(){
   var reg = getReg(S.oreg) && regs.indexOf(getReg(S.oreg)) >= 0 ? getReg(S.oreg) : regs[0]; S.oreg = reg.id;
   var snap = ownerSnapshot(reg);
   h += '<div class="card filters"><label class="fl row">' + L('Register', '台账') + '<select class="in" id="oreg">' + regs.map(function(r){ return '<option value="' + esc(r.id) + '"' + (r.id === reg.id ? ' selected' : '') + '>' + esc(regName(r)) + '</option>'; }).join('') + '</select></label><span class="note">' + L('Rows: records marked “Owner can see” (and the register’s current filters). Columns: fields ticked “Owner can see” in Fields & columns.', '行：标记「业主可见」的记录（并按该台账当前筛选）。列：在「字段与列」中勾选「业主可见」的字段。') + '</span>' + (canSchemaEdit(reg) ? '<button type="button" class="btn sm" data-act="fieldsOpen" data-v="' + esc(reg.id) + '">' + L('Choose fields', '选择字段') + '</button>' : '') + '</div>';
-  if(ed) h += '<div class="card row" style="padding:10px 12px"><input class="in" id="snapNote" placeholder="' + esc(T('Publication note, e.g. Plan for 16–31 Oct', '发布说明，例如 10月16–31日计划')) + '" style="flex:1"><button type="button" class="btn pri" data-act="publish"' + (snap.count ? '' : ' disabled') + '>' + L('Publish to Owner', '发布给业主') + ' (' + snap.count + ')</button></div>';
-  return h + (snap.count ? ownerTable(snap) : '<div class="card empty">' + L('No records are marked “Owner can see”.', '没有标记「业主可见」的记录。') + '</div>');
+  if(ed) h += '<div class="card row" style="padding:10px 12px"><input class="in" id="snapNote" placeholder="' + esc(T('Publication note, e.g. Plan for 16–31 Oct', '发布说明，例如 10月16–31日计划')) + '" style="flex:1"><button type="button" class="btn pri" data-act="publish"' + (snap.rows ? '' : ' disabled') + '>' + L('Publish to Owner', '发布给业主') + ' (' + snap.rows + ')</button></div>';
+  return h + (snap.rows ? ownerTable(snap) : '<div class="card empty">' + L('No records are marked “Owner can see”.', '没有标记「业主可见」的记录。') + '</div>');
 }
 /* an Owner comment, or (v3.1) the Owner's response to a document in a transmittal: its code, the comment, and the transmittal */
 function fbBody(x){
