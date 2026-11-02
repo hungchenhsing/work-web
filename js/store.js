@@ -167,7 +167,7 @@ function CloudStore(url, key){
   };
   /* after the first screen: recent changes (light: no before/after values), publication list (light: no slides or photos),
      Owner comments and, for admins, the user list. A publication's full content is fetched when it is opened. */
-  var PUB_COLS = 'id,created_at,kind:data->>kind,no:data->>no,at:data->>at,by:data->>by,note:data->>note,deckId:data->>deckId,deckNo:data->>deckNo,title:data->title,date:data->>date,reg:data->reg,count:data->count,lang:data->>lang,presenter:data->>presenter,trnNo:data->>trnNo,trnId:data->>trnId';
+  var PUB_COLS = 'id,created_at,kind:data->>kind,no:data->>no,at:data->>at,by:data->>by,note:data->>note,deckId:data->>deckId,deckNo:data->>deckNo,title:data->title,date:data->>date,reg:data->reg,count:data->count,rows:data->rows,lang:data->>lang,presenter:data->>presenter,trnNo:data->>trnNo,trnId:data->>trnId';
   function pubList(){ return sb.from('publications').select(PUB_COLS).order('created_at', {ascending:false}).then(function(r){ if(r.error) throw r.error; return (r.data || []).map(function(x){ var o = Object.assign({}, x, {_light:true}); delete o.created_at; return o; }); }); }
   api.ensurePubs = function(){ return api._pubsLoaded ? Promise.resolve() : pubList().then(function(list){ var have = {}; api.pubs.forEach(function(x){ have[x.id] = 1; }); api.pubs = api.pubs.concat(list.filter(function(x){ return !have[x.id]; })); api._pubsLoaded = true; }); };
   function loadRest(role){

@@ -265,7 +265,7 @@ function shareNewModal(m){
   if(m.sk === 'reg'){
     var reg = getReg(m.reg); if(!reg){ return {title:'', html:''}; }
     var keys = shareKeys(reg, true), sf = shareFilter(reg, m.mode), view = recsOf(reg.id).filter(function(r){ return matchRec(reg, r, sf.f); });
-    m._cfg = {regs:[reg.id], reg:reg.id, filter:sf.f, cols:tableCols(reg).filter(function(f){ return keys[f.key]; }).map(function(f){ return f.key; }), group:S.rg[reg.id] && S.rg[reg.id] === rolesOf(reg).tree ? 'tree' : ''};
+    m._cfg = {regs:[reg.id], reg:reg.id, filter:sf.f, kcls:sf.f.cls && ITEM_KIND[sf.f.cls] ? sf.f.cls : undefined, cols:tableCols(reg).filter(function(f){ return keys[f.key]; }).map(function(f){ return f.key; }), group:S.rg[reg.id] && S.rg[reg.id] === rolesOf(reg).tree ? 'tree' : ''};
     if(m.mode === 'snap') m._cfg.ids = view.map(function(r){ return r.id; });
     /* exactly what the database will send: the same rules run here on the same data */
     var pv = shareProject(shareSrc(), [reg.id], shareOpt({kind:'reg', cfg:m._cfg}, m.mode === 'snap' ? 'freeze' : 'live')), pr = pv.regs[0], n = pv.recs.length, hid = shareGated(reg) ? Math.max(0, view.length - n) : 0;
@@ -476,20 +476,22 @@ function pubRegView(d){
   var c = d.cfg || {}, reg = getReg(c.reg) || getReg((c.regs || [])[0]); if(!reg || !SHARE_ID.test(reg.id)) return pubHead(d) + '<div class="card empty">' + L('Nothing to show.', '没有可显示的内容。') + '</div>';
   var ro = rolesOf(reg), tf = ro.tree && fieldOf(reg, ro.tree), P = S.pub;
   var base = recsOf(reg.id);   /* the database already applied the publisher's filter */
+  /* v3.5: a snapshot of one kind counts that kind; otherwise documents */
+  var kcls = typeof c.kcls === 'string' && c.kcls !== 'doc' && ITEM_KIND[c.kcls] ? c.kcls : null, cntOf = function(a){ return kcls ? (a || []).filter(function(r){ return recKind(reg, r) === kcls; }) : countedOf(reg, a); };
   var list = base.filter(function(r){ return (!P.q || matchRec(reg, r, {q:P.q, fx:{}, node:'all'})) && (P.node === 'all' || !tf || (treeDesc(tf, P.node))[r.d[tf.key]]); });
   list = sortRecs(reg, list);
   var cols = (c.cols && c.cols.length ? c.cols : dataFields(reg).map(function(f){ return f.key; })).map(function(k){ return fieldOf(reg, k); }).filter(Boolean); if(!cols.some(function(f){ return f.key === ro.title; }) && fieldOf(reg, ro.title)) cols.unshift(fieldOf(reg, ro.title)); if(ro.no && fieldOf(reg, ro.no) && !cols.some(function(f){ return f.key === ro.no; })) cols.unshift(fieldOf(reg, ro.no));
   var chips = '';
-  if(tf){ var top = treeKids(tf, ''), cnt = function(n){ var s = treeDesc(tf, n.id); return countedOf(reg, base).filter(function(r){ return s[r.d[tf.key]]; }).length; };
-    chips = '<div class="pub-chips"><button type="button" class="fbtn' + (P.node === 'all' ? ' on' : '') + '" data-act="pubNode" data-v="all">' + L('All', '全部') + ' <b>' + countedOf(reg, base).length + '</b></button>' + top.map(function(n){ var k = cnt(n); return k ? '<button type="button" class="fbtn' + (P.node === n.id ? ' on' : '') + '" data-act="pubNode" data-v="' + esc(n.id) + '">' + esc(treeLabel(n)) + ' <b>' + k + '</b></button>' : ''; }).join('') + '</div>'; }
+  if(tf){ var top = treeKids(tf, ''), cnt = function(n){ var s = treeDesc(tf, n.id); return cntOf(base).filter(function(r){ return s[r.d[tf.key]]; }).length; };
+    chips = '<div class="pub-chips"><button type="button" class="fbtn' + (P.node === 'all' ? ' on' : '') + '" data-act="pubNode" data-v="all">' + L('All', '全部') + ' <b>' + cntOf(base).length + '</b></button>' + top.map(function(n){ var k = cnt(n); return k ? '<button type="button" class="fbtn' + (P.node === n.id ? ' on' : '') + '" data-act="pubNode" data-v="' + esc(n.id) + '">' + esc(treeLabel(n)) + ' <b>' + k + '</b></button>' : ''; }).join('') + '</div>'; }
   var rows = [], span = cols.length;
   function row(r){ return '<tr>' + cols.map(function(f){ var v = f.key === ro.title ? '<span class="tt1">' + esc(recTitle(reg, r) || '—') + '</span>' + (recTitle2(reg, r) ? '<span class="tt2">' + esc(recTitle2(reg, r)) + '</span>' : '') : cellHtml(reg, f, r); return '<td class="t-' + esc(f.type) + (f.key === ro.title ? ' tt' : '') + '">' + v + '</td>'; }).join('') + '</tr>'; }
-  if(tf && P.grp){ var gs = groupRecs(reg, list, tf.key); gs.forEach(function(g){ rows.push('<tr class="grp"><td colspan="' + span + '"><b>' + esc(g.label) + '</b> <span class="muted mono">' + countedOf(reg, g.items).length + '</span></td></tr>'); g.items.forEach(function(r){ rows.push(row(r)); }); }); }
+  if(tf && P.grp){ var gs = groupRecs(reg, list, tf.key); gs.forEach(function(g){ rows.push('<tr class="grp"><td colspan="' + span + '"><b>' + esc(g.label) + '</b> <span class="muted mono">' + cntOf(g.items).length + '</span></td></tr>'); g.items.forEach(function(r){ rows.push(row(r)); }); }); }
   else list.forEach(function(r){ rows.push(row(r)); });
   if(!list.length) rows.push('<tr><td colspan="' + span + '" class="empty">' + L('No records match.', '没有符合条件的记录。') + '</td></tr>');
   var key = 'pub:' + reg.id, long = rows.length > VW_MIN;
   var cg = long ? '<colgroup>' + cols.map(function(f){ return '<col style="width:' + colWidth(reg, f) + 'px">'; }).join('') + '</colgroup>' : '';
-  return pubHead(d, esc(regName(reg)) + ' · ' + L(countedOf(reg, list).length + ' of ' + countedOf(reg, base).length + ' records', '显示 ' + countedOf(reg, list).length + ' / ' + countedOf(reg, base).length + ' 条')) +
+  return pubHead(d, esc(regName(reg)) + ' · ' + L(cntOf(list).length + ' of ' + cntOf(base).length + ' records', '显示 ' + cntOf(list).length + ' / ' + cntOf(base).length + ' 条')) +
     '<div class="card pub-bar"><label class="gsearch">' + uic('search', 15) + '<input id="pubq" data-fk="pubq" type="search" placeholder="' + esc(T('Search', '搜索')) + '" value="' + esc(P.q) + '"></label>' + (tf ? '<label class="chk"><input type="checkbox" id="pubgrp"' + (P.grp ? ' checked' : '') + '>' + L('Group by ' + tf.en, '按' + (tf.zh || tf.en) + '分组') + '</label>' : '') + '</div>' + chips +
     '<div class="card tbl-wrap"' + (long ? ' data-vw="' + esc(key) + '"' : '') + '><table class="tbl' + (long ? ' vwt' : '') + '">' + cg + '<thead><tr>' + cols.map(function(f){ return '<th>' + L(f.en, f.zh) + '</th>'; }).join('') + '</tr></thead><tbody data-vwb="' + esc(key) + '">' + vwHtml(key, rows, 'tr', span) + '</tbody></table></div>';
 }

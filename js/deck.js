@@ -146,7 +146,7 @@ var SLIDE_DATA = {
     var fx = clone(f.fx || {}); if(sf && f.st && f.st.length) fx[sf.key] = f.st; if(bf && f.blk && f.blk.length) fx[bf.key] = f.blk;
     var mf = {q:f.q || '', fx:fx, from:f.from || '', to:f.to || '', od:false, star:!!f.star, ext:!!f.ext, node:f.node || 'all', cls:typeof f.cls === 'string' && ITEM_KIND[f.cls] ? f.cls : ''};
     /* v3.5: the figures count documents — or the one kind the view shows */
-    var cnt = mf.cls && mf.cls !== 'doc' ? function(r){ return isLeaf(r) && recKind(reg, r) === mf.cls; } : isCnt;
+    var cnt = mf.cls && mf.cls !== 'doc' ? function(r){ return recKind(reg, r) === mf.cls; } : isCnt;
     var hd = c.hide || [], list;
     if(c.mode === 'pick') list = (c.picks || []).map(getRec).filter(function(r){ return r && r.reg === reg.id && recOk(ctx, reg, r) && hd.indexOf('r:' + r.id) < 0; });
     else {
@@ -177,7 +177,7 @@ var SLIDE_DATA = {
         gs[v].forEach(function(k){ out.push(rowOf(k, lv, r.id)); kidRows(k, lv + 1, out, guard + 1); }); });
     }
     function withKids(rs){ var out = []; rs.forEach(function(r){ out.push(rowOf(r, 0, null)); kidRows(r, 1, out, 0); }); return out; }
-    function rowOf(r, lv, pid){ var ks = kidsL[r.id] || [], kk = ks.filter(isCnt), kd;   /* done n/m: the documents among the sub-items (all of them if none is), as the register shows */
+    function rowOf(r, lv, pid){ var ks = kidsL[r.id] || [], kk = ks.filter(function(k){ return !noCount(reg, k); }), kd;   /* done n/m: documents and sub-headings among the sub-items (all of them if none is), as the register's rollup */
       if(!kk.length) kk = ks; kd = kk.filter(function(k){ return isDone(reg, k); }).length;
       return {id:r.id, hl:recNo(reg, r) + ' ' + (r.d[ro.title] || ''), od:isOverdue(reg, r), dep:lv || 0, lv:lv || 0, pid:pid || null, kn:ks.length, kd:kd, kc:kk.length, c:fs.map(function(x){
         if(x.key === ro.title) return {t:recPair(reg, r)};

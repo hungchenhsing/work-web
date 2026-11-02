@@ -6,32 +6,13 @@
    one undo puts them back). */
 'use strict';
 
-/* reads like an index of other documents (the MDL, a master document index, a drawing list) */
-var KIND_IDX = /(^|[^a-z0-9])mdl(?![a-z0-9])|master document (list|index|register)|document (index|register|list)\b|(drawing|document) (index|list)\b|^\s*index\s*$|文件(索引|清单|目录)|索引文件|(图纸|竣工图|文件总?)目录|总目录|主文件(清单|索引)|图纸清单/i;
-/* …but not a review of such an index, nor index drawings */
-var KIND_IDX_NOT = /\breview|审核|对照|check(ed)? against|index drawing|索引图/i;
-/* names a document: whatever else the title says, it is handed over as a document */
-var KIND_DOC = /\breports?\b|\brecords?\b|\bresults?\b|\bcertificates?\b|\bdossiers?\b|\bpackages?\b|\bprocedures?\b|\bprotocols?\b|\bplans?\b|\bmanuals?\b|\bregisters?\b|\blists?\b|checklists?|\bforms?\b|\bagreements?\b|\bdrawings?\b|\bdocument(s|ation)?\b|\bevidence\b|\bbackups?\b|data ?sheets?|\bsheets?\b|\bminutes\b|\bstatements?\b|\bspecifications?\b|\blogs?\b|\bletters?\b|\bphotos?\b|\bdata\b|\bsummar(y|ies)\b|\bITRs?\b|\bapprovals?\b|\bsubmittals?\b|\btransmittals?\b|\boutline\b|\bwarrant(y|ies)\b|\bas-?built\b|报告|记录|结果|证书|证明|资料|文件|方案|程序|计划|手册|登记|清单|目录|表格|记录表|检查表|签到表|登记表|数据表|一览表|协议|图纸|竣工图|布置图|系统图|接线图|原理图|平面图|结构图|示意图|单线图|基础图|竣工图|图集|备份|纪要|大纲|函|报验单|申请单|签证单|数据|日志|课件|照片|批复|质保/i;
-/* names goods: spare parts, tools, equipment, consumables, materials */
-var KIND_GOODS = /spare parts?|\bspares\b|\btools?\b|\bequipment\b|\bconsumables?\b|\bmaterials?\b|备品|备件|工具|设备|耗材|物资|材料/i;
-/* names something that happens: a notice, a test, commissioning, training, an inspection, a handover, a decision, a deadline */
-var KIND_ACT = /\bnotices?\b|notification|通知|\bpassed\b|通过|\bissued\b|签发|颁发|\bre-?tests?\b|复测|\bexpiry\b|\bexpires\b|到期|\bends\b|结束|\bdecision\b|决定|\buploaded\b|上传|\bagreed\b|\bdeadline\b|最迟|\bkick-?off\b|\bmeetings?\b|会议|walk-?down|\bwitness(ed)?\b|\btests?\b|\btesting\b|测试|试验|\bSAT\b|\bFAT\b|\bcommissioning\b|调试|\btrainings?\b|培训|\binspections?\b|检查|巡检|验收|\bhand-?over\b|移交|taking-?over|接收|\bcalibration\b|校验|校准/i;
-/* where the last match of a pattern starts (-1: none) — the last noun names the thing: "test equipment" is goods,
-   "equipment commissioning" is an activity, 测试设备 is goods, 设备调试 is an activity */
-function kindLast(re, t){ var g = new RegExp(re.source, 'gi'), m, at = -1; while((m = g.exec(t))){ at = m.index; if(!m[0].length) g.lastIndex++; } return at; }
+/* the vocabulary (KIND_IDX / KIND_DOC / KIND_GOODS / KIND_ACT, nameKind) is shared with Type names: model.js */
 
 function kindTitle(reg, rec){ var ro = rolesOf(reg); return [ro.title ? rec.d[ro.title] : '', ro.title2 ? rec.d[ro.title2] : ''].filter(function(x){ return typeof x === 'string' && x; }).join(' / '); }
 /* the kind a title suggests for an item still counted as a document (null: nothing to suggest). Items whose kind was set
    by hand — including "keep as a document" — are not suggested again. */
-function kindSuggestTitle(t){
-  if(!t) return null;
-  if(KIND_IDX.test(t) && !KIND_IDX_NOT.test(t)) return 'idx';
-  if(KIND_DOC.test(t)) return null;
-  var g = kindLast(KIND_GOODS, t), a = kindLast(KIND_ACT, t);
-  if(g < 0 && a < 0) return null;
-  return g > a ? 'goods' : 'act';
-}
-function kindSuggest(reg, rec){ if(ownKind(rec) || recKind(reg, rec) !== 'doc') return null; return kindSuggestTitle(kindTitle(reg, rec)); }
+function kindSuggestTitle(t){ return nameKind(t); }
+function kindSuggest(reg, rec){ if(ownKind(rec) || (rec.d && rec.d.kindOk) || recKind(reg, rec) !== 'doc') return null; return kindSuggestTitle(kindTitle(reg, rec)); }
 function kindMenu(reg){ return canWrite(reg) && rf(reg, 'kind') && !isVisitor() ? '<button type="button" data-act="kindOpen" data-v="' + esc(reg.id) + '">' + L('Check kinds (document / activity / goods / index)…', '检查种类（文件 / 活动 / 物资 / 索引）…') + '</button>' : ''; }
 function kindIcon(k, n){ return k === 'act' ? uic('cal', n || 12) : KIND_ICON[k] ? icon(KIND_ICON[k], n || 12) : ''; }
 
@@ -55,12 +36,15 @@ DECK_MODALS.kindChk = kindModal;
 async function kindApply(){
   var m = S.modal; if(!m || m.kind !== 'kindChk' || m.busy) return;
   var reg = getReg(m.reg); if(!reg || !canWrite(reg)) return;
-  var list = m.list.filter(function(x){ return m.on[x.id] && getRec(x.id); }).map(function(x){ var k = m.to[x.id] || x.k; return {rec:getRec(x.id), patch:{itemKind:KIND_SET.indexOf(k) >= 0 ? k : 'doc'}}; });
+  /* "Document (keep)" only marks the item as checked (d.kindOk): it is not suggested again, and its kind still follows its
+     Type if the Type changes later */
+  var list = m.list.filter(function(x){ return m.on[x.id] && getRec(x.id); }).map(function(x){ var k = m.to[x.id] || x.k; return {rec:getRec(x.id), patch:KIND_SET.indexOf(k) >= 0 && k !== 'doc' ? {itemKind:k} : {kindOk:true}}; });
   if(!list.length) return;
-  var away = list.filter(function(x){ return x.patch.itemKind !== 'doc'; }).length;
+  var away = list.filter(function(x){ return x.patch.itemKind; }).length, n = list.length;
+  var msg = away === n ? T(n + ' items set — they are no longer counted as documents', '已设定 ' + n + ' 项，不再计入文件数') : !away ? T(n + ' items kept as documents — they will not be suggested again', '已确认 ' + n + ' 项为文件，以后不再建议') : T(n + ' items set (' + away + ' no longer counted as documents, ' + (n - away) + ' kept)', '已设定 ' + n + ' 项（' + away + ' 项不再计入文件数，' + (n - away) + ' 项保持为文件）');
   m.busy = true; renderModal();
   try{
-    await setRecsUndo(list, away === list.length ? T(list.length + ' items set — they are no longer counted as documents', '已设定 ' + list.length + ' 项，不再计入文件数') : T(list.length + ' items set (' + away + ' no longer counted as documents)', '已设定 ' + list.length + ' 项（其中 ' + away + ' 项不再计入文件数）'));
+    await setRecsUndo(list, msg);
     if(S.modal === m) closeModal();
   }catch(e){ m.busy = false; toast(errText(e)); if(S.modal === m) renderModal(); }
 }

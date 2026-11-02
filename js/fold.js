@@ -69,8 +69,8 @@ function oCount(k){
   k.all.forEach(function(r){ ids[r.id] = 1; });
   k.all.forEach(function(r){ var kd = recKind(getReg(r.reg), r); kc[kd]++; if(kd === 'doc' && r.d.parent && ids[r.d.parent]) inner++; });
   var top = kc.doc - inner, rest = ['act', 'goods', 'idx', 'head'].filter(function(x){ return kc[x]; }).map(function(x){ return kc[x] + ' ' + kindNameL(x, kc[x]).toLowerCase(); });
-  return L(top + (top === 1 ? ' item' : ' items'), top + ' 项') + (inner ? ' · ' + L(inner + (inner === 1 ? ' sub-item' : ' sub-items'), inner + ' 个子项') : '') + (rest.length ? ' · ' + rest.join(' · ') : '') + (sub ? ' · ' + L(sub + (sub === 1 ? ' sub-folder' : ' sub-folders'), sub + ' 个子目录') : '');
-}
+  var lead = top || !rest.length ? L(top + (top === 1 ? ' item' : ' items'), top + ' 项') : '';
+  return [lead, inner ? L(inner + (inner === 1 ? ' sub-item' : ' sub-items'), inner + ' 个子项') : '', rest.join(' · '), sub ? L(sub + (sub === 1 ? ' sub-folder' : ' sub-folders'), sub + ' 个子目录') : ''].filter(Boolean).join(' · '); }
 function oToggle(reg, k, open, cls){
   if(!k.all.length && !k.kids.length) return '<span class="cx0" aria-hidden="true"></span>';
   return '<button type="button" class="' + (cls || 'cx') + ' otog" data-act="oTog" data-v="' + esc(k.id) + '" aria-expanded="' + open + '" aria-label="' + esc((open ? T('Close ', '收起 ') : T('Open ', '展开 ')) + oLabel(k)) + '">' + (open ? '▾' : '▸') + '</button>';

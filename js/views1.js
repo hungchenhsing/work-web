@@ -56,6 +56,7 @@ function regHead(reg, list, all, ed){
   /* v3.5: documents are counted (headings, activities, indexes and goods are counted on their own, below the name);
      overdue and due soon are everything there is to act on */
   var kc = kindCounts(reg, all), mixed = kc.act + kc.idx + kc.goods > 0, acts = actionOf(reg, all);
+  if(f.cls) acts = acts.filter(function(r){ return recKind(reg, r) === f.cls; });   /* one kind picked: its overdue / due */
   /* the kind buttons count what the other filters leave (so they add up to the rows shown); a kind stays listed at 0 */
   var f0 = Object.assign({}, f, {cls:''}), narrowed = activeFilterCount(reg) - (f.cls ? 1 : 0) > 0 || (f.node && f.node !== 'all'), kcF = narrowed ? kindCounts(reg, all.filter(function(r){ return matchRec(reg, r, f0); })) : kc;
   /* looking at one kind other than documents: the figures are about that kind */
@@ -337,7 +338,7 @@ function ganttHtml(sets, o){
   var body = '<div class="grow ghead"><div class="gleft" style="width:' + LW + 'px;grid-template-columns:' + tpl + '">' + LC.map(function(x){ return '<div class="gc">' + L(x[1], x[2]) + '</div>'; }).join('') + '</div><div class="gt" style="' + grid + ';height:40px">' + ticks + lines + '</div></div>';
   function grpRow(key, label, items, reg, color, set){
     var smn = Infinity, smx = -Infinity; items.forEach(function(x){ var p = planOf(x.reg, x.rec); if(p){ smn = Math.min(smn, p.s); smx = Math.max(smx, p.f); } });
-    var colp = !!S.gcol[key], gdoc = items.filter(function(x){ var sk = shownKind(x.reg); return sk ? recKind(x.reg, x.rec) === sk : isCounted(x.reg, x.rec); }), dn = gdoc.filter(function(x){ return isDone(x.reg, x.rec); }).length;
+    var colp = !!S.gcol[key], gdoc = items.filter(function(x){ var sk = o.multi ? null : shownKind(x.reg); return sk ? recKind(x.reg, x.rec) === sk : isCounted(x.reg, x.rec); }), dn = gdoc.filter(function(x){ return isDone(x.reg, x.rec); }).length;
     body += '<div class="grow ggrp"><div class="gleft" style="width:' + LW + 'px"><div class="gspan"><button type="button" class="glb" data-act="gcol" data-v="' + esc(key) + '">' + (colp ? '▸ ' : '▾ ') + (color ? '<span class="sw c-' + esc(color) + '"></span>' : '') + '<b>' + label + '</b> <span class="muted mono">' + dn + '/' + gdoc.length + '</span></button>' + (reg && set && canWrite(reg) ? '<button type="button" class="btn sm" data-act="grpAdd" data-reg="' + esc(reg.id) + '" data-v="' + esc(JSON.stringify(set)) + '">+</button>' : '') + '</div></div><div class="gt" style="' + grid + '">' + lines + (isFinite(smn) ? '<div class="sum" style="left:' + ((smn - mn) * px) + 'px;width:' + Math.max(px, (smx - smn + 1) * px) + 'px"></div>' : '') + '</div></div>';
     return colp;
   }

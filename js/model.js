@@ -66,7 +66,7 @@ function treePath(f, id){ var out = [], n = treeNode(f, id), g = 0; while(n && g
 function treeDesc(f, id){ var set = {}; (function w(x){ set[x] = 1; treeKids(f, x).forEach(function(k){ w(k.id); }); })(id); return set; }
 function treeDfs(f, cb){ (function w(pid, d){ treeKids(f, pid).forEach(function(n){ cb(n, d); w(n.id, d + 1); }); })('', 0); }
 function treeLabel(n){ return n ? (n.code ? n.code + ' ' : '') + nm(n) : ''; }
-function newKey(reg, base){ var k = slug(base) || 'field', i = 1, out = k; while(fieldOf(reg, out) || ['id','star','ext','base','parent','ms','dep','rel','asDoc','itemKind'].indexOf(out) >= 0){ out = k + '_' + (++i); } return out; }
+function newKey(reg, base){ var k = slug(base) || 'field', i = 1, out = k; while(fieldOf(reg, out) || ['id','star','ext','base','parent','ms','dep','rel','asDoc','itemKind','kindOk'].indexOf(out) >= 0){ out = k + '_' + (++i); } return out; }
 
 /* values */
 function num(v){ if(v === '' || v == null) return null; var n = typeof v === 'number' ? v : parseFloat(String(v).replace(/,/g, '')); return isNaN(n) ? null : n; }
@@ -140,22 +140,31 @@ function isHead(reg, rec){ return !!rec && !!rec.id && !(rec.d && rec.d.asDoc) &
    details, or Check kinds…) without changing its Type. Registers without a category: every item is "doc" unless set. */
 var ITEM_KIND = {doc:['Document', '文件', 'Documents', '文件'], act:['Activity', '活动', 'Activities', '活动'], idx:['Index', '索引', 'Indexes', '索引'], goods:['Goods', '物资', 'Goods', '物资'], head:['Heading', '纲领', 'Headings', '纲领']};
 var KIND_ORDER = ['doc', 'act', 'goods', 'idx', 'head'], KIND_SET = ['doc', 'act', 'goods', 'idx'];
-/* reading a Type option's name: an index first (MDL, document index — not "index drawings"), then anything named as a
-   document (report, certificate, approval, list, record…) stays a document, then goods (spares, tools, equipment,
-   materials), then activities (activity, milestone, task, test, inspection, notice, training, meeting, handover) */
-var OPT_IDX = /(^|[^a-z0-9])(mdl|index(es)?)(?![a-z0-9])|索引|目录|目錄|drawing list|document list|图纸清单|圖紙清單|文件清单|文件清單/i, OPT_IDX_NOT = /index drawing|索引图|索引圖/i;
-var OPT_DOC = /report|certificat|approv|submi(t|ss)|warrant|质保|質保|保修|说明书|說明書|\blists?\b|record|\borders?\b|\bplans?\b|letter|minutes|manual|drawing|document|报告|報告|证书|證書|报审|報審|送审|送審|报批|報批|清单|清單|记录|記錄|函|纪要|紀要|手册|手冊|图纸|圖紙|文件|资料|資料/i;
-var OPT_GOODS = /spare|\btools?\b|备品|備品|备件|備件|工具|物资|物資|\bgoods\b|material|材料|equipment|设备|設備|consumable|耗材/i;
-var OPT_ACT = /activit|活动|活動|milestone|里程碑|\btasks?\b|任务|任務|\bevents?\b|事件|\btests?\b|testing|测试|測試|试验|試驗|inspection|检查|檢查|巡检|巡檢|验收|驗收|notice|notification|通知|training|培训|培訓|meeting|会议|會議|hand-?over|移交|tool ?box talk|班前/i;
-function optNameKind(o){
-  var t = [o.v, o.en, o.zh].filter(function(x){ return typeof x === 'string' && x; }).join(' ');
-  if(OPT_IDX.test(t) && !OPT_IDX_NOT.test(t)) return 'idx';
-  if(OPT_DOC.test(t)) return 'doc';
-  if(/tool ?box talk|班前/i.test(t)) return 'act';
-  if(OPT_GOODS.test(t)) return 'goods';
-  if(OPT_ACT.test(t)) return 'act';
-  return 'doc';
+/* reading a name or a title (a Type option's name; an item's title in Check kinds…), one vocabulary for both:
+   an index of documents first (MDL, document index, drawing list — not "index drawings"); then anything that names a
+   document (report, record, procedure, certificate, list, form, log…) is a document whatever else it says; then goods
+   (spares, tools, equipment, materials) or something that happens (activity, milestone, test, commissioning,
+   inspection, notice, training, meeting, handover) — the last noun decides between them: "test equipment" is goods,
+   "equipment testing" is an activity, 测试设备 goods, 设备调试 an activity; "handover of spare parts" is a handover. */
+var KIND_IDX = /(^|[^a-z0-9])(mdl|index(es)?)(?![a-z0-9])|master document (list|index|register)|document (index|register|list)\b|(drawing|document) (index|list)\b|文件(索引|清单|目录)|索引|(图纸|竣工图|文件总?)目录|总目录|目錄|主文件(清单|索引)|图纸清单|圖紙清單|文件清單/i;
+var KIND_IDX_NOT = /\breview|审核|審核|对照|對照|check(ed)? against|index drawing|索引图|索引圖/i;
+var KIND_DOC = /\breports?\b|\brecords?\b|\bresults?\b|\bcertificat|\bdossiers?\b|\bpackages?\b|\bprocedures?\b|\bprotocols?\b|\bplans?\b|\bmanuals?\b|\bhandbooks?\b|\bregisters?\b|\blists?\b|checklists?|\bforms?\b|\bagreements?\b|\bdrawings?\b|\bdocument(s|ation)?\b|\bevidence\b|\bbackups?\b|data ?sheets?|\bsheets?\b|\bminutes\b|\bstatements?\b|\bspecifications?\b|\blogs?\b|\bletters?\b|\bphotos?\b|\bdata\b|\bsummar(y|ies)\b|\bITRs?\b|\bapprov|\bsubmi(ttal|ssion)s?\b|\btransmittals?\b|\boutline\b|\bwarrant(y|ies)\b|\bas-?built\b|\borders?\b|\bschedules?\b|training materials?|报告|報告|记录|記錄|结果|結果|证书|證書|证明|證明|资料|資料|文件|方案|程序|计划|計劃|手册|手冊|登记|登記|清单|清單|目录|表格|记录表|检查表|檢查表|签到表|登记表|数据表|一览表|协议|協議|图纸|圖紙|竣工图|布置图|系统图|接线图|原理图|平面图|结构图|示意图|单线图|基础图|图集|备份|纪要|紀要|大纲|大綱|函|报验单|申请单|签证单|数据|數據|日志|日誌|课件|教材|照片|批复|报审|報審|送审|送審|报批|報批|质保|質保|说明书|說明書/i;
+var KIND_GOODS = /spare parts?|\bspares?\b|\btools?\b|\bequipment\b|\bconsumables?\b|\bmaterials?\b|\bgoods\b|备品|備品|备件|備件|工具|设备|設備|耗材|物资|物資|材料/i;
+var KIND_ACT = /activit|活动|活動|milestone|里程碑|\btasks?\b|任务|任務|\bevents?\b|事件|\bnotices?\b|notification|通知|\bpassed\b|通过|通過|\bissued\b|签发|簽發|颁发|頒發|\bre-?tests?\b|复测|複測|\bexpiry\b|\bexpires\b|到期|\bends\b|结束|結束|\bdecision\b|决定|決定|\buploaded\b|上传|上傳|\bagreed\b|\bdeadline\b|最迟|最遲|\bkick-?off\b|\bmeetings?\b|会议|會議|walk-?down|\bwitness(ed)?\b|\btests?\b|\btesting\b|测试|測試|试验|試驗|\bSAT\b|\bFAT\b|\bcommissioning\b|调试|調試|\btrainings?\b|培训|培訓|\binspections?\b|检查|檢查|巡检|巡檢|验收|驗收|\bhand-?over\b|移交|taking-?over|接收|\bcalibration\b|校验|校驗|校准|校準/i;
+/* where the last match of a pattern starts (-1: none) */
+function kindLast(re, t){ var g = new RegExp(re.source, 'gi'), m, at = -1; while((m = g.exec(t))){ at = m.index; if(!m[0].length) g.lastIndex++; } return at; }
+/* the kind a name or title reads as; null when it reads as a document or says nothing */
+function nameKind(t){
+  if(!t) return null;
+  if(KIND_IDX.test(t) && !KIND_IDX_NOT.test(t)) return 'idx';
+  if(KIND_DOC.test(t)) return null;
+  if(/tool ?box talks?|班前(会|會)?/i.test(t)) return 'act';
+  var h = t.replace(/\s+(of|for|on|to)\s+[^\/]*/gi, ' ');   /* "training on tools" is training */
+  var g = kindLast(KIND_GOODS, h), a = kindLast(KIND_ACT, h);
+  if(g < 0 && a < 0) return null;
+  return g > a ? 'goods' : 'act';
 }
+function optNameKind(o){ return nameKind([o.v, o.en, o.zh].filter(function(x){ return typeof x === 'string' && x; }).join(' / ')) || 'doc'; }
 function optKind(o){
   if(!o || o === HEAD_OPT) return 'doc';
   if(o.cls && KIND_SET.indexOf(o.cls) >= 0) return o.cls;
