@@ -101,7 +101,7 @@ function menuHtml(p){
 /* ---------------- a register view as a temporary slide ---------------- */
 function lvCfg(reg, type, f){
   var st = f.st ? [f.st] : [], blk = f.blk ? [f.blk] : [];
-  if(type === 'table'){ var cols = tableCols(reg).filter(function(x){ return ['files', 'sub', 'link', 'section', 'long'].indexOf(x.type) < 0; }).map(function(x){ return x.key; }).slice(0, 7); return {reg:reg.id, cols:cols, filter:{q:f.q || '', st:st, blk:blk, open:!!f.open, od:!!f.od}, per:12}; }
+  if(type === 'table'){ var cols = tableCols(reg).filter(function(x){ return ['files', 'sub', 'link', 'section', 'long'].indexOf(x.type) < 0 && !scoped(reg, x); }).map(function(x){ return x.key; }).slice(0, 7); return {reg:reg.id, cols:cols, filter:{q:f.q || '', st:st, blk:blk, open:!!f.open, od:!!f.od}, per:12}; }
   if(type === 'gantt') return {regs:[reg.id], only:'all', lanes:rolesOf(reg).tree ? 'tree' : 'none', months:0, base:true, hideDone:!!f.open};
   if(type === 'matrix') return {reg:reg.id, val:'progress'};
   return {reg:reg.id};

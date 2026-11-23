@@ -70,30 +70,39 @@ function newKey(reg, base){ var k = slug(base) || 'field', i = 1, out = k; while
 
 /* v3.6 · a field can belong to part of a register: the items in some packages (tree nodes, and what is under them) and/or
    of some Types — e.g. the training fields of P6 activities. Outside that part a field is left out of an item's details
-   (unless it holds a value) and cannot be edited there; its column appears while the register is narrowed (a package
-   picked, a filter on) to rows it applies to. Fields that have a role (title, dates, status, package, Type…) are never
-   scoped. */
+   (unless it holds a value or a heading's total); its column appears, right after the title, while the register is
+   narrowed (a package picked, a filter on) to rows it applies to, and its cells are editable on those rows only. Fields
+   that have a role (title, dates, status, package, Type…) are never scoped. A package or Type that no longer exists is
+   ignored; when nothing of a scope is left the field belongs to every item again. */
 function scopeOf(f){
   var s = f && f.scope; if(!s || typeof s !== 'object') return null;
   var n = Array.isArray(s.nodes) ? s.nodes.filter(function(x){ return typeof x === 'string' && x; }) : [], t = Array.isArray(s.types) ? s.types.filter(function(x){ return typeof x === 'string' && x; }) : [];
   return n.length || t.length ? {nodes:n, types:t} : null;
 }
+/* what is left of a field's scope in this register: packages that exist (when there is a package tree), Types that exist */
+function scopeLive(reg, f){ if(!reg || !scopeOf(f)) return null; return memo('scopeL:' + reg.id + ':' + f.key, function(){
+  var s = scopeOf(f), ro = rolesOf(reg), tf = rf(reg, 'tree'), kf = rf(reg, 'kind');
+  for(var r in ro) if(ro[r] === f.key) return null;   /* a role field is everyone's */
+  var n = tf ? s.nodes.filter(function(id){ return !!treeNode(tf, id); }) : [], t = kf ? s.types.filter(function(v){ return !!optOf(kf, v); }) : [];
+  return n.length || t.length ? {nodes:n, types:t} : null; }); }
 function scopeSets(reg, f){ return memo('scope:' + reg.id + ':' + f.key, function(){
-  var s = scopeOf(f), tf = rf(reg, 'tree'), ns = null, ts = null; if(!s) return null;
-  if(s.nodes.length){ ns = {}; if(tf) s.nodes.forEach(function(n){ Object.assign(ns, treeDesc(tf, n)); }); }
+  var s = scopeLive(reg, f), tf = rf(reg, 'tree'), ns = null, ts = null; if(!s) return null;
+  if(s.nodes.length){ ns = {}; s.nodes.forEach(function(n){ Object.assign(ns, treeDesc(tf, n)); }); }
   if(s.types.length){ ts = {}; s.types.forEach(function(v){ ts[v] = 1; }); }
   return {ns:ns, ts:ts}; }); }
+/* does a field belong to the part of the register this item is in (v3.6) */
+function scoped(reg, f){ return !!scopeLive(reg, f); }
 function fieldApplies(reg, f, rec){
   if(!scopeOf(f)) return true; if(!rec || !reg) return false;
-  var ro = rolesOf(reg); for(var r in ro) if(ro[r] === f.key) return true;   /* a role field is everyone's */
-  var z = scopeSets(reg, f), tf = rf(reg, 'tree'), kf = rf(reg, 'kind');
+  var z = scopeSets(reg, f); if(!z) return true;
+  var tf = rf(reg, 'tree'), kf = rf(reg, 'kind');
   if(z.ns && !(tf && z.ns[rec.d[tf.key]])) return false;
   if(z.ts && !(kf && z.ts[asArr(rec.d[kf.key])[0]])) return false;
   return true;
 }
 /* the part a field belongs to, in words ("P6 Training records · Activity") */
 function scopeText(reg, f){
-  var s = scopeOf(f); if(!s) return ''; var tf = rf(reg, 'tree'), kf = rf(reg, 'kind');
+  var s = scopeLive(reg, f); if(!s) return ''; var tf = rf(reg, 'tree'), kf = rf(reg, 'kind');
   return s.nodes.map(function(id){ var n = tf && treeNode(tf, id); return n ? (n.code || nm(n)) : ''; }).concat(s.types.map(function(v){ var o = kf && optOf(kf, v); return o ? nm(o) : ''; })).filter(Boolean).join(' · ');
 }
 
@@ -279,7 +288,7 @@ function headRoll(reg, rec){
     else if(r === 'union'){ var seen = {}, vs = []; all.forEach(function(kd){ asArr(val(kd, f)).forEach(function(v){ if(v != null && v !== '' && !seen[v]){ seen[v] = 1; vs.push(v); } }); });
       var ord = optsOf(f).map(function(o){ return o.v; }); vs.sort(function(a, b){ var x = ord.indexOf(a), y = ord.indexOf(b); return (x < 0 ? 1e6 : x) - (y < 0 ? 1e6 : y); });
       k[key] = !vs.length ? null : f.multi || vs.length > 1 ? vs : vs[0]; }
-    else if(r === 'sum'){ var tot = null; (scopeOf(f) ? all.filter(function(kd){ return fieldApplies(reg, f, kd); }) : kids).forEach(function(kd){ var x = num(val(kd, f)); if(x != null) tot = (tot || 0) + x; }); k[key] = tot == null ? null : Math.round(tot * 1e6) / 1e6; }
+    else if(r === 'sum'){ var tot = null; (scoped(reg, f) ? all.filter(function(kd){ return isHead(reg, kd) || fieldApplies(reg, f, kd); }) : kids).forEach(function(kd){ var x = num(val(kd, f)); if(x != null) tot = (tot || 0) + x; }); k[key] = tot == null ? null : Math.round(tot * 1e6) / 1e6; }
     else if(r === 'or'){ var ov = kids.map(function(kd){ return asArr(val(kd, f))[0]; }), oks = ov.filter(function(v){ return orOk(optOf(f, v)); });
       if(!ov.some(function(v){ return v != null && v !== ''; })) k[key] = null;
       else if(oks.length === kids.length){ var cnt = {}, best = null; oks.forEach(function(v){ cnt[v] = (cnt[v] || 0) + 1; if(!best || cnt[v] > cnt[best]) best = v; }); k[key] = f.multi ? [best] : best; }
@@ -332,6 +341,8 @@ function childData(reg, parent, extra){
   var d = {parent:parent.id}, ro = rolesOf(reg);
   if(ro.no) d[ro.no] = nextChildNo(reg, parent);
   [ro.tree, ro.block, 'dept', 'disc', 'contacts', 'resp', 'subcon', 'type', 'wbs', 'cat'].forEach(function(k){ if(k && parent.d[k] !== undefined && fieldOf(reg, k)) d[k] = clone(parent.d[k]); });
+  /* v3.6: under a heading whose sub-items all share one Type (e.g. 22 training activities), a new one takes that Type */
+  var kf = rf(reg, 'kind'), sib = childrenOf(parent); if(kf && sib.length){ var t0 = asArr(sib[0].d[kf.key])[0]; if(t0 != null && t0 !== '' && sib.every(function(x){ return asArr(x.d[kf.key])[0] === t0; })) d[kf.key] = clone(sib[0].d[kf.key]); }
   applyDefaults(reg, d);
   var sf = rf(reg, 'status'); if(sf && d[sf.key] === undefined && optsOf(sf)[0]) d[sf.key] = optsOf(sf)[0].v;
   return Object.assign(d, extra || {});

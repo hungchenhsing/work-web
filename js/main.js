@@ -169,12 +169,17 @@ document.addEventListener('click', function(e){
     case 'fmSave': (function(){ var m = S.modal, rg = getReg(m.reg), fs = m.d.fields;
       for(var i = 0; i < fs.length; i++){ if(!fs[i].en && !fs[i].zh){ toast(T('Every field needs a name', '每个字段都需要名称')); return; } if(isLk(fs[i])) delete fs[i].ext; if(isLk(fs[i]) && lkProblem(fs[i])){ toast(T1(fs[i].en, fs[i].zh) + ': ' + lkProblem(fs[i])); m.exp = i; renderModal(); return; } if(fs[i].type === 'select' && !fs[i].list){ var bad = cleanOpts(fs[i].opts || []); if(bad){ toast(T1(fs[i].en, fs[i].zh) + ': ' + bad); return; } } }
       Object.keys(m.d.roles).forEach(function(r){ if(!m.d.roles[r]) delete m.d.roles[r]; });
-      fs.forEach(function(f){ if(!scopeOf(f) || Object.keys(m.d.roles).some(function(r){ return m.d.roles[r] === f.key; })) delete f.scope; });   /* v3.6: role fields belong to every item */
       var bad1 = fs.filter(function(f){ return f.multi && (m.d.roles.status === f.key || m.d.roles.kind === f.key); })[0];
       if(bad1){ toast(T1(bad1.en || bad1.key, bad1.zh) + ': ' + T('a status (or kind) field takes one value — untick Several', '状态（或类别）字段只能有一个值，请取消「多选」')); return; }
       /* v3.3: "several values" switched on or off → convert what the records hold (asks first when values would be dropped) */
       var conv = multiChanges(rg, fs), mp = conv.length ? multiPatches(rg, conv) : {list:[], lost:0};
       if(mp.lost && !confirm(T(mp.lost + ' values hold several entries. Only the first entry of each will be kept. Continue?', '有 ' + mp.lost + ' 个值包含多项，将只保留每个的第一项。继续？'))) return;
+      /* v3.6: a scope keeps only packages and Types that exist; role fields belong to every item */
+      var tf0 = fs.filter(function(f){ return f.key === m.d.roles.tree && f.type === 'tree'; })[0], kf0 = fs.filter(function(f){ return f.key === m.d.roles.kind && f.type === 'select'; })[0];
+      fs.forEach(function(f){ var sc = scopeOf(f); if(!sc){ delete f.scope; return; }
+        if(Object.keys(m.d.roles).some(function(r){ return m.d.roles[r] === f.key; })){ delete f.scope; return; }
+        var n = tf0 ? sc.nodes.filter(function(id){ return (tf0.tree || []).some(function(x){ return x.id === id; }); }) : [], t = kf0 ? sc.types.filter(function(v){ return (kf0.opts || []).some(function(o){ return o.v === v; }); }) : [];
+        if(n.length || t.length) f.scope = {nodes:n, types:t}; else delete f.scope; });
       STORE.patchReg(rg.id, {fields:fs, roles:m.d.roles}).then(function(){ closeModal();
         if(!mp.list.length){ toast(T('Fields saved', '字段已保存')); return; }
         return setRecs(mp.list).then(function(r){ toast(T('Fields saved · ' + ((r && r.ok) || 0) + ' records converted', '字段已保存 · 已转换 ' + ((r && r.ok) || 0) + ' 条记录')); });
@@ -215,7 +220,9 @@ document.addEventListener('click', function(e){
     case 'fileBlk': S.files.blk = S.files.blk === v ? '' : v; renderMain(); break;
   }
 });
-function nodeExtra(reg){ var tf = rf(reg, 'tree'), n = rfil(reg.id).node, o = {}; if(tf && n && n !== 'all' && n !== 'none' && treeNode(tf, n)) o[tf.key] = n; return o; }
+function nodeExtra(reg){ var tf = rf(reg, 'tree'), n = rfil(reg.id).node, o = {}; if(tf && n && n !== 'all' && n !== 'none' && treeNode(tf, n)) o[tf.key] = n;
+  var kf = rf(reg, 'kind'), c = rfil(reg.id).cls; if(kf && c && c !== 'head'){ var ko = optsOf(kf).filter(function(x){ return optKind(x) === c; })[0]; if(ko) o[kf.key] = kf.multi ? [ko.v] : ko.v; }   /* v3.6: a kind picked at the top gives new items that kind */
+  return o; }
 function treeSave(reg, tf, nodes){ var fs = clone(fieldsOf(reg)); fs.forEach(function(f){ if(f.key === tf.key) f.tree = nodes; }); return STORE.patchReg(reg.id, {fields:fs}).catch(function(er){ toast(errText(er)); }); }
 function tnEditor(reg, tf, nodeId, parentId, anchor){
   var n = nodeId ? treeNode(tf, nodeId) : null, par = parentId ? treeNode(tf, parentId) : null;
@@ -232,6 +239,8 @@ function bulkApply(reg, f, value){
   var ids = selIds(reg); if(!ids.length || !f) return;
   /* v3.4.7: a heading's status, progress and dates come from its sub-items — they are left as they are */
   var hk = ids.filter(function(id){ var r = getRec(id); return r && headLocked(reg, r, f); });
+  var oo = ids.filter(function(id){ var r = getRec(id); return r && hk.indexOf(id) < 0 && !fieldApplies(reg, f, r); });   /* v3.6: not a field of these items */
+  if(oo.length){ ids = ids.filter(function(id){ return oo.indexOf(id) < 0; }); toast(T(oo.length + ' item(s) left out — ' + T1(f.en, f.zh) + ' is only for ' + scopeText(reg, f), oo.length + ' 项未改：' + T1(f.en, f.zh) + ' 只用于' + scopeText(reg, f))); if(!ids.length && !hk.length) return; }
   if(hk.length){ ids = ids.filter(function(id){ return hk.indexOf(id) < 0; }); toast(T(hk.length + ' heading item(s) left out — their ' + (f.en || f.key) + ' comes from their sub-items', hk.length + ' 个纲领未改：其' + (f.zh || f.en || f.key) + '由子项汇总')); if(!ids.length) return; }
   var v = value; if(f.type === 'select' && f.multi && v != null) v = [v]; if(v == null) v = f.type === 'select' && f.multi ? [] : '';
   var ro0 = rolesOf(reg), dch = (f.key === ro0.start || f.key === ro0.finish) ? ids.map(function(id){ var r = getRec(id); return {id:id, was:r ? planOf(reg, r) : null}; }) : null;   // v3.4: followers of moved items
@@ -255,9 +264,9 @@ document.addEventListener('click', function(e){
 });
 function colsPick(reg, anchor){
   var cur = tableCols(reg).map(function(f){ return f.key; });
-  var sc = dataFields(reg).filter(function(f){ return scopeOf(f); });
-  var html = '<div class="plist">' + dataFields(reg).filter(function(f){ return !scopeOf(f); }).map(function(f){ var on = cur.indexOf(f.key) >= 0; return '<label class="popt"><input type="checkbox" data-colk="' + esc(f.key) + '"' + (on ? ' checked' : '') + '>' + esc(T1(f.en, f.zh)) + '</label>'; }).join('') +
-    (sc.length ? '<div class="note psub">' + L('Shown by themselves when you pick the part they belong to:', '选到所属范围时自动显示：') + '</div>' + sc.map(function(f){ return '<div class="popt dis"><span>' + esc(T1(f.en, f.zh)) + '</span> <span class="note">' + esc(scopeText(reg, f)) + '</span></div>'; }).join('') : '') + '</div><div class="pfoot"><button type="button" class="lnk" data-act="colsReset">' + L('Reset to default', '恢复默认') + '</button><button type="button" class="btn sm" data-act="popClose">' + L('Done', '完成') + '</button></div>';
+  var sc = dataFields(reg).filter(function(f){ return scoped(reg, f); });
+  var html = '<div class="plist">' + dataFields(reg).filter(function(f){ return !scoped(reg, f); }).map(function(f){ var on = cur.indexOf(f.key) >= 0; return '<label class="popt"><input type="checkbox" data-colk="' + esc(f.key) + '"' + (on ? ' checked' : '') + '>' + esc(T1(f.en, f.zh)) + '</label>'; }).join('') +
+    (sc.length ? '<div class="note psub">' + L('Shown by themselves when you pick the part they belong to:', '选到所属范围时自动显示：') + '</div>' + sc.map(function(f){ return '<div class="popt dis"><span>' + esc(T1(f.en, f.zh)) + '</span> <span class="note">' + esc(scopeText(reg, f)) + (f.hide ? ' · ' + T('hidden (Fields & columns → Table)', '已隐藏（字段与列 → 表格）') : '') + '</span></div>'; }).join('') : '') + '</div><div class="pfoot"><button type="button" class="lnk" data-act="colsReset">' + L('Reset to default', '恢复默认') + '</button><button type="button" class="btn sm" data-act="popClose">' + L('Done', '完成') + '</button></div>';
   openPick('menu', {reg:reg.id, html:html}, anchor);
 }
 document.addEventListener('click', function(e){ var el = e.target.closest && e.target.closest('[data-act="colsReset"]'); if(!el) return; delete S.rcols[S.reg]; saveUI(); closePop(); renderMain(); });
@@ -389,7 +398,7 @@ document.addEventListener('change', function(e){
   if(el.id === 'bulkField'){ S.bulkF = el.value || null; renderMain(); return; }
   if(el.id === 'selall'){ S.sel = {}; if(el.checked) (O_VIS[reg.id] ? O_VIS[reg.id].map(getRec).filter(Boolean) : filteredRecs(reg)).forEach(function(r){ S.sel[r.id] = true; }); renderMain(); return; }   // in the outline: the items in open folders
   if(el.classList.contains('rowsel')){ S.sel[el.dataset.id] = el.checked; S.bulkDel = false; renderMain(); return; }
-  if(el.dataset.colk){ var cur = tableCols(reg).filter(function(f){ return !scopeOf(f); }).map(function(f){ return f.key; }), k = el.dataset.colk, i = cur.indexOf(k); if(el.checked && i < 0) cur.push(k); if(!el.checked && i >= 0) cur.splice(i, 1); var ord = dataFields(reg).map(function(f){ return f.key; }); cur.sort(function(a, b){ return ord.indexOf(a) - ord.indexOf(b); }); S.rcols[S.reg] = cur; saveUI(); renderMain(); return; }
+  if(el.dataset.colk){ var cur = tableCols(reg).filter(function(f){ return !scoped(reg, f); }).map(function(f){ return f.key; }), k = el.dataset.colk, i = cur.indexOf(k); if(el.checked && i < 0) cur.push(k); if(!el.checked && i >= 0) cur.splice(i, 1); var ord = dataFields(reg).map(function(f){ return f.key; }); cur.sort(function(a, b){ return ord.indexOf(a) - ord.indexOf(b); }); S.rcols[S.reg] = cur; saveUI(); renderMain(); return; }
   if(el.dataset.act === 'extTog' && rec){ setRec(rec, {ext:el.checked}, {silent:true}); return; }
   if(el.dataset.act === 'asDocTog' && rec){ setRec(rec, {asDoc:el.checked || null}, {silent:true}); return; }   // v3.4.7: a heading item counted as a document too
   if(el.dataset.act === 'kindSet' && rec){ setRec(rec, {itemKind:KIND_SET.indexOf(el.value) >= 0 ? el.value : null}); return; }   // v3.5: this item's kind, apart from its Type

@@ -558,7 +558,7 @@ function drawerForm(reg, rec, ed, skip){
     if(lib && f.type === 'files') return;
     if(f.type === 'section'){ secs.push({h:f, fs:[]}); return; }
     if(skip && skip.indexOf(f) >= 0) return;
-    if(scopeOf(f) && !fieldApplies(reg, f, rec) && isEmpty(rec.d[f.key])) return;   /* v3.6: a field of another part of the register */
+    if(scoped(reg, f) && !fieldApplies(reg, f, rec) && isEmpty(rec.d[f.key]) && !(headLocked(reg, rec, f) && val(rec, f) != null)) return;   /* v3.6: a field of another part of the register (a heading still shows its total) */
     if(!all && f.hide && S.dFold.keys.indexOf(f.key) >= 0 && isEmpty(rec.d[f.key]) && f.key !== ro.title && f.type !== 'sub'){ folded++; return; }
     secs[secs.length - 1].fs.push(f);
   });

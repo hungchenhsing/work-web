@@ -132,8 +132,8 @@ function regFilters(reg, views, v){
 /* the table's columns: the ones picked (or shown by default) — plus, while the register is narrowed (a package picked, a
    filter on), the fields that belong to part of it (v3.6) when they apply to rows shown */
 function tableCols(reg, list){
-  var pick = S.rcols[reg.id], ds = dataFields(reg), sc = ds.filter(function(f){ return scopeOf(f) && !f.hide; });
-  var base = ds.filter(function(f){ return !scopeOf(f) && (pick && pick.length ? pick.indexOf(f.key) >= 0 : !f.hide); });
+  var pick = S.rcols[reg.id], ds = dataFields(reg), sc = ds.filter(function(f){ return scoped(reg, f) && !f.hide; });
+  var base = ds.filter(function(f){ return !scoped(reg, f) && (pick && pick.length ? pick.indexOf(f.key) >= 0 : !f.hide); });
   if(!sc.length || !activeFilterCount(reg)) return base;
   var l = list || filteredRecs(reg), on = {};
   sc.forEach(function(f){ if(l.some(function(r){ return fieldApplies(reg, f, r); })) on[f.key] = 1; });
@@ -154,7 +154,7 @@ function viewTable(reg, list){
     '<div class="seg dseg" role="group" aria-label="' + esc(T('Row height', '行高')) + '"><button type="button" data-act="dense" data-v="0" aria-pressed="' + !uiPref('dense', false) + '">' + L('Comfortable', '舒适') + '</button><button type="button" data-act="dense" data-v="1" aria-pressed="' + !!uiPref('dense', false) + '">' + L('Compact', '紧凑') + '</button></div>' +
     '<span class="note hint">' + (ed ? L('Click a cell to edit · click the No. for all fields', '点单元格直接编辑 · 点编号查看全部字段') : L('Click the No. for all fields', '点编号查看全部字段')) + '</span></div>';
   if(selIds.length && ed){
-    h += '<div class="bulk"><b>' + L(selIds.length + ' selected', '已选 ' + selIds.length) + '</b><select class="in" id="bulkField"><option value="">' + esc(T('Set a field…', '批量设置字段…')) + '</option>' + dataFields(reg).filter(function(f){ return ['text','number','percent','date','select','tree','check','long'].indexOf(f.type) >= 0 && !(f.type === 'percent' && f.auto); }).map(function(f){ return '<option value="' + esc(f.key) + '">' + esc(T1(f.en, f.zh)) + '</option>'; }).join('') + '</select>' +
+    h += '<div class="bulk"><b>' + L(selIds.length + ' selected', '已选 ' + selIds.length) + '</b><select class="in" id="bulkField"><option value="">' + esc(T('Set a field…', '批量设置字段…')) + '</option>' + dataFields(reg).filter(function(f){ return ['text','number','percent','date','select','tree','check','long'].indexOf(f.type) >= 0 && !(f.type === 'percent' && f.auto) && (!scoped(reg, f) || selIds.some(function(id){ return fieldApplies(reg, f, getRec(id)); })); }).map(function(f){ return '<option value="' + esc(f.key) + '">' + esc(T1(f.en, f.zh)) + '</option>'; }).join('') + '</select>' +
       (S.bulkF ? bulkInput(reg, fieldOf(reg, S.bulkF)) : '') +
       (reg.d.ownerPublish && !isPrivate(reg) ? '<button type="button" class="btn sm" data-act="bulkExt" data-v="1">' + uic('eye', 13) + ' ' + L('Show to the Owner', '对业主显示') + '</button><button type="button" class="btn sm" data-act="bulkExt" data-v="0">' + L('Hide from the Owner', '对业主隐藏') + '</button>' : '') +
       (typeof trnBulk === 'function' ? trnBulk(reg) : '') + (typeof subBulk === 'function' ? subBulk(reg) : '') +
@@ -213,6 +213,7 @@ function tableRow(reg, r, cols, ed, h){
     if(headLocked(reg, r, f)) return '<td class="t-' + esc(f.type) + ' hdv" title="' + esc(T('From its sub-items', '由子项汇总')) + '" data-act="openRec" data-id="' + esc(r.id) + '">' + (f.key === ro.progress ? pbar(progressOf(reg, r), '<span class="auto">Σ</span>') : cellHtml(reg, f, r)) + '</td>';
     if(f.key === ro.progress && ru && (r.d[f.key] == null || r.d[f.key] === '') && !isAutoNow(r, f)) return '<td class="t-percent">' + pbar(ru.pct, '<span class="auto" title="' + esc(T('Rolled up from sub-items', '由子项汇总')) + '">Σ</span>') + '</td>';
     var tip = (f.type === 'text' || f.type === 'long') && r.d[f.key] && String(r.d[f.key]).length > 40 ? ' title="' + esc(String(r.d[f.key]).slice(0, 1200)) + '"' : '';
+    if(!fieldApplies(reg, f, r) && isEmpty(r.d[f.key])) return '<td class="t-' + esc(f.type) + ' oos" title="' + esc(T('Only for ', '只用于') + scopeText(reg, f)) + '"></td>';   /* v3.6 */
     return '<td class="t-' + esc(f.type) + (ce ? ' ce' : '') + '"' + tip + (ce ? ' data-ce="1" data-id="' + esc(r.id) + '" data-k="' + esc(f.key) + '"' : ' data-act="openRec" data-id="' + esc(r.id) + '"') + '>' + cellHtml(reg, f, r) + '</td>';
   }).join('') + (canSchemaEdit(reg) ? '<td></td>' : '') + '</tr>';
 }

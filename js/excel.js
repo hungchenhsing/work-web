@@ -20,8 +20,15 @@ function guessField(reg, header){
   if(/^(itemkind|事项种类|事項種類)+$/.test(n)) return '';   // v3.5: nor is its Item kind column (it follows the Type)
   if(/parent|上级|父项/.test(n)) return '__parent';
   if(/^(action|操作|处理方式|處理方式)+$/.test(n)) return '__act';   // v3.4.4: "Action 操作" (not "Action items" / "Action by")
-  var best = '', bl = 0;
-  dataFields(reg).forEach(function(f){ [f.key, f.en, f.zh].concat(IMP_SYN[f.key] || []).forEach(function(s){ s = normH(s); if(!s) return; if((n === s || (s.length >= 2 && n.indexOf(s) >= 0)) && s.length > bl){ best = f.key; bl = s.length; } }); });
+  var best = '', bl = 0, ro = rolesOf(reg), words = String(header == null ? '' : header).toLowerCase().split(/[^a-z0-9一-鿿]+/).filter(Boolean);
+  /* v3.6: is s (normalised) a run of whole words of the header? ("rev" is not in "Reviewer", "en" is not in "Evidence") */
+  var wordsHave = function(s){ for(var i = 0; i < words.length; i++){ var acc = ''; for(var j = i; j < words.length && acc.length < s.length; j++){ acc += words[j]; if(acc === s) return true; } } return false; };
+  dataFields(reg).forEach(function(f){
+    var exact = [f.key, f.en, f.zh, (f.en || '') + (f.zh || '')].concat(IMP_SYN[f.key] || []).map(normH).filter(Boolean), part = [f.en, f.zh].concat(IMP_SYN[f.key] || []).map(normH).filter(function(s){ return s.length >= 3; });
+    var strict = f.key === ro.no || f.key === ro.kind || f.key === ro.tree || f.key === ro.status;
+    exact.forEach(function(s){ if(n === s && s.length + 1000 > bl){ best = f.key; bl = s.length + 1000; } });
+    if(!strict) part.forEach(function(s){ var cjk = /[一-鿿]/.test(s), hit = cjk ? n.indexOf(s) >= 0 : wordsHave(s); if(hit && s.length > bl){ best = f.key; bl = s.length; } });
+  });
   if(/实际提交|actualsubmission/.test(n) && fieldOf(reg, 'actualStart') && fieldOf(reg, 'actualEnd')) return '__actual';
   return best;
 }
@@ -57,7 +64,7 @@ function impFile(file){
   readSheet(file).then(function(sh){
     if(!sh || !sh.rows.length){ toast(T('No rows found in that file.', '文件中没有找到数据行。')); return; }
     m.name = file.name; m.sheet = sh; m.step = 'map';
-    m.map = sh.headers.map(function(h){ return guessField(reg, h); });
+    m.map = sh.headers.map(function(h){ var k = guessField(reg, h), f = k && k.indexOf('__') !== 0 ? fieldOf(reg, k) : null; return f && ['calc', 'sub', 'files', 'link'].indexOf(f.type) >= 0 ? '' : k; });   /* v3.6: never relations, sub-tables, files or calculations */
     var used = {}; m.map = m.map.map(function(k){ if(k && k.indexOf('__') !== 0){ if(used[k]) return ''; used[k] = 1; } return k; });
     m.matchKey = rolesOf(reg).no || '';
     if(fieldOf(reg, 'docNo') && m.map.indexOf('docNo') >= 0 && m.map.indexOf(rolesOf(reg).no) < 0) m.matchKey = 'docNo';
@@ -67,35 +74,45 @@ function impFile(file){
 /* v3.6 · a column that matches no field can become a new field. Its type is guessed from the values (dates, numbers, a
    few repeated values → a choice, values joined with 、 , ; / → several choices, long text) and can be changed; a choice
    gets exactly the values in the file as its options. */
-var IMP_NEW_TYPES = [['text', 'Text', '文本'], ['long', 'Long text', '长文本'], ['number', 'Number', '数字'], ['date', 'Date', '日期'], ['select', 'Choice', '选项'], ['multi', 'Choice (several)', '选项（多选）']];
+var IMP_NEW_TYPES = [['text', 'Text', '文本'], ['long', 'Long text', '长文本'], ['number', 'Number', '数字'], ['date', 'Date', '日期'], ['select', 'Choice', '选项'], ['multi', 'Choice (several)', '选项（多选）'], ['check', 'Checkbox', '勾选']];
 var IMP_SEP = /\s*[,，;；、\/\n]\s*/;
+var IMP_YES = /^(y|yes|true|1|是|✓|√|x)$/i, IMP_NO = /^(n|no|false|0|否|×|-)$/i;
 function impColVals(sh, i){ return sh.rows.map(function(r){ return r[i]; }).filter(function(v){ return v != null && String(v instanceof Date ? 'd' : v).trim() !== ''; }); }
+/* a number as people write it: 12 · 1,250 · 3.5 · 2小时 / 2 h (one unit for the whole column); not 0012 (a code) or 1,5 */
+var IMP_NUM = /^\s*(-?(?:0|[1-9]\d{0,2}(?:,\d{3})+|[1-9]\d*)(?:\.\d+)?|-?0?\.\d+)\s*([^\d\s.,%][^\d]{0,5})?\s*$/;
 function impGuess(sh, i){
-  var vs = impColVals(sh, i); if(!vs.length) return 'text';
-  if(vs.every(function(v){ return v instanceof Date || (typeof v === 'string' && /^\s*\d{4}[-\/.]\d{1,2}[-\/.]\d{1,2}\s*$/.test(v)); })) return 'date';
-  if(vs.every(function(v){ return typeof v === 'number' || (typeof v === 'string' && /^\s*-?\d[\d,]*(\.\d+)?\s*$/.test(v)); })) return 'number';
-  var ss = vs.map(function(v){ return String(v).trim(); }), withSep = ss.filter(function(s){ return IMP_SEP.test(s); }).length;
-  if(withSep && withSep >= ss.length * 0.3){ var parts = {}; ss.forEach(function(s){ splitList(s, IMP_SEP).forEach(function(p){ parts[p] = 1; }); }); if(Object.keys(parts).length <= 30) return 'multi'; }
-  var dist = Object.keys(ss.reduce(function(a, s){ a[s] = 1; return a; }, {})).length;
-  if(dist <= Math.min(30, Math.max(1, Math.ceil(ss.length * 0.6))) && (dist < ss.length || ss.length <= 2) && ss.every(function(s){ return s.length <= 40; })) return 'select';
-  return ss.reduce(function(a, s){ return a + s.length; }, 0) / ss.length > 60 ? 'long' : 'text';
+  var vs = impColVals(sh, i); if(!vs.length) return {t:'text'};
+  if(vs.every(function(v){ return v instanceof Date || (typeof v === 'string' && /\d{4}/.test(v) && /^[\d\s年月日\/.\-:]+$/.test(v) && !!parseDate(v)); })) return {t:'date'};
+  var units = {}, allNum = vs.every(function(v){ if(typeof v === 'number') return true; var m = IMP_NUM.exec(String(v)); if(!m) return false; units[(m[2] || '').trim()] = 1; return true; });
+  var uk = Object.keys(units).filter(Boolean);
+  if(allNum && uk.length <= 1) return {t:'number', unit:uk[0] || ''};
+  var ss = vs.map(function(v){ return String(v).trim(); });
+  if(ss.every(function(s){ return IMP_YES.test(s) || IMP_NO.test(s); }) && ss.some(function(s){ return IMP_YES.test(s); })) return {t:'check'};
+  if(ss.length < 5) return {t:ss.some(function(s){ return s.length > 60; }) ? 'long' : 'text'};   /* too few rows to tell a list of choices */
+  var withSep = ss.filter(function(s){ return IMP_SEP.test(s); }).length;
+  if(withSep && withSep >= ss.length * 0.3){ var parts = {}, tot = 0; ss.forEach(function(s){ splitList(s, IMP_SEP).forEach(function(p){ parts[p.toLowerCase()] = 1; tot++; }); });
+    var dp = Object.keys(parts).length; if(dp <= 30 && tot >= dp * 1.5 && Object.keys(parts).every(function(p){ return p.length <= 30; })) return {t:'multi'}; }   /* the parts repeat: a list of choices */
+  var dist = Object.keys(ss.reduce(function(a, s){ a[s.toLowerCase()] = 1; return a; }, {})).length;
+  if(dist <= Math.min(30, Math.ceil(ss.length * 0.6)) && dist < ss.length && ss.every(function(s){ return s.length <= 40; })) return {t:'select'};
+  return {t:ss.reduce(function(a, s){ return a + s.length; }, 0) / ss.length > 60 ? 'long' : 'text'};
 }
 /* "Training category 培训类别" → en "Training category", zh "培训类别" */
 function impNames(hd, i){
-  var s = String(hd == null ? '' : hd).trim() || T('Column ' + (i + 1), '列 ' + (i + 1)), c = s.search(/[一-鿿]/);
-  if(c > 0){ var en = s.slice(0, c).trim(), zh = s.slice(c).trim(); if(en) return {en:en, zh:zh}; }
-  return {en:s, zh:c === 0 ? s : ''};
+  var s = String(hd == null ? '' : hd).trim() || T('Column ' + (i + 1), '列 ' + (i + 1)), c = s.search(/[一-鿿]/), tidy = function(x){ x = x.replace(/^[\s\/／|:：\-–(（\[【]+|[\s\/／|:：\-–(（\[【]+$/g, ''); if(/[)）\]】]$/.test(x) && !/[(（\[【]/.test(x)) x = x.slice(0, -1).trim(); return x.replace(/^[)）\]】]+/, '').trim(); };
+  if(c > 0){ var en = tidy(s.slice(0, c)), zh = tidy(s.slice(c)); if(en && /[a-z]/i.test(en)) return {en:en, zh:zh}; }
+  if(c === 0){ var l = s.search(/[A-Za-z]{2}/); if(l > 0){ var z = tidy(s.slice(0, l)), e = tidy(s.slice(l)); if(z && e) return {en:e, zh:z}; } return {en:tidy(s) || s, zh:tidy(s) || s}; }
+  return {en:s, zh:''};
 }
 function impOpt(p, n){ var zh = /[一-鿿]/.test(p) && !/[A-Za-z]{3,}/.test(p); return O(p.length <= 14 ? p : slug(p) || uid('o'), p, zh ? p : '', COLORS[(n + 1) % COLORS.length]); }
 /* the new field a column becomes (key, names, type, options from the file) */
 function impNewField(m, reg, i){
   m.nf = m.nf || {}; var x = m.nf[i];
-  if(!x){ x = m.nf[i] = Object.assign({t:impGuess(m.sheet, i)}, impNames(m.sheet.headers[i], i)); }
+  if(!x){ var gs = impGuess(m.sheet, i); x = m.nf[i] = Object.assign({t:gs.t, unit:gs.unit || ''}, impNames(m.sheet.headers[i], i)); }
   var used = {}; Object.keys(m.nf).forEach(function(j){ if(+j !== i && m.map[+j] === '@new' && m.nf[j].key) used[m.nf[j].key] = 1; });
   var base = newKey(reg, x.en || x.zh), key = base, kn = 2; while(used[key] || fieldOf(reg, key)) key = base + '_' + (kn++);
-  var f = {key:key, en:x.en, zh:x.zh, type:x.t === 'multi' ? 'select' : x.t, __new:true}; x.key = key;
+  var f = {key:key, en:x.en, zh:x.zh, type:x.t === 'multi' ? 'select' : x.t, __new:true}; x.key = key; if(x.t === 'number' && x.unit) f.unit = x.unit;
   if(x.t === 'select' || x.t === 'multi'){ var seen = {}, opts = []; f.multi = x.t === 'multi';
-    impColVals(m.sheet, i).forEach(function(v){ (f.multi ? splitList(String(v), IMP_SEP) : [String(v instanceof Date ? parseDate(v) : v).trim()]).forEach(function(p){ if(p && !seen[p]){ seen[p] = 1; var o = impOpt(p, opts.length); while(opts.some(function(q){ return q.v === o.v; })) o.v += '_'; opts.push(o); } }); });
+    impColVals(m.sheet, i).forEach(function(v){ (f.multi ? splitList(String(v), IMP_SEP) : [String(v instanceof Date ? parseDate(v) : v).trim()]).forEach(function(p){ if(p && !seen[p.toLowerCase()]){ seen[p.toLowerCase()] = 1; var o = impOpt(p, opts.length); while(opts.some(function(q){ return q.v === o.v; })) o.v += '_'; opts.push(o); } }); });
     f.opts = opts; }
   return f;
 }
@@ -133,9 +150,14 @@ function impNewRow(m, reg, i){
   return '<div class="imnew"><span class="note">' + L('New field', '新字段') + ' “' + esc(T1(x.en, x.zh)) + '”</span><select class="in sm" data-imnt="' + i + '" aria-label="' + esc(T('Type of the new field', '新字段类型')) + '">' + IMP_NEW_TYPES.map(function(t){ return '<option value="' + t[0] + '"' + (x.t === t[0] ? ' selected' : '') + '>' + esc(T(t[1], t[2])) + '</option>'; }).join('') + '</select></div>';
 }
 /* the part of the register new fields belong to: the packages and Types of the imported rows (when there are a few) */
+function impParentNode(reg, plan, d){   /* a sub-item without a package: its parent's (an existing item, or a row of this file) */
+  var tf = rf(reg, 'tree'), ro = rolesOf(reg); if(!tf || !d.__parentNo || !ro.no) return null; var no = String(d.__parentNo).toUpperCase();
+  var p = recsOf(reg.id).filter(function(r){ return String(r.d[ro.no] || '').toUpperCase() === no; })[0]; if(p) return p.d[tf.key] || null;
+  var q = plan.adds.filter(function(x){ return String(x[ro.no] || '').toUpperCase() === no; })[0]; return q ? q[tf.key] || null : null;
+}
 function impScope(m, reg, plan){
   var tf = rf(reg, 'tree'), kf = rf(reg, 'kind'), ns = {}, ts = {};
-  plan.adds.forEach(function(d){ if(tf && d[tf.key]) ns[d[tf.key]] = 1; if(kf && d[kf.key] != null) ts[asArr(d[kf.key])[0]] = 1; });
+  plan.adds.forEach(function(d){ var nd = tf && (d[tf.key] || impParentNode(reg, plan, d)); if(nd) ns[nd] = 1; if(kf && d[kf.key] != null) ts[asArr(d[kf.key])[0]] = 1; });
   plan.updates.forEach(function(u){ var n = tf && (u.d[tf.key] || u.rec.d[tf.key]), t = kf && asArr(u.d[kf.key] != null ? u.d[kf.key] : u.rec.d[kf.key])[0]; if(n) ns[n] = 1; if(t != null && t !== '') ts[t] = 1; });
   var n = Object.keys(ns), t = Object.keys(ts).filter(Boolean);
   return {nodes:n.length && n.length <= 5 ? n : [], types:t.length && t.length <= 5 ? t : []};
@@ -145,11 +167,11 @@ function impScopeText(reg, sc, plan){
   return sc.nodes.map(function(id){ var n = (dt || treeNodes(tf)).filter(function(x){ return x.id === id; })[0]; return n ? treeLabel(n) : ''; }).concat(sc.types.map(function(v){ var o = (dopt || optsOf(kf)).filter(function(x){ return x.v === v; })[0]; return o ? nm(o) : v; })).filter(Boolean).join(' · ');
 }
 function impNewNote(m, reg, plan){
-  var nn = m.map.filter(function(k){ return k === '@new'; }).length, un = m.map.filter(function(k, i){ return !k && String(m.sheet.headers[i] == null ? '' : m.sheet.headers[i]).trim() && impColVals(m.sheet, i).length; }).length;
+  var nn = m.map.filter(function(k){ return k === '@new'; }).length, un = m.map.filter(function(k, i){ var hn = normH(m.sheet.headers[i]); return !k && hn && !/^(level|层级|層級)+$|^(itemkind|事项种类|事項種類)+$/.test(hn) && impColVals(m.sheet, i).length; }).length;
   var h = '';
   if(!nn && un && canSchemaEdit(reg)) h += '<p class="note">' + L(un + ' column(s) match no field and are left out — pick “＋ New field” to add them to this register.', un + ' 列没有对应的字段，不会导入；选「＋ 新增字段」可把它们加到此台账。') + '</p>';
   if(nn){ var sc = impScope(m, reg, plan), st = impScopeText(reg, sc, plan);
-    h += '<div class="card impnew"><b>' + L(nn + ' new field(s)', '新增 ' + nn + ' 个字段') + '</b><span class="note"> · ' + esc(plan.newFields.map(function(f){ return T1(f.en, f.zh) + ' (' + T(TYPES[f.type].en, TYPES[f.type].zh) + (f.multi ? T(', several', '，多选') : '') + (f.opts ? T(', ' + f.opts.length + (f.opts.length === 1 ? ' option' : ' options'), '，' + f.opts.length + ' 个选项') : '') + ')'; }).join(' · ')) + '</span>' + (st ? '<label class="chk"><input type="checkbox" id="impScope"' + (m.nfAll ? '' : ' checked') + '>' + L('Only for this part of the register: ', '只用于这部分：') + '<b>' + esc(st) + '</b></label><p class="note">' + L('They then show in the details of those items only, and as columns when you pick that package. Untick to make them fields of every item.', '这样它们只出现在这些事项的详情里，选到该文件包时自动成为表格的列。取消勾选 = 所有事项都有这些字段。') + '</p>' : '<p class="note">' + L('They will be fields of every item. To keep them to one package or Type, include the Package / Type columns, or set it later in Fields & columns.', '它们将是所有事项的字段。要只用于某个文件包或类型，请在文件中包含文件包 / 类型列，或之后在「字段与列」中设置。') + '</p>') + '</div>'; }
+    h += '<div class="card impnew"><b>' + L(nn + ' new field(s)', '新增 ' + nn + ' 个字段') + '</b><span class="note"> · ' + esc(plan.newFields.map(function(f){ return T1(f.en, f.zh) + ' (' + T(TYPES[f.type].en, TYPES[f.type].zh) + (f.multi ? T(', several', '，多选') : '') + (f.opts ? T(', ' + f.opts.length + (f.opts.length === 1 ? ' option' : ' options'), '，' + f.opts.length + ' 个选项') : '') + ')'; }).join(' · ')) + '</span>' + (st ? '<label class="chk"><input type="checkbox" id="impScope"' + (m.nfAll ? '' : ' checked') + '>' + L('Only for this part of the register: ', '只用于这部分：') + '<b>' + esc(st) + '</b></label><p class="note">' + L('They then show in the details of those items only, and as columns when you pick that package. Untick to make them fields of every item.', '这样它们只出现在这些事项的详情里，选到该文件包时自动成为表格的列。取消勾选 = 所有事项都有这些字段。') + '</p>' : '<p class="note">' + (rf(reg, 'tree') || rf(reg, 'kind') ? L('They will be fields of every item. To keep them to one package or Type, include the Package / Type columns, or set it later in Fields & columns.', '它们将是所有事项的字段。要只用于某个文件包或类型，请在文件中包含文件包 / 类型列，或之后在「字段与列」中设置。') : L('They will be fields of every item.', '它们将是所有事项的字段。')) + '</p>') + '</div>'; }
   return h;
 }
 function impConvert(reg, f, raw, ctx){
@@ -158,6 +180,7 @@ function impConvert(reg, f, raw, ctx){
   /* v3.4.7: what an exported heading shows from its sub-items ("Heading", "Accepted 3/11") is never an option to add */
   if(f.type === 'select' && (/^(heading|纲领|綱領)(\s*(纲领|綱領))?$/i.test(s) || /^(accepted|接受)\s+\d+\s*\/\s*\d+$/i.test(s))) return undefined;
   switch(f.type){
+    case 'calc': case 'sub': case 'files': case 'link': return undefined;
     case 'date': return parseDate(raw) || undefined;
     case 'number': return num(s) == null ? undefined : num(s);
     case 'percent': var p = parseFloat(s.replace('%', '')); if(isNaN(p)) return undefined; return clamp(Math.round(p > 0 && p <= 1 && s.indexOf('%') < 0 ? p * 100 : p), 0, 100);
@@ -249,6 +272,7 @@ async function impRun(){
       var nf = plan.newFields.map(function(f){ var x = clone(f); delete x.__new; if(sc && (sc.nodes.length || sc.types.length)) x.scope = clone(sc); return x; });   /* v3.6: new fields */
       var fs = clone(fieldsOf(reg)).concat(nf); fs.forEach(function(f){ if(plan.draftOpts[f.key]) f.opts = plan.draftOpts[f.key]; if(plan.draftTree[f.key]) f.tree = plan.draftTree[f.key]; });
       await STORE.patchReg(reg.id, {fields:fs});
+      m.map.forEach(function(k, i){ if(k === '@new' && m.nf && m.nf[i] && fieldOf(getReg(reg.id), m.nf[i].key)){ m.map[i] = m.nf[i].key; delete m.nf[i]; } });   /* v3.6: a retry uses the fields just made */
     }
     var ro = rolesOf(reg), pre = String(reg.d.prefix || 'REC').toUpperCase(), used = {}, nmax = 0, re = new RegExp('^' + pre.replace(/[^A-Z0-9]/g, '') + '-(\\d+)$', 'i');
     recsOf(reg.id).forEach(function(r){ var v = r.d[ro.no]; if(v){ used[String(v).toUpperCase()] = 1; var mm = re.exec(v); if(mm) nmax = Math.max(nmax, +mm[1]); } });
@@ -260,7 +284,8 @@ async function impRun(){
       return {id:uid('r'), reg:reg.id, d:d};
     });
     var noMap = {}; recsOf(reg.id).forEach(function(r){ if(ro.no && r.d[ro.no]) noMap[String(r.d[ro.no]).toUpperCase()] = r.id; }); newRecs.forEach(function(r){ if(ro.no && r.d[ro.no]) noMap[String(r.d[ro.no]).toUpperCase()] = r.id; });
-    newRecs.forEach(function(r){ if(r.d.__parentNo){ var pid = noMap[String(r.d.__parentNo).toUpperCase()]; if(pid && pid !== r.id) r.d.parent = pid; } delete r.d.__parentNo; });
+    var tfI = rf(reg, 'tree'), byIdN = {}; newRecs.forEach(function(r){ byIdN[r.id] = r; });
+    newRecs.forEach(function(r){ if(r.d.__parentNo){ var pid = noMap[String(r.d.__parentNo).toUpperCase()]; if(pid && pid !== r.id){ r.d.parent = pid; var pr = getRec(pid) || byIdN[pid]; if(tfI && !r.d[tfI.key] && pr && pr.d[tfI.key]) r.d[tfI.key] = pr.d[tfI.key]; } } delete r.d.__parentNo; });   /* v3.6: a sub-item without a package takes its parent's */
     plan.updates.forEach(function(u){ if(u.d.__parentNo){ var pid2 = noMap[String(u.d.__parentNo).toUpperCase()]; if(pid2 && pid2 !== u.rec.id) u.d.parent = pid2; } delete u.d.__parentNo; });
     m.progress = T('Adding ' + newRecs.length + ' records…', '正在新增 ' + newRecs.length + ' 条记录…'); renderModal();
     var res = newRecs.length ? await STORE.createRecs(newRecs, function(a, b){ m.progress = T('Adding records… ', '正在新增记录… ') + a + ' / ' + b; renderModal(); }) : {ok:0, failed:0};

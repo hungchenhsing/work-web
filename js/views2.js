@@ -360,20 +360,23 @@ function fieldExtra(reg, f, i, d, ls, regs){
 function scopeDraftText(f, d){
   var s = scopeOf(f); if(!s) return '';
   var tf = d.fields.filter(function(x){ return x.key === d.roles.tree; })[0], kf = d.fields.filter(function(x){ return x.key === d.roles.kind; })[0];
-  return s.nodes.map(function(id){ var n = tf && treeNode(tf, id); return n ? treeLabel(n) : ''; }).concat(s.types.map(function(v){ var o = kf && (kf.opts || []).filter(function(x){ return x.v === v; })[0]; return o ? nm(o) : ''; })).filter(Boolean).join(' · ');
+  var t = s.nodes.map(function(id){ var n = tf && treeNode(tf, id); return n ? treeLabel(n) : ''; }).concat(s.types.map(function(v){ var o = kf && (kf.opts || []).filter(function(x){ return x.v === v; })[0]; return o ? nm(o) : ''; })).filter(Boolean).join(' · ');
+  return t || T('nothing that still exists — every item', '已不存在的部分（= 所有事项）');
 }
 function scopeEditor(f, i, d){
   if(f.type === 'section') return '';
   var roleOf = Object.keys(d.roles || {}).filter(function(r){ return d.roles[r] === f.key; })[0];
-  var tf = d.fields.filter(function(x){ return x.key === d.roles.tree && x.type === 'tree'; })[0], kf = d.fields.filter(function(x){ return x.key === d.roles.kind && x.type === 'select' && !x.list; })[0];
-  if(!tf && !kf) return '';
+  var tf = d.fields.filter(function(x){ return x.key === d.roles.tree && x.type === 'tree'; })[0], kf = d.fields.filter(function(x){ return x.key === d.roles.kind && x.type === 'select'; })[0];
+  var s = scopeOf(f) || {nodes:[], types:[]}, has = !!scopeOf(f);
+  if(!tf && !kf && !has) return '';
   var h = '<div class="fsc"><span class="flab">' + L('Applies to', '适用于') + '</span>';
   if(roleOf) return h + '<p class="note">' + L('A field with a use (title, dates, status, package, Type…) applies to every item.', '有用途的字段（标题、日期、状态、文件包、类型…）适用于所有事项。') + '</p></div>';
-  var s = scopeOf(f) || {nodes:[], types:[]};
   h += '<p class="note">' + L('Nothing ticked: every item. Tick packages and/or Types to keep this field to that part of the register — it then shows in the details of those items only, and as a column when you pick that package (or filter to them).', '都不勾 = 所有事项。勾选文件包和/或类型，此字段就只属于这部分：只在这些事项的详情里出现；选到该文件包（或筛选到它们）时自动成为表格的列。') + '</p>';
-  if(tf){ var rows = []; treeDfs(tf, function(n, dep){ if(dep <= 1) rows.push('<label class="chk" style="padding-left:' + (dep * 18) + 'px"><input type="checkbox" data-fm="' + i + ':scn:' + esc(n.id) + '"' + (s.nodes.indexOf(n.id) >= 0 ? ' checked' : '') + '>' + esc(treeLabel(n)) + '</label>'); });
-    h += '<div class="fl full"><span class="flab">' + L(tf.en, tf.zh) + '</span><div class="scbox">' + rows.join('') + '</div></div>'; }
-  if(kf) h += '<div class="fl full"><span class="flab">' + L(kf.en, kf.zh) + '</span><div class="row">' + (kf.opts || []).map(function(o){ return '<label class="chk"><input type="checkbox" data-fm="' + i + ':sct:' + esc(o.v) + '"' + (s.types.indexOf(o.v) >= 0 ? ' checked' : '') + '>' + esc(nm(o) || o.v) + '</label>'; }).join('') + '</div></div>';
+  var gone = function(k, ids, known){ return ids.filter(function(x){ return known.indexOf(x) < 0; }).map(function(x){ return '<label class="chk"><input type="checkbox" data-fm="' + i + ':' + k + ':' + esc(x) + '" checked>' + esc(x) + ' <span class="note">' + L('(no longer exists — untick to remove)', '（已不存在，取消勾选即可移除）') + '</span></label>'; }).join(''); };
+  var nids = tf ? (tf.tree || []).map(function(n){ return n.id; }) : [], tvs = kf ? (kf.opts || []).map(function(o){ return o.v; }) : [];
+  if(tf || s.nodes.length){ var rows = []; if(tf) treeDfs(tf, function(n, dep){ rows.push('<label class="chk" style="padding-left:' + (dep * 18) + 'px"><input type="checkbox" data-fm="' + i + ':scn:' + esc(n.id) + '"' + (s.nodes.indexOf(n.id) >= 0 ? ' checked' : '') + '>' + esc(treeLabel(n)) + '</label>'); });
+    h += '<div class="fl full"><span class="flab">' + (tf ? L(tf.en, tf.zh) : L('Packages', '文件包')) + '</span><div class="scbox">' + rows.join('') + gone('scn', s.nodes, nids) + '</div></div>'; }
+  if(kf || s.types.length) h += '<div class="fl full"><span class="flab">' + (kf ? L(kf.en, kf.zh) : L('Types', '类型')) + '</span><div class="row">' + (kf ? optsOf(kf) : []).map(function(o){ return '<label class="chk"><input type="checkbox" data-fm="' + i + ':sct:' + esc(o.v) + '"' + (s.types.indexOf(o.v) >= 0 ? ' checked' : '') + '>' + esc(nm(o) || o.v) + '</label>'; }).join('') + gone('sct', s.types, tvs) + '</div></div>';
   return h + '</div>';
 }
 /* v3.3 · the value a new item starts with */
