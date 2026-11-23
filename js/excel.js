@@ -4,10 +4,10 @@
 function normH(h){ return String(h == null ? '' : h).toLowerCase().replace(/[\s\/／\\()（）:：_\-.·]+/g, ''); }
 var IMP_SYN = {
   regNo:['no','序号','编号','regno','no序号'], docNo:['documentno','文件编号','docno','documentnumber'], rev:['rev','版本','revision'], node:['package','文件包类别','文件包','classcode','分类编号','workpackage','工作包'],
-  dept:['department','部门','dept'], en:['documenttitle','title','titleen','englishtitle','activity','description','equipment','meeting'], zh:['文件名称','中文名称','名称','中文'],
+  dept:['department','部门','dept','responsibledepartment','负责部门'], en:['documenttitle','title','titleen','englishtitle','activity','description','equipment','meeting','documentname'], zh:['文件名称','中文名称','名称','中文','chinesename','namechinese','中文名'],
   disc:['discipline','专业'], areas:['block','bolck','区域','areas','area'], start:['planstart','计划开始','start','开始'], finish:['planfinish','计划结束','finish','承诺日期','due','结束','到期'],
   actualStart:['actualsubmission','实际提交日期','submissiondate','actualstart','实际开始'], progress:['progress','完成率','%'], status:['status','状态'], explanation:['explanation','解释说明'],
-  remarks:['remarks','备注','comments','意见'], contacts:['contacts','对接人','contact','owner','主责人','responsible','负责人'], type:['type','类型'], ownerResult:['ownerresult','业主结果'], extNote:['externalnote','对外备注']
+  remarks:['remarks','备注','comments','意见','remark'], loc:['location','位置','地点','place'], spec:['specification','specifications','spec','规格','参数'], closed:['closedate','closeddate','closedon','关闭日期'], org:['organization','organisation','company','companyname','公司','单位'], chair:['chairperson','chair','主持','主持人'], mitig:['mitigation','应对措施','措施'], base:['baseline','基准','基准日期'], contacts:['contacts','对接人','contact','owner','主责人','responsible','负责人'], type:['type','类型'], ownerResult:['ownerresult','业主结果'], extNote:['externalnote','对外备注']
 };
 var SPECIAL = [['','— ignore —','— 忽略 —'],['__phase','提交阶段 → start/finish dates','提交阶段 → 开始/结束日期'],['__task','Task / Document (EN / 中 together)','任务/文件（中英合并）'],['__actual','Actual dates range (a – b)','实际日期区间（a – b）'],['__ext','External (Yes/No)','对外（是/否）'],['__parent','Parent No. (makes it a sub-item)','上级编号（设为子项）'],['__star','Key ★ (Yes/No)','重点（是/否）'],['__act','Action: Delete / Merge into <No.>','操作：删除 / 并入 <编号>']];
 function guessField(reg, header){
@@ -20,16 +20,26 @@ function guessField(reg, header){
   if(/^(itemkind|事项种类|事項種類)+$/.test(n)) return '';   // v3.5: nor is its Item kind column (it follows the Type)
   if(/parent|上级|父项/.test(n)) return '__parent';
   if(/^(action|操作|处理方式|處理方式)+$/.test(n)) return '__act';   // v3.4.4: "Action 操作" (not "Action items" / "Action by")
-  var best = '', bl = 0, ro = rolesOf(reg), words = String(header == null ? '' : header).toLowerCase().split(/[^a-z0-9一-鿿]+/).filter(Boolean);
-  /* v3.6: is s (normalised) a run of whole words of the header? ("rev" is not in "Reviewer", "en" is not in "Evidence") */
-  var wordsHave = function(s){ for(var i = 0; i < words.length; i++){ var acc = ''; for(var j = i; j < words.length && acc.length < s.length; j++){ acc += words[j]; if(acc === s) return true; } } return false; };
+  /* v3.6 · how a header is read: its English words and its Chinese text apart ("Remarks备注", "序号 No.", "No. 编号").
+     1) the whole header is a field's name, code, synonym or "English 中文" (either order);
+     2) its English part and its Chinese part are each a name of the same field;
+     3) a name inside it: English only as whole words ("rev" is not in "Reviewer", "en" is not in "Evidence"), Chinese as
+        text of 2+ characters; the longest wins, and between equals the one ending the header ("会议日期" is a date).
+     A Type or Status column whose values are mostly not among the field's options is left out afterwards (impFile). */
+  var hw = String(header == null ? '' : header).toLowerCase().replace(/([a-z0-9])([一-鿿])/g, '$1 $2').replace(/([一-鿿])([a-z0-9])/g, '$1 $2');
+  var words = hw.split(/[^a-z0-9一-鿿]+/).filter(Boolean), lw = words.filter(function(w){ return !/[一-鿿]/.test(w); }), lp = lw.join(''), cj = words.filter(function(w){ return /[一-鿿]/.test(w); }).join('');
+  var wordsAt = function(s){ for(var i = 0; i < lw.length; i++){ var acc = ''; for(var j = i; j < lw.length && acc.length < s.length; j++){ acc += lw[j]; if(acc === s) return j; } } return -1; };
+  var best = '', bl = 0, take = function(k, sc){ if(sc > bl){ best = k; bl = sc; } };
   dataFields(reg).forEach(function(f){
-    var exact = [f.key, f.en, f.zh, (f.en || '') + (f.zh || '')].concat(IMP_SYN[f.key] || []).map(normH).filter(Boolean), part = [f.en, f.zh].concat(IMP_SYN[f.key] || []).map(normH).filter(function(s){ return s.length >= 3; });
-    var strict = f.key === ro.no || f.key === ro.kind || f.key === ro.tree || f.key === ro.status;
-    exact.forEach(function(s){ if(n === s && s.length + 1000 > bl){ best = f.key; bl = s.length + 1000; } });
-    if(!strict) part.forEach(function(s){ var cjk = /[一-鿿]/.test(s), hit = cjk ? n.indexOf(s) >= 0 : wordsHave(s); if(hit && s.length > bl){ best = f.key; bl = s.length; } });
+    var c = [f.key, f.en, f.zh].concat(IMP_SYN[f.key] || []).map(normH).filter(Boolean);
+    c.concat([normH((f.en || '') + (f.zh || '')), normH((f.zh || '') + (f.en || ''))]).forEach(function(s){ if(s && n === s) take(f.key, 3000 + s.length); });
+    if(lp && cj && c.indexOf(lp) >= 0 && c.indexOf(cj) >= 0) take(f.key, 2000 + n.length);
+    c.forEach(function(s){
+      if(/[一-鿿]/.test(s)){ if(s.length >= 2 && cj.indexOf(s) >= 0) take(f.key, s.length + (cj.slice(-s.length) === s ? 0.5 : 0)); }
+      else { var at = wordsAt(s); if(at >= 0) take(f.key, s.length + (at === lw.length - 1 ? 0.5 : 0)); }
+    });
   });
-  if(/实际提交|actualsubmission/.test(n) && fieldOf(reg, 'actualStart') && fieldOf(reg, 'actualEnd')) return '__actual';
+  if(/实际提交|actualsubmission/.test(n) && !/from|to$|开始|结束/.test(n) && fieldOf(reg, 'actualStart') && fieldOf(reg, 'actualEnd')) return '__actual';   /* one column with a range "a – b" (not the export's from / to columns) */
   return best;
 }
 /* SheetJS (880 KB) is loaded only when a spreadsheet is imported or exported */
@@ -64,12 +74,23 @@ function impFile(file){
   readSheet(file).then(function(sh){
     if(!sh || !sh.rows.length){ toast(T('No rows found in that file.', '文件中没有找到数据行。')); return; }
     m.name = file.name; m.sheet = sh; m.step = 'map';
-    m.map = sh.headers.map(function(h){ var k = guessField(reg, h), f = k && k.indexOf('__') !== 0 ? fieldOf(reg, k) : null; return f && ['calc', 'sub', 'files', 'link'].indexOf(f.type) >= 0 ? '' : k; });   /* v3.6: never relations, sub-tables, files or calculations */
+    var ro0 = rolesOf(reg);
+    m.map = sh.headers.map(function(h, i){ var k = guessField(reg, h), f = k && k.indexOf('__') !== 0 ? fieldOf(reg, k) : null;
+      if(f && ['calc', 'sub', 'files', 'link'].indexOf(f.type) >= 0) return '';   /* v3.6: never relations, sub-tables, files or calculations */
+      if(f && (k === ro0.kind || k === ro0.status) && !impOptsFit(f, m.sheet = sh, i)) return '';   /* v3.6: a "Training type" column is not the register's Type */
+      return k; });
     var used = {}; m.map = m.map.map(function(k){ if(k && k.indexOf('__') !== 0){ if(used[k]) return ''; used[k] = 1; } return k; });
     m.matchKey = rolesOf(reg).no || '';
     if(fieldOf(reg, 'docNo') && m.map.indexOf('docNo') >= 0 && m.map.indexOf(rolesOf(reg).no) < 0) m.matchKey = 'docNo';
     renderModal();
   }).catch(function(e){ toast(T('Could not read the file: ', '无法读取文件：') + (e && e.message)); });
+}
+/* do most of a column's values name options the field already has (a Type or Status column guessed from its header) */
+function impOptsFit(f, sh, i){
+  var os = optsOf(f), seen = {}, hit = 0, n = 0; if(!os.length) return true;
+  sh.rows.forEach(function(r){ var s = String(r[i] == null ? '' : r[i]).trim(); if(!s || seen[s.toLowerCase()]) return; seen[s.toLowerCase()] = 1; n++; var pl = s.toLowerCase();
+    if(os.some(function(o){ return [o.v, o.en, o.zh].some(function(y){ y = y && String(y).toLowerCase(); return y && (y === pl || (y.length > 1 && pl.indexOf(y) >= 0)); }); })) hit++; });
+  return !n || hit * 2 >= n;
 }
 /* v3.6 · a column that matches no field can become a new field. Its type is guessed from the values (dates, numbers, a
    few repeated values → a choice, values joined with 、 , ; / → several choices, long text) and can be changed; a choice
@@ -79,11 +100,11 @@ var IMP_SEP = /\s*[,，;；、\/\n]\s*/;
 var IMP_YES = /^(y|yes|true|1|是|✓|√|x)$/i, IMP_NO = /^(n|no|false|0|否|×|-)$/i;
 function impColVals(sh, i){ return sh.rows.map(function(r){ return r[i]; }).filter(function(v){ return v != null && String(v instanceof Date ? 'd' : v).trim() !== ''; }); }
 /* a number as people write it: 12 · 1,250 · 3.5 · 2小时 / 2 h (one unit for the whole column); not 0012 (a code) or 1,5 */
-var IMP_NUM = /^\s*(-?(?:0|[1-9]\d{0,2}(?:,\d{3})+|[1-9]\d*)(?:\.\d+)?|-?0?\.\d+)\s*([^\d\s.,%][^\d]{0,5})?\s*$/;
+var IMP_NUM = /^\s*(-?(?:0|[1-9]\d{0,2}(?:,\d{3})+|[1-9]\d*)(?:\.\d+)?|-?0?\.\d+)(?:\s*([A-Za-z]{2,6}|[一-鿿]{1,4})|\s+([A-Za-z]))?\s*$/, IMP_NIL = /^(-|—|–|\/|n\/?a|na|tbd|无|暂无)$/i;   /* a unit: 2+ letters or Chinese (2小时, 3 MW), one letter only after a space (2 h); not 1A or 1#箱变 */
 function impGuess(sh, i){
-  var vs = impColVals(sh, i); if(!vs.length) return {t:'text'};
-  if(vs.every(function(v){ return v instanceof Date || (typeof v === 'string' && /\d{4}/.test(v) && /^[\d\s年月日\/.\-:]+$/.test(v) && !!parseDate(v)); })) return {t:'date'};
-  var units = {}, allNum = vs.every(function(v){ if(typeof v === 'number') return true; var m = IMP_NUM.exec(String(v)); if(!m) return false; units[(m[2] || '').trim()] = 1; return true; });
+  var vs = impColVals(sh, i).filter(function(v){ return !(typeof v === 'string' && IMP_NIL.test(v.trim())); }); if(!vs.length) return {t:'text'};
+  if(vs.every(function(v){ return v instanceof Date || (typeof v === 'string' && (/^\s*\d{4}[-\/.年]\d{1,2}[-\/.月]\d{1,2}日?\s*$/.test(v) || /^\s*\d{1,2}[\/.]\d{1,2}[\/.]\d{4}\s*$/.test(v))); })) return {t:'date'};
+  var units = {}, allNum = vs.every(function(v){ if(typeof v === 'number') return true; var m = IMP_NUM.exec(String(v)); if(!m) return false; units[(m[2] || m[3] || '').trim()] = 1; return true; });
   var uk = Object.keys(units).filter(Boolean);
   if(allNum && uk.length <= 1) return {t:'number', unit:uk[0] || ''};
   var ss = vs.map(function(v){ return String(v).trim(); });
@@ -98,10 +119,15 @@ function impGuess(sh, i){
 }
 /* "Training category 培训类别" → en "Training category", zh "培训类别" */
 function impNames(hd, i){
-  var s = String(hd == null ? '' : hd).trim() || T('Column ' + (i + 1), '列 ' + (i + 1)), c = s.search(/[一-鿿]/), tidy = function(x){ x = x.replace(/^[\s\/／|:：\-–(（\[【]+|[\s\/／|:：\-–(（\[【]+$/g, ''); if(/[)）\]】]$/.test(x) && !/[(（\[【]/.test(x)) x = x.slice(0, -1).trim(); return x.replace(/^[)）\]】]+/, '').trim(); };
-  if(c > 0){ var en = tidy(s.slice(0, c)), zh = tidy(s.slice(c)); if(en && /[a-z]/i.test(en)) return {en:en, zh:zh}; }
-  if(c === 0){ var l = s.search(/[A-Za-z]{2}/); if(l > 0){ var z = tidy(s.slice(0, l)), e = tidy(s.slice(l)); if(z && e) return {en:e, zh:z}; } return {en:tidy(s) || s, zh:tidy(s) || s}; }
-  return {en:s, zh:''};
+  var s = String(hd == null ? '' : hd).trim() || T('Column ' + (i + 1), '列 ' + (i + 1));
+  /* pieces: split on spaces and slashes, and before an opening bracket; Latin stuck to Chinese stays with it (IP地址) */
+  var raw = s.replace(/([^\s(（\[【])([(（\[【])/g, '$1 $2').split(/\s+|[\/／|]+/).filter(Boolean), isC = function(x){ return /[一-鿿]/.test(x); }, wrap = /^[(（\[【](.*)[)）\]】]$/;
+  var en = [], zh = [], last = null;
+  raw.forEach(function(p){ var w = wrap.exec(p), body = w ? w[1] : p; if(!body) return;
+    if(w && last && (isC(body) === (last === zh) || last === zh)){ last.push(p); return; }   /* a bracket after its own language, or a Latin unit after Chinese: a qualifier — Duration (h), 时长（小时）, 费用（USD） */
+    var to = isC(body) ? zh : en; to.push(w ? body : p); last = to; });
+  var e = en.join(' ').trim(), z = zh.join('').trim(); z = z.replace(/^[:：\-–]+|[:：\-–]+$/g, ''); e = e.replace(/^[:：\-–]+|[:：\-–]+$/g, '');
+  return e && z ? {en:e, zh:z} : {en:e || z || s, zh:z || ''};
 }
 function impOpt(p, n){ var zh = /[一-鿿]/.test(p) && !/[A-Za-z]{3,}/.test(p); return O(p.length <= 14 ? p : slug(p) || uid('o'), p, zh ? p : '', COLORS[(n + 1) % COLORS.length]); }
 /* the new field a column becomes (key, names, type, options from the file) */
@@ -167,7 +193,7 @@ function impScopeText(reg, sc, plan){
   return sc.nodes.map(function(id){ var n = (dt || treeNodes(tf)).filter(function(x){ return x.id === id; })[0]; return n ? treeLabel(n) : ''; }).concat(sc.types.map(function(v){ var o = (dopt || optsOf(kf)).filter(function(x){ return x.v === v; })[0]; return o ? nm(o) : v; })).filter(Boolean).join(' · ');
 }
 function impNewNote(m, reg, plan){
-  var nn = m.map.filter(function(k){ return k === '@new'; }).length, un = m.map.filter(function(k, i){ var hn = normH(m.sheet.headers[i]); return !k && hn && !/^(level|层级|層級)+$|^(itemkind|事项种类|事項種類)+$/.test(hn) && impColVals(m.sheet, i).length; }).length;
+  var nn = m.map.filter(function(k){ return k === '@new'; }).length, un = m.map.filter(function(k, i){ var hn = normH(m.sheet.headers[i]); var g = !k && hn ? guessField(reg, m.sheet.headers[i]) : '', gf = g && g.indexOf('__') !== 0 ? fieldOf(reg, g) : null; return !k && hn && !/^(level|层级|層級)+$|^(itemkind|事项种类|事項種類)+$|^(startsafter|前置事项|前置事項)/.test(hn) && !(gf && ['calc', 'sub', 'files', 'link'].indexOf(gf.type) >= 0) && impColVals(m.sheet, i).length; }).length;
   var h = '';
   if(!nn && un && canSchemaEdit(reg)) h += '<p class="note">' + L(un + ' column(s) match no field and are left out — pick “＋ New field” to add them to this register.', un + ' 列没有对应的字段，不会导入；选「＋ 新增字段」可把它们加到此台账。') + '</p>';
   if(nn){ var sc = impScope(m, reg, plan), st = impScopeText(reg, sc, plan);

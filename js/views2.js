@@ -313,7 +313,7 @@ function fieldManager(m){
       (f.type === 'section' ? '<span></span><span></span>' : '<input type="checkbox" data-fm="' + i + ':show"' + (!f.hide ? ' checked' : '') + ' aria-label="Table">' + (isLk(f) ? '<span title="' + esc(T('Lookups are never shown to the Owner', '取值字段不对业主显示')) + '">—</span>' : '<input type="checkbox" data-fm="' + i + ':ext"' + (f.ext ? ' checked' : '') + ' aria-label="Owner">')) +
       '<span class="nowrap"><button type="button" class="btn sm' + (x ? ' on' : '') + '" data-act="fmExp" data-v="' + i + '">' + L('More', '更多') + ' ' + (x ? '▴' : '▾') + '</button><button type="button" class="ib" data-act="fmDel" data-v="' + i + '" title="' + esc(T('Remove field', '删除字段')) + '">' + uic('trash', 14) + '</button></span></div>';
     if(x) h += '<div class="fmx">' + fieldExtra(reg, f, i, d, ls, regs) + scopeEditor(f, i, d) + '</div>';
-    else if(scopeOf(f) && f.type !== 'section') h += '<div class="fmsc note">' + L('Only for: ', '只用于：') + esc(scopeDraftText(f, d)) + '</div>';
+    else if(scopeOf(f) && f.type !== 'section' && !Object.keys(d.roles || {}).some(function(r){ return d.roles[r] === f.key; })) h += '<div class="fmsc note">' + L('Only for: ', '只用于：') + esc(scopeDraftText(f, d)) + '</div>';
   });
   h += '</div><div class="row" style="margin-top:10px"><select class="in" id="fmNewType" aria-label="' + esc(T('Type of the new field', '新字段类型')) + '">' + typeOpts('') + '</select><input class="in" id="fmNewName" placeholder="' + esc(T('New field name', '新字段名称')) + '" data-fk="fmNewName"><button type="button" class="btn" data-act="fmAdd">' + uic('plus', 13) + ' ' + L('Add field', '添加字段') + '</button></div>';
   // roles
@@ -361,7 +361,7 @@ function scopeDraftText(f, d){
   var s = scopeOf(f); if(!s) return '';
   var tf = d.fields.filter(function(x){ return x.key === d.roles.tree; })[0], kf = d.fields.filter(function(x){ return x.key === d.roles.kind; })[0];
   var t = s.nodes.map(function(id){ var n = tf && treeNode(tf, id); return n ? treeLabel(n) : ''; }).concat(s.types.map(function(v){ var o = kf && (kf.opts || []).filter(function(x){ return x.v === v; })[0]; return o ? nm(o) : ''; })).filter(Boolean).join(' · ');
-  return t || T('nothing that still exists — every item', '已不存在的部分（= 所有事项）');
+  return t || T('packages / Types that were removed (applies to every item)', '已删除的文件包 / 类型（适用于所有事项）');
 }
 function scopeEditor(f, i, d){
   if(f.type === 'section') return '';

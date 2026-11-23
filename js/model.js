@@ -342,7 +342,7 @@ function childData(reg, parent, extra){
   if(ro.no) d[ro.no] = nextChildNo(reg, parent);
   [ro.tree, ro.block, 'dept', 'disc', 'contacts', 'resp', 'subcon', 'type', 'wbs', 'cat'].forEach(function(k){ if(k && parent.d[k] !== undefined && fieldOf(reg, k)) d[k] = clone(parent.d[k]); });
   /* v3.6: under a heading whose sub-items all share one Type (e.g. 22 training activities), a new one takes that Type */
-  var kf = rf(reg, 'kind'), sib = childrenOf(parent); if(kf && sib.length){ var t0 = asArr(sib[0].d[kf.key])[0]; if(t0 != null && t0 !== '' && sib.every(function(x){ return asArr(x.d[kf.key])[0] === t0; })) d[kf.key] = clone(sib[0].d[kf.key]); }
+  var kf = rf(reg, 'kind'), sib = childrenOf(parent); if(kf && sib.length >= 2){ var t0 = asArr(sib[0].d[kf.key])[0]; if(t0 != null && t0 !== '' && sib.every(function(x){ return asArr(x.d[kf.key])[0] === t0; })) d[kf.key] = clone(sib[0].d[kf.key]); }
   applyDefaults(reg, d);
   var sf = rf(reg, 'status'); if(sf && d[sf.key] === undefined && optsOf(sf)[0]) d[sf.key] = optsOf(sf)[0].v;
   return Object.assign(d, extra || {});

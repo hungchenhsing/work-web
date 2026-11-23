@@ -84,7 +84,7 @@ document.addEventListener('click', function(e){
     // register page
     case 'rview': S.rv[S.reg] = v; S.gKeep = false; saveUI(); renderMain(); break;
     case 'newRec': createRec(reg, nodeExtra(reg)); break;
-    case 'newTpl': (function(){ var t = regTpls(reg).filter(function(x){ return x.id === v; })[0]; if(!t) return; var td = tplData(t); Object.keys(td).forEach(function(k){ if(!fieldOf(reg, k)) delete td[k]; }); createRec(reg, Object.assign(shapeData(reg, td), nodeExtra(reg))).then(function(id){ if(id){ S.newBlank = null; toast(T('New item from “' + t.name + '”', '已按「' + t.name + '」新增')); } }); })(); break;
+    case 'newTpl': (function(){ var t = regTpls(reg).filter(function(x){ return x.id === v; })[0]; if(!t) return; var td = tplData(t); Object.keys(td).forEach(function(k){ if(!fieldOf(reg, k)) delete td[k]; }); createRec(reg, Object.assign(shapeData(reg, td), nodeExtra(reg, td))).then(function(id){ if(id){ S.newBlank = null; toast(T('New item from “' + t.name + '”', '已按「' + t.name + '」新增')); } }); })(); break;
     case 'tplSave': (function(){ var r0 = S.open && getRec(S.open); if(!r0) return; openModal({kind:'tplSave', reg:r0.reg, rec:r0.id}); setTimeout(function(){ var i = $('#tplName'); if(i) i.focus(); }, 30); })(); break;
     case 'tplSaveDo': tplSaveDo(); break;
     case 'tplManage': openModal({kind:'tplManage', reg:v || S.reg}); break;
@@ -220,8 +220,10 @@ document.addEventListener('click', function(e){
     case 'fileBlk': S.files.blk = S.files.blk === v ? '' : v; renderMain(); break;
   }
 });
-function nodeExtra(reg){ var tf = rf(reg, 'tree'), n = rfil(reg.id).node, o = {}; if(tf && n && n !== 'all' && n !== 'none' && treeNode(tf, n)) o[tf.key] = n;
-  var kf = rf(reg, 'kind'), c = rfil(reg.id).cls; if(kf && c && c !== 'head'){ var ko = optsOf(kf).filter(function(x){ return optKind(x) === c; })[0]; if(ko) o[kf.key] = kf.multi ? [ko.v] : ko.v; }   /* v3.6: a kind picked at the top gives new items that kind */
+function nodeExtra(reg, base){ var tf = rf(reg, 'tree'), n = rfil(reg.id).node, o = {}; if(tf && n && n !== 'all' && n !== 'none' && treeNode(tf, n)) o[tf.key] = n;
+  /* v3.6: a kind picked at the top gives new items that kind — never over a template's own Type, nor over a default Type of that kind */
+  var kf = rf(reg, 'kind'), c = rfil(reg.id).cls; if(kf && c && c !== 'head' && !(base && base[kf.key] != null && base[kf.key] !== '')){ var cur = defValue(kf), co = cur != null && cur !== '' ? optOf(kf, asArr(cur)[0]) : null;
+    if(!co || optKind(co) !== c){ var ko = optsOf(kf).filter(function(x){ return optKind(x) === c; })[0]; if(ko) o[kf.key] = kf.multi ? [ko.v] : ko.v; } }
   return o; }
 function treeSave(reg, tf, nodes){ var fs = clone(fieldsOf(reg)); fs.forEach(function(f){ if(f.key === tf.key) f.tree = nodes; }); return STORE.patchReg(reg.id, {fields:fs}).catch(function(er){ toast(errText(er)); }); }
 function tnEditor(reg, tf, nodeId, parentId, anchor){
@@ -239,12 +241,13 @@ function bulkApply(reg, f, value){
   var ids = selIds(reg); if(!ids.length || !f) return;
   /* v3.4.7: a heading's status, progress and dates come from its sub-items — they are left as they are */
   var hk = ids.filter(function(id){ var r = getRec(id); return r && headLocked(reg, r, f); });
-  var oo = ids.filter(function(id){ var r = getRec(id); return r && hk.indexOf(id) < 0 && !fieldApplies(reg, f, r); });   /* v3.6: not a field of these items */
-  if(oo.length){ ids = ids.filter(function(id){ return oo.indexOf(id) < 0; }); toast(T(oo.length + ' item(s) left out — ' + T1(f.en, f.zh) + ' is only for ' + scopeText(reg, f), oo.length + ' 项未改：' + T1(f.en, f.zh) + ' 只用于' + scopeText(reg, f))); if(!ids.length && !hk.length) return; }
-  if(hk.length){ ids = ids.filter(function(id){ return hk.indexOf(id) < 0; }); toast(T(hk.length + ' heading item(s) left out — their ' + (f.en || f.key) + ' comes from their sub-items', hk.length + ' 个纲领未改：其' + (f.zh || f.en || f.key) + '由子项汇总')); if(!ids.length) return; }
+  var oo = ids.filter(function(id){ var r = getRec(id); return r && hk.indexOf(id) < 0 && !fieldApplies(reg, f, r); }), left = [];   /* v3.6: not a field of these items */
+  if(oo.length){ ids = ids.filter(function(id){ return oo.indexOf(id) < 0; }); left.push(T(oo.length + ' item(s) left out — ' + T1(f.en, f.zh) + ' is only for ' + scopeText(reg, f), oo.length + ' 项未改：' + T1(f.en, f.zh) + ' 只用于' + scopeText(reg, f))); }
+  if(hk.length){ ids = ids.filter(function(id){ return hk.indexOf(id) < 0; }); left.push(T(hk.length + ' heading item(s) left out — their ' + (f.en || f.key) + ' comes from their sub-items', hk.length + ' 个纲领未改：其' + (f.zh || f.en || f.key) + '由子项汇总')); }
+  if(!ids.length){ if(left.length) toast(left.join(' · ')); return; }
   var v = value; if(f.type === 'select' && f.multi && v != null) v = [v]; if(v == null) v = f.type === 'select' && f.multi ? [] : '';
   var ro0 = rolesOf(reg), dch = (f.key === ro0.start || f.key === ro0.finish) ? ids.map(function(id){ var r = getRec(id); return {id:id, was:r ? planOf(reg, r) : null}; }) : null;   // v3.4: followers of moved items
-  setRecs(ids.map(function(id){ return {rec:getRec(id), patch:mk(f.key, clone(v))}; }), null, {check:true}).then(function(res){ if(res && res.cancelled){ renderMain(); return; } var n = ids.length - ((res && res.skipped) || 0); toast(T('Updated ' + n, '已更新 ' + n + ' 项') + (res && res.failed ? T(' · ' + res.failed + ' not saved', ' · ' + res.failed + ' 项未保存') : '') + (res && res.skipped ? T(' · ' + res.skipped + ' skipped: ', ' · ' + res.skipped + ' 项未改：') + res.note : '')); S.bulkF = null; renderMain(); if(dch && typeof depAfterBatch === 'function') depAfterBatch(dch); });
+  setRecs(ids.map(function(id){ return {rec:getRec(id), patch:mk(f.key, clone(v))}; }), null, {check:true}).then(function(res){ if(res && res.cancelled){ renderMain(); return; } var n = ids.length - ((res && res.skipped) || 0); toast((left.length ? left.join(' · ') + ' · ' : '') + T('Updated ' + n, '已更新 ' + n + ' 项') + (res && res.failed ? T(' · ' + res.failed + ' not saved', ' · ' + res.failed + ' 项未保存') : '') + (res && res.skipped ? T(' · ' + res.skipped + ' skipped: ', ' · ' + res.skipped + ' 项未改：') + res.note : '')); S.bulkF = null; renderMain(); if(dch && typeof depAfterBatch === 'function') depAfterBatch(dch); });
 }
 function fxPick(reg, key, anchor){
   var fd = fieldOf(reg, key), f = rfil(reg.id);
