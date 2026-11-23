@@ -1369,3 +1369,14 @@ td.hdv .mono,.hdv .mono{color:var(--muted)}
 .kchip select:focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-radius:4px}
 .kset{display:inline-flex;align-items:center;gap:2px}
 .kset .kmk{margin-right:2px}
+/* v3.6 · fields that belong to part of a register */
+.fsc{border-top:1px dashed var(--line);padding-top:10px;display:flex;flex-direction:column;gap:6px}
+.fsc .note{margin:0}
+.scbox{max-height:200px;overflow:auto;border:1px solid var(--line);border-radius:6px;padding:6px 8px;background:var(--surface);display:flex;flex-direction:column;gap:2px}
+.fmsc{margin:-2px 0 6px 62px;font-size:12px}
+.popt.dis{opacity:.8;cursor:default}
+.psub{padding:8px 10px 2px;border-top:1px solid var(--line);margin-top:4px}
+.imnew{display:flex;gap:6px;align-items:center;margin-top:4px;flex-wrap:wrap}
+.imnew .in{width:auto}
+.impnew{margin-top:10px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}
+.impnew .note{margin:0}

@@ -64,17 +64,53 @@ function impFile(file){
     renderModal();
   }).catch(function(e){ toast(T('Could not read the file: ', '无法读取文件：') + (e && e.message)); });
 }
+/* v3.6 · a column that matches no field can become a new field. Its type is guessed from the values (dates, numbers, a
+   few repeated values → a choice, values joined with 、 , ; / → several choices, long text) and can be changed; a choice
+   gets exactly the values in the file as its options. */
+var IMP_NEW_TYPES = [['text', 'Text', '文本'], ['long', 'Long text', '长文本'], ['number', 'Number', '数字'], ['date', 'Date', '日期'], ['select', 'Choice', '选项'], ['multi', 'Choice (several)', '选项（多选）']];
+var IMP_SEP = /\s*[,，;；、\/\n]\s*/;
+function impColVals(sh, i){ return sh.rows.map(function(r){ return r[i]; }).filter(function(v){ return v != null && String(v instanceof Date ? 'd' : v).trim() !== ''; }); }
+function impGuess(sh, i){
+  var vs = impColVals(sh, i); if(!vs.length) return 'text';
+  if(vs.every(function(v){ return v instanceof Date || (typeof v === 'string' && /^\s*\d{4}[-\/.]\d{1,2}[-\/.]\d{1,2}\s*$/.test(v)); })) return 'date';
+  if(vs.every(function(v){ return typeof v === 'number' || (typeof v === 'string' && /^\s*-?\d[\d,]*(\.\d+)?\s*$/.test(v)); })) return 'number';
+  var ss = vs.map(function(v){ return String(v).trim(); }), withSep = ss.filter(function(s){ return IMP_SEP.test(s); }).length;
+  if(withSep && withSep >= ss.length * 0.3){ var parts = {}; ss.forEach(function(s){ splitList(s, IMP_SEP).forEach(function(p){ parts[p] = 1; }); }); if(Object.keys(parts).length <= 30) return 'multi'; }
+  var dist = Object.keys(ss.reduce(function(a, s){ a[s] = 1; return a; }, {})).length;
+  if(dist <= Math.min(30, Math.max(1, Math.ceil(ss.length * 0.6))) && (dist < ss.length || ss.length <= 2) && ss.every(function(s){ return s.length <= 40; })) return 'select';
+  return ss.reduce(function(a, s){ return a + s.length; }, 0) / ss.length > 60 ? 'long' : 'text';
+}
+/* "Training category 培训类别" → en "Training category", zh "培训类别" */
+function impNames(hd, i){
+  var s = String(hd == null ? '' : hd).trim() || T('Column ' + (i + 1), '列 ' + (i + 1)), c = s.search(/[一-鿿]/);
+  if(c > 0){ var en = s.slice(0, c).trim(), zh = s.slice(c).trim(); if(en) return {en:en, zh:zh}; }
+  return {en:s, zh:c === 0 ? s : ''};
+}
+function impOpt(p, n){ var zh = /[一-鿿]/.test(p) && !/[A-Za-z]{3,}/.test(p); return O(p.length <= 14 ? p : slug(p) || uid('o'), p, zh ? p : '', COLORS[(n + 1) % COLORS.length]); }
+/* the new field a column becomes (key, names, type, options from the file) */
+function impNewField(m, reg, i){
+  m.nf = m.nf || {}; var x = m.nf[i];
+  if(!x){ x = m.nf[i] = Object.assign({t:impGuess(m.sheet, i)}, impNames(m.sheet.headers[i], i)); }
+  var used = {}; Object.keys(m.nf).forEach(function(j){ if(+j !== i && m.map[+j] === '@new' && m.nf[j].key) used[m.nf[j].key] = 1; });
+  var base = newKey(reg, x.en || x.zh), key = base, kn = 2; while(used[key] || fieldOf(reg, key)) key = base + '_' + (kn++);
+  var f = {key:key, en:x.en, zh:x.zh, type:x.t === 'multi' ? 'select' : x.t, __new:true}; x.key = key;
+  if(x.t === 'select' || x.t === 'multi'){ var seen = {}, opts = []; f.multi = x.t === 'multi';
+    impColVals(m.sheet, i).forEach(function(v){ (f.multi ? splitList(String(v), IMP_SEP) : [String(v instanceof Date ? parseDate(v) : v).trim()]).forEach(function(p){ if(p && !seen[p]){ seen[p] = 1; var o = impOpt(p, opts.length); while(opts.some(function(q){ return q.v === o.v; })) o.v += '_'; opts.push(o); } }); });
+    f.opts = opts; }
+  return f;
+}
 function importModal(m){
   var reg = getReg(m.reg); if(!reg) return {title:'', html:''};
   if(m.step === 'file') return {title:L('Import Excel', '导入 Excel') + ' · ' + esc(regName(reg)), html:'<p class="note">' + L('Choose an .xlsx / .xls / .csv file. Next you will match each column to a field and see a preview — nothing is written until you confirm.', '选择 .xlsx / .xls / .csv 文件。下一步会把每一列对应到字段并预览，确认前不会写入任何数据。') + '</p><input type="file" id="impFile" accept=".xlsx,.xls,.csv">'};
   if(m.step === 'busy') return {title:L('Importing…', '导入中…'), html:'<p>' + esc(m.progress || '') + '</p>'};
-  var sh = m.sheet, opts = SPECIAL.map(function(s){ return [s[0], T(s[1], s[2])]; }).concat(dataFields(reg).filter(function(f){ return ['calc','sub','files','link'].indexOf(f.type) < 0; }).map(function(f){ return [f.key, T1(f.en, f.zh) + ' · ' + T(TYPES[f.type].en, TYPES[f.type].zh)]; }));
+  var sh = m.sheet, opts = SPECIAL.slice(0, 1).map(function(s){ return [s[0], T(s[1], s[2])]; }).concat(canSchemaEdit(reg) ? [['@new', T('＋ New field', '＋ 新增字段')]] : [], SPECIAL.slice(1).map(function(s){ return [s[0], T(s[1], s[2])]; })).concat(dataFields(reg).filter(function(f){ return ['calc','sub','files','link'].indexOf(f.type) < 0; }).map(function(f){ return [f.key, T1(f.en, f.zh) + ' · ' + T(TYPES[f.type].en, TYPES[f.type].zh)]; }));
   var plan = impPlan(m, reg);
   var h = '<p class="note">' + esc(m.name) + ' · ' + L('sheet', '工作表') + ' “' + esc(sh.sn) + '” · ' + sh.rows.length + ' ' + L('rows', '行') + '</p>';
   h += '<div class="tbl-wrap"><table class="tbl imap"><thead><tr><th>' + L('Column in file', '文件中的列') + '</th><th>' + L('Examples', '示例') + '</th><th>' + L('Goes into field', '写入字段') + '</th></tr></thead><tbody>' + sh.headers.map(function(hd, i){
     var ex = sh.rows.slice(0, 3).map(function(r){ var v = r[i]; return v instanceof Date ? parseDate(v) : String(v == null ? '' : v).slice(0, 30); }).filter(Boolean).join(' | ');
-    return '<tr><td><b>' + esc(hd || '(' + T('column', '列') + ' ' + (i + 1) + ')') + '</b></td><td class="note">' + esc(ex) + '</td><td><select class="in" data-imap="' + i + '">' + opts.map(function(o){ return '<option value="' + esc(o[0]) + '"' + (m.map[i] === o[0] ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select></td></tr>';
+    return '<tr><td><b>' + esc(hd || '(' + T('column', '列') + ' ' + (i + 1) + ')') + '</b></td><td class="note">' + esc(ex) + '</td><td><select class="in" data-imap="' + i + '">' + opts.map(function(o){ return '<option value="' + esc(o[0]) + '"' + (m.map[i] === o[0] ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select>' + (m.map[i] === '@new' ? impNewRow(m, reg, i) : '') + '</td></tr>';
   }).join('') + '</tbody></table></div>';
+  h += impNewNote(m, reg, plan);
   h += '<div class="fg" style="margin-top:10px"><label class="fl">' + L('Match existing records by', '按此字段匹配已有记录') + '<select class="in" id="impMatch"><option value="">' + esc(T('Do not match — always add new', '不匹配，全部新增')) + '</option>' + dataFields(reg).filter(function(f){ return f.type === 'text'; }).map(function(f){ return '<option value="' + esc(f.key) + '"' + (m.matchKey === f.key ? ' selected' : '') + '>' + esc(T1(f.en, f.zh)) + '</option>'; }).join('') + '</select></label></div>';
   h += '<div class="impsum card"><b>' + L('Preview', '预览') + '</b> · ' + L(plan.adds.length + ' new', '新增 ' + plan.adds.length) + ' · ' + L(plan.updates.length + ' updated', '更新 ' + plan.updates.length) + (plan.skipped ? ' · ' + L(plan.skipped + ' empty rows skipped', '跳过 ' + plan.skipped + ' 个空行') : '') +
     (plan.newOpts.length ? '<div class="note">' + L('New options that will be added: ', '将自动新增的选项：') + esc(plan.newOpts.slice(0, 30).join(', ')) + (plan.newOpts.length > 30 ? '…' : '') + '</div>' : '') +
@@ -91,6 +127,30 @@ function phaseRange(n){
     var e = t.getUTCDate() <= 15 ? Math.round(Date.UTC(y, mo, 15) / 864e5) : Math.round(Date.UTC(y, mo + 1, 0) / 864e5);
     if(i === n) return [n2d(d), n2d(e)]; d = e + 1; }
   return null;
+}
+function impNewRow(m, reg, i){
+  var x = (m.nf || {})[i] || {};
+  return '<div class="imnew"><span class="note">' + L('New field', '新字段') + ' “' + esc(T1(x.en, x.zh)) + '”</span><select class="in sm" data-imnt="' + i + '" aria-label="' + esc(T('Type of the new field', '新字段类型')) + '">' + IMP_NEW_TYPES.map(function(t){ return '<option value="' + t[0] + '"' + (x.t === t[0] ? ' selected' : '') + '>' + esc(T(t[1], t[2])) + '</option>'; }).join('') + '</select></div>';
+}
+/* the part of the register new fields belong to: the packages and Types of the imported rows (when there are a few) */
+function impScope(m, reg, plan){
+  var tf = rf(reg, 'tree'), kf = rf(reg, 'kind'), ns = {}, ts = {};
+  plan.adds.forEach(function(d){ if(tf && d[tf.key]) ns[d[tf.key]] = 1; if(kf && d[kf.key] != null) ts[asArr(d[kf.key])[0]] = 1; });
+  plan.updates.forEach(function(u){ var n = tf && (u.d[tf.key] || u.rec.d[tf.key]), t = kf && asArr(u.d[kf.key] != null ? u.d[kf.key] : u.rec.d[kf.key])[0]; if(n) ns[n] = 1; if(t != null && t !== '') ts[t] = 1; });
+  var n = Object.keys(ns), t = Object.keys(ts).filter(Boolean);
+  return {nodes:n.length && n.length <= 5 ? n : [], types:t.length && t.length <= 5 ? t : []};
+}
+function impScopeText(reg, sc, plan){
+  var tf = rf(reg, 'tree'), kf = rf(reg, 'kind'), dt = plan.draftTree && tf ? plan.draftTree[tf.key] : null, dopt = plan.draftOpts && kf ? plan.draftOpts[kf.key] : null;
+  return sc.nodes.map(function(id){ var n = (dt || treeNodes(tf)).filter(function(x){ return x.id === id; })[0]; return n ? treeLabel(n) : ''; }).concat(sc.types.map(function(v){ var o = (dopt || optsOf(kf)).filter(function(x){ return x.v === v; })[0]; return o ? nm(o) : v; })).filter(Boolean).join(' · ');
+}
+function impNewNote(m, reg, plan){
+  var nn = m.map.filter(function(k){ return k === '@new'; }).length, un = m.map.filter(function(k, i){ return !k && String(m.sheet.headers[i] == null ? '' : m.sheet.headers[i]).trim() && impColVals(m.sheet, i).length; }).length;
+  var h = '';
+  if(!nn && un && canSchemaEdit(reg)) h += '<p class="note">' + L(un + ' column(s) match no field and are left out — pick “＋ New field” to add them to this register.', un + ' 列没有对应的字段，不会导入；选「＋ 新增字段」可把它们加到此台账。') + '</p>';
+  if(nn){ var sc = impScope(m, reg, plan), st = impScopeText(reg, sc, plan);
+    h += '<div class="card impnew"><b>' + L(nn + ' new field(s)', '新增 ' + nn + ' 个字段') + '</b><span class="note"> · ' + esc(plan.newFields.map(function(f){ return T1(f.en, f.zh) + ' (' + T(TYPES[f.type].en, TYPES[f.type].zh) + (f.multi ? T(', several', '，多选') : '') + (f.opts ? T(', ' + f.opts.length + ' options', '，' + f.opts.length + ' 个选项') : '') + ')'; }).join(' · ')) + '</span>' + (st ? '<label class="chk"><input type="checkbox" id="impScope"' + (m.nfAll ? '' : ' checked') + '>' + L('Only for this part of the register: ', '只用于这部分：') + '<b>' + esc(st) + '</b></label><p class="note">' + L('They then show in the details of those items only, and as columns when you pick that package. Untick to make them fields of every item.', '这样它们只出现在这些事项的详情里，选到该文件包时自动成为表格的列。取消勾选 = 所有事项都有这些字段。') + '</p>' : '<p class="note">' + L('They will be fields of every item. To keep them to one package or Type, include the Package / Type columns, or set it later in Fields & columns.', '它们将是所有事项的字段。要只用于某个文件包或类型，请在文件中包含文件包 / 类型列，或之后在「字段与列」中设置。') + '</p>') + '</div>'; }
+  return h;
 }
 function impConvert(reg, f, raw, ctx){
   if(raw instanceof Date) raw = parseDate(raw);
@@ -110,14 +170,15 @@ function impConvert(reg, f, raw, ctx){
       if(!hit){ hit = {id:uid('n'), parent:'', code: m ? m[1] : '', en: m ? (/[一-鿿]/.test(m[2]) ? '' : m[2]) : (/[一-鿿]/.test(s) ? '' : s), zh: m ? (/[一-鿿]/.test(m[2]) ? m[2] : '') : (/[一-鿿]/.test(s) ? s : '')}; if(!hit.en) hit.en = hit.zh || s; nodes.push(hit); ctx.newOpt(T1(f.en, f.zh) + ': ' + s); }
       return hit.id;
     case 'select':
-      var opts = ctx.opts(f), parts = f.multi ? splitList(s, /\s*[,，;；、\/\n]\s*/) : [s];
+      var opts = ctx.opts(f), parts = f.multi ? splitList(s, /\s*[,，;；、\/\n]\s*/) : [s], mk = f.list || f.key, made = ctx.made ? (ctx.made[mk] = ctx.made[mk] || {}) : {};
+      var old = function(x){ return !f.__new && !made[x.v]; };   /* v3.6: options added by this import match exactly — 华为厂家 is not 厂家 */
       var out = parts.map(function(p){
         var pl = p.toLowerCase(), cand = f.list === 'blocks' ? p.replace(/block|区/ig, '').trim().toUpperCase() : null;
         var o = opts.filter(function(x){ return [x.v, x.en, x.zh].some(function(y){ return y && String(y).toLowerCase() === pl; }) || (cand && x.v === cand); })[0];
         var person = f.list === 'people' || f.list === 'subcon';   // names: exact match only (郑道明 must not become 郑道)
-        if(!o && !person){ var mm = /^([a-zA-Z]+)\s*(.*)$/.exec(p); if(mm) o = opts.filter(function(x){ return x.v.toLowerCase() === mm[1].toLowerCase(); })[0]; }
-        if(!o && f.list !== 'blocks' && !person) o = opts.filter(function(x){ return [x.en, x.zh].some(function(y){ return y && pl.indexOf(String(y).toLowerCase()) >= 0 && String(y).length > 1; }); })[0];
-        if(!o){ var zh = /[一-鿿]/.test(p) && !/[A-Za-z]{3,}/.test(p); o = O(cand || (f.list === 'people' || f.list === 'subcon' ? p : p.length <= 14 ? p : slug(p) || uid('o')), zh ? p : p, zh ? p : '', COLORS[(opts.length + 1) % COLORS.length]); opts.push(o); ctx.newOpt(T1(f.en, f.zh) + ': ' + p); }
+        if(!o && !person){ var mm = /^([a-zA-Z]+)\s*(.*)$/.exec(p); if(mm) o = opts.filter(function(x){ return old(x) && x.v.toLowerCase() === mm[1].toLowerCase(); })[0]; }
+        if(!o && f.list !== 'blocks' && !person) o = opts.filter(function(x){ return old(x) && [x.en, x.zh].some(function(y){ return y && pl.indexOf(String(y).toLowerCase()) >= 0 && String(y).length > 1; }); })[0];
+        if(!o){ var zh = /[一-鿿]/.test(p) && !/[A-Za-z]{3,}/.test(p); o = O(cand || (f.list === 'people' || f.list === 'subcon' ? p : p.length <= 14 ? p : slug(p) || uid('o')), zh ? p : p, zh ? p : '', COLORS[(opts.length + 1) % COLORS.length]); opts.push(o); made[o.v] = 1; ctx.newOpt(T1(f.en, f.zh) + ': ' + p); }
         return o.v;
       });
       if(f.multi && f.list === 'blocks' && /^(all|全场|site)/i.test(s)) return [];
@@ -131,8 +192,10 @@ function impPlan(m, reg, apply){
   var ctx = {
     opts:function(f){ if(f.list){ if(!draftLists[f.list]) draftLists[f.list] = clone(lists()[f.list].opts); return draftLists[f.list]; } if(!draftOpts[f.key]) draftOpts[f.key] = clone(f.opts || []); return draftOpts[f.key]; },
     tree:function(f){ if(!draftTree[f.key]) draftTree[f.key] = clone(f.tree || []); return draftTree[f.key]; },
-    newOpt:function(s){ if(newOpts.indexOf(s) < 0) newOpts.push(s); }
+    newOpt:function(s){ if(newOpts.indexOf(s) < 0) newOpts.push(s); },
+    made:{}
   };
+  var nfs = {}; m.map.forEach(function(k, i){ if(k === '@new') nfs[i] = impNewField(m, reg, i); });   /* v3.6 */
   var byKey = {}, mk = m.matchKey, ro = rolesOf(reg);
   if(mk) recsOf(reg.id).forEach(function(r){ var v = String(r.d[mk] || '').trim().toUpperCase(); if(v) byKey[v] = r; });
   var seen = {}, acts = [];
@@ -147,8 +210,8 @@ function impPlan(m, reg, apply){
       if(k === '__parent'){ var pv = String(raw == null ? '' : raw).trim(); if(pv) d.__parentNo = pv; return; }
       if(k === '__star'){ var st = String(raw || '').trim(); if(st) d.star = /^(y|yes|true|1|是|★|重点)/i.test(st); return; }
       if(k === '__act'){ var ac = impAction(raw); if(ac) d.__act = ac; return; }
-      var f = fieldOf(reg, k); if(!f) return;
-      var v = impConvert(reg, f, raw, ctx); if(v !== undefined) d[k] = v;
+      var f = k === '@new' ? nfs[i] : fieldOf(reg, k); if(!f) return;
+      var v = impConvert(reg, f, raw, ctx); if(v !== undefined) d[f.key] = v;
     });
     if(d.__ph){ if(ro.start && !d[ro.start] && ro.finish && !d[ro.finish]){ d[ro.start] = d.__ph[0]; d[ro.finish] = d.__ph[1]; } delete d.__ph; }
     var keys = Object.keys(d); if(!keys.length || !keys.some(function(k){ return k === ro.title || k === ro.title2 || k === mk || k === ro.no; })){ skipped++; return; }
@@ -173,7 +236,7 @@ function impPlan(m, reg, apply){
   var going = {}; acts.forEach(function(x){ going[x.rec.id] = 1; });
   acts = acts.filter(function(x){ if(x.into && going[x.into.id]){ warn.push(recNo(reg, x.rec) + T(': ', '：') + recNo(reg, x.into) + T(' is merged or deleted itself', ' 本身也要合并或删除')); return false; } return true; });
   updates = updates.filter(function(u){ return !going[u.rec.id]; });
-  return {adds:adds, updates:updates, acts:acts, skipped:skipped, newOpts:newOpts, warn:warn, draftOpts:draftOpts, draftTree:draftTree, draftLists:draftLists};
+  return {adds:adds, updates:updates, acts:acts, skipped:skipped, newOpts:newOpts, warn:warn, draftOpts:draftOpts, draftTree:draftTree, draftLists:draftLists, newFields:Object.keys(nfs).map(function(i){ return nfs[i]; })};
 }
 async function impRun(){
   var m = S.modal, reg = getReg(m.reg); if(!reg || !canWrite(reg)) return;
@@ -181,8 +244,10 @@ async function impRun(){
   m.step = 'busy'; m.progress = T('Updating fields and options…', '正在更新字段与选项…'); renderModal();
   try{
     if(Object.keys(plan.draftLists).length){ var ls = clone(lists()); Object.keys(plan.draftLists).forEach(function(k){ ls[k].opts = plan.draftLists[k]; }); await STORE.saveCfg({lists:ls}); }
-    if(Object.keys(plan.draftOpts).length || Object.keys(plan.draftTree).length){
-      var fs = clone(fieldsOf(reg)); fs.forEach(function(f){ if(plan.draftOpts[f.key]) f.opts = plan.draftOpts[f.key]; if(plan.draftTree[f.key]) f.tree = plan.draftTree[f.key]; });
+    if(Object.keys(plan.draftOpts).length || Object.keys(plan.draftTree).length || plan.newFields.length){
+      var sc = plan.newFields.length && !m.nfAll ? impScope(m, reg, plan) : null;
+      var nf = plan.newFields.map(function(f){ var x = clone(f); delete x.__new; if(sc && (sc.nodes.length || sc.types.length)) x.scope = clone(sc); return x; });   /* v3.6: new fields */
+      var fs = clone(fieldsOf(reg)).concat(nf); fs.forEach(function(f){ if(plan.draftOpts[f.key]) f.opts = plan.draftOpts[f.key]; if(plan.draftTree[f.key]) f.tree = plan.draftTree[f.key]; });
       await STORE.patchReg(reg.id, {fields:fs});
     }
     var ro = rolesOf(reg), pre = String(reg.d.prefix || 'REC').toUpperCase(), used = {}, nmax = 0, re = new RegExp('^' + pre.replace(/[^A-Z0-9]/g, '') + '-(\\d+)$', 'i');

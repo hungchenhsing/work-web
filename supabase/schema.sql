@@ -419,7 +419,8 @@ language sql immutable as $$
   select public.share_obj(jsonb_build_object('key', f->'key', 'en', f->'en', 'zh', f->'zh', 'type', f->'type', 'list', f->'list', 'multi', f->'multi',
     'opts', f->'opts', 'tree', f->'tree', 'unit', f->'unit', 'w', f->'w', 'hide', f->'hide', 'ext', f->'ext',
     'auto', case when jsonb_typeof(f->'auto') = 'object' then public.share_obj(jsonb_build_object('op', f->'auto'->'op', 'a', f->'auto'->'a', 'b', f->'auto'->'b')) end,
-    'calc', case when jsonb_typeof(f->'calc') = 'object' then public.share_obj(jsonb_build_object('op', f->'calc'->'op', 'a', f->'calc'->'a', 'b', f->'calc'->'b')) end)) $$;
+    'calc', case when jsonb_typeof(f->'calc') = 'object' then public.share_obj(jsonb_build_object('op', f->'calc'->'op', 'a', f->'calc'->'a', 'b', f->'calc'->'b')) end,
+    'scope', case when jsonb_typeof(f->'scope') = 'object' then public.share_obj(jsonb_build_object('nodes', f->'scope'->'nodes', 'types', f->'scope'->'types')) end)) $$;
 -- the field-value part of a publisher's filter, prepared once per register: [{k, w: wanted values, c: is a tick box}]
 create or replace function public.share_fx(p_rec jsonb, p_fx jsonb) returns boolean
 language plpgsql immutable as $$

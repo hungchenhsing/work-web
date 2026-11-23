@@ -129,9 +129,21 @@ function regFilters(reg, views, v){
 }
 
 /* ---------------- table ---------------- */
-function tableCols(reg){ var pick = S.rcols[reg.id]; var ds = dataFields(reg); if(pick && pick.length) return ds.filter(function(f){ return pick.indexOf(f.key) >= 0; }); return ds.filter(function(f){ return !f.hide; }); }
+/* the table's columns: the ones picked (or shown by default) — plus, while the register is narrowed (a package picked, a
+   filter on), the fields that belong to part of it (v3.6) when they apply to rows shown */
+function tableCols(reg, list){
+  var pick = S.rcols[reg.id], ds = dataFields(reg), sc = ds.filter(function(f){ return scopeOf(f) && !f.hide; });
+  var base = ds.filter(function(f){ return !scopeOf(f) && (pick && pick.length ? pick.indexOf(f.key) >= 0 : !f.hide); });
+  if(!sc.length || !activeFilterCount(reg)) return base;
+  var l = list || filteredRecs(reg), on = {};
+  sc.forEach(function(f){ if(l.some(function(r){ return fieldApplies(reg, f, r); })) on[f.key] = 1; });
+  /* they come right after the title, so a package's own columns read first */
+  var add = ds.filter(function(f){ return on[f.key]; }); if(!add.length) return base;
+  var ro = rolesOf(reg), at = -1; base.forEach(function(f, i){ if(f.key === ro.title || f.key === ro.title2) at = i; });
+  return at < 0 ? base.concat(add) : base.slice(0, at + 1).concat(add, base.slice(at + 1));
+}
 function viewTable(reg, list){
-  var ed = canWrite(reg), cols = tableCols(reg), gsel = oTableGroup(reg), oOn = oActive(reg, gsel), gk = gsel === '@tree' || gsel === '@flat' ? 'none' : gsel, ro = rolesOf(reg), tfo = rf(reg, 'tree');
+  var ed = canWrite(reg), cols = tableCols(reg, list), gsel = oTableGroup(reg), oOn = oActive(reg, gsel), gk = gsel === '@tree' || gsel === '@flat' ? 'none' : gsel, ro = rolesOf(reg), tfo = rf(reg, 'tree');
   if(window.innerWidth < 720) return viewCards(reg, list, oOn);
   list = sortRecs(reg, list);
   var s = S.rs[reg.id] || {k: ro.no || '', d:1};
@@ -189,7 +201,7 @@ function tableRow(reg, r, cols, ed, h){
   h = h || {depth:0, kids:[]};
   var ro = rolesOf(reg), od = isOverdue(reg, r), cm = openFb(r.id) > 0, ru = h.kids.length ? rollup(reg, r, h.kids) : null;
   return '<tr class="' + (r.d.star ? 'star ' : '') + (od ? 'odr ' : '') + (h.depth ? 'kid ' : '') + (h.ctx ? 'ctxr ' : '') + (isHead(reg, r) ? 'hdr' : '') + '"' + (h.ctx ? ' title="' + esc(T('Shown because a sub-item matches', '因子项符合条件而显示')) + '"' : '') + '>' + (ed ? '<td class="sel"><input type="checkbox" class="rowsel" data-id="' + esc(r.id) + '"' + (S.sel[r.id] ? ' checked' : '') + ' aria-label="Select"></td>' : '') + cols.map(function(f){
-    var ce = ed && f.type !== 'calc' && !(f.type === 'percent' && isAutoNow(r, f)) && !headLocked(reg, r, f), inner;
+    var ce = ed && f.type !== 'calc' && !(f.type === 'percent' && isAutoNow(r, f)) && !headLocked(reg, r, f) && fieldApplies(reg, f, r), inner;   /* v3.6: not a field of this row's part */
     if(S.edit && S.edit.id === r.id && S.edit.k === f.key){
       var v = r.d[f.key] == null ? '' : r.d[f.key];
       inner = f.type === 'long' ? '<textarea class="in ie" data-ie="1" data-fk="ie" rows="3">' + esc(v) + '</textarea>' : '<input class="in ie" data-ie="1" data-fk="ie" type="' + (f.type === 'date' ? 'date' : f.type === 'number' || f.type === 'percent' ? 'number' : 'text') + '" value="' + esc(v) + '">';
@@ -197,7 +209,7 @@ function tableRow(reg, r, cols, ed, h){
     }
     if(f.key === ro.no) return '<td class="no"' + (h.base ? ' style="padding-left:' + (10 + h.base * 18) + 'px"' : '') + '><button type="button" class="lnk mono" data-act="openRec" data-id="' + esc(r.id) + '">' + esc(r.d[f.key] || '—') + '</button>' + (r.d.star ? ' <span class="kst">★</span>' : '') + (r.d.ext && ownerGated(reg) && !isPrivate(reg) ? ' <span class="oeye" title="' + esc(T('Owner can see', '业主可见')) + '" aria-label="' + esc(T('Owner can see', '业主可见')) + '">' + uic('eye', 12) + '</span>' : '') + (cm ? '<span class="rdot"></span>' : '') + (function(){ var n = relCount(r); return n ? '<button type="button" class="rlk" data-act="openRecTab" data-v="' + esc(r.id) + '" title="' + esc(T(n + ' linked', n + ' 项关联')) + '">' + uic('link', 11) + n + '</button>' : ''; })() + '</td>';
     if(f.key === ro.title){ var lead = '<span class="ind" style="width:' + ((h.depth + (h.base && !cols.some(function(c){ return c.key === ro.no; }) ? h.base : 0)) * 22) + 'px"></span>' + (h.kids.length ? (h.forced ? '<span class="cx cxf" title="' + esc(T('Open because a sub-item matches the search', '因子项符合搜索而展开')) + '">▾</span>' : '<button type="button" class="cx" data-act="rexp" data-v="' + esc(r.id) + '" aria-expanded="' + !!h.open + '" title="' + esc(T('Show sub-items', '展开子项')) + '">' + (h.open ? '▾' : '▸') + '</button>') : (h.depth ? '<span class="cx0">└</span>' : ''));
-      return '<td class="tt' + (ce ? ' ce' : '') + '"' + (ce ? ' data-ce="1" data-id="' + esc(r.id) + '" data-k="' + esc(f.key) + '"' : '') + '><div class="ttw">' + lead + '<div class="ttx">' + (h.orphan ? '<span class="pp">↳ ' + esc(recNo(reg, h.orphan) || recTitle(reg, h.orphan)) + '</span>' : '') + '<span class="tt1" title="' + esc(r.d[f.key] || recTitle(reg, r) || '') + '">' + kindMark(reg, r) + esc(r.d[f.key] || recTitle(reg, r) || '—') + '</span>' + (recTitle2(reg, r) && !tableCols(reg).some(function(c){ return c.key === ro.title2; }) ? '<span class="tt2" title="' + esc(recTitle2(reg, r)) + '">' + esc(recTitle2(reg, r)) + '</span>' : '') + (ru ? (h.forced ? '<span class="kc">' : '<button type="button" class="kc" data-act="rexp" data-v="' + esc(r.id) + '">') + L(ru.done + '/' + ru.n + ' sub-items done', ru.n + ' 个子项，已完成 ' + ru.done) + (h.forced ? '</span>' : '</button>') : '') + '</div></div></td>'; }
+      return '<td class="tt' + (ce ? ' ce' : '') + '"' + (ce ? ' data-ce="1" data-id="' + esc(r.id) + '" data-k="' + esc(f.key) + '"' : '') + '><div class="ttw">' + lead + '<div class="ttx">' + (h.orphan ? '<span class="pp">↳ ' + esc(recNo(reg, h.orphan) || recTitle(reg, h.orphan)) + '</span>' : '') + '<span class="tt1" title="' + esc(r.d[f.key] || recTitle(reg, r) || '') + '">' + kindMark(reg, r) + esc(r.d[f.key] || recTitle(reg, r) || '—') + '</span>' + (recTitle2(reg, r) && !cols.some(function(c){ return c.key === ro.title2; }) ? '<span class="tt2" title="' + esc(recTitle2(reg, r)) + '">' + esc(recTitle2(reg, r)) + '</span>' : '') + (ru ? (h.forced ? '<span class="kc">' : '<button type="button" class="kc" data-act="rexp" data-v="' + esc(r.id) + '">') + L(ru.done + '/' + ru.n + ' sub-items done', ru.n + ' 个子项，已完成 ' + ru.done) + (h.forced ? '</span>' : '</button>') : '') + '</div></div></td>'; }
     if(headLocked(reg, r, f)) return '<td class="t-' + esc(f.type) + ' hdv" title="' + esc(T('From its sub-items', '由子项汇总')) + '" data-act="openRec" data-id="' + esc(r.id) + '">' + (f.key === ro.progress ? pbar(progressOf(reg, r), '<span class="auto">Σ</span>') : cellHtml(reg, f, r)) + '</td>';
     if(f.key === ro.progress && ru && (r.d[f.key] == null || r.d[f.key] === '') && !isAutoNow(r, f)) return '<td class="t-percent">' + pbar(ru.pct, '<span class="auto" title="' + esc(T('Rolled up from sub-items', '由子项汇总')) + '">Σ</span>') + '</td>';
     var tip = (f.type === 'text' || f.type === 'long') && r.d[f.key] && String(r.d[f.key]).length > 40 ? ' title="' + esc(String(r.d[f.key]).slice(0, 1200)) + '"' : '';

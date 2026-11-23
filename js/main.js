@@ -169,6 +169,7 @@ document.addEventListener('click', function(e){
     case 'fmSave': (function(){ var m = S.modal, rg = getReg(m.reg), fs = m.d.fields;
       for(var i = 0; i < fs.length; i++){ if(!fs[i].en && !fs[i].zh){ toast(T('Every field needs a name', '每个字段都需要名称')); return; } if(isLk(fs[i])) delete fs[i].ext; if(isLk(fs[i]) && lkProblem(fs[i])){ toast(T1(fs[i].en, fs[i].zh) + ': ' + lkProblem(fs[i])); m.exp = i; renderModal(); return; } if(fs[i].type === 'select' && !fs[i].list){ var bad = cleanOpts(fs[i].opts || []); if(bad){ toast(T1(fs[i].en, fs[i].zh) + ': ' + bad); return; } } }
       Object.keys(m.d.roles).forEach(function(r){ if(!m.d.roles[r]) delete m.d.roles[r]; });
+      fs.forEach(function(f){ if(!scopeOf(f) || Object.keys(m.d.roles).some(function(r){ return m.d.roles[r] === f.key; })) delete f.scope; });   /* v3.6: role fields belong to every item */
       var bad1 = fs.filter(function(f){ return f.multi && (m.d.roles.status === f.key || m.d.roles.kind === f.key); })[0];
       if(bad1){ toast(T1(bad1.en || bad1.key, bad1.zh) + ': ' + T('a status (or kind) field takes one value — untick Several', '状态（或类别）字段只能有一个值，请取消「多选」')); return; }
       /* v3.3: "several values" switched on or off → convert what the records hold (asks first when values would be dropped) */
@@ -254,7 +255,9 @@ document.addEventListener('click', function(e){
 });
 function colsPick(reg, anchor){
   var cur = tableCols(reg).map(function(f){ return f.key; });
-  var html = '<div class="plist">' + dataFields(reg).map(function(f){ var on = cur.indexOf(f.key) >= 0; return '<label class="popt"><input type="checkbox" data-colk="' + esc(f.key) + '"' + (on ? ' checked' : '') + '>' + esc(T1(f.en, f.zh)) + '</label>'; }).join('') + '</div><div class="pfoot"><button type="button" class="lnk" data-act="colsReset">' + L('Reset to default', '恢复默认') + '</button><button type="button" class="btn sm" data-act="popClose">' + L('Done', '完成') + '</button></div>';
+  var sc = dataFields(reg).filter(function(f){ return scopeOf(f); });
+  var html = '<div class="plist">' + dataFields(reg).filter(function(f){ return !scopeOf(f); }).map(function(f){ var on = cur.indexOf(f.key) >= 0; return '<label class="popt"><input type="checkbox" data-colk="' + esc(f.key) + '"' + (on ? ' checked' : '') + '>' + esc(T1(f.en, f.zh)) + '</label>'; }).join('') +
+    (sc.length ? '<div class="note psub">' + L('Shown by themselves when you pick the part they belong to:', '选到所属范围时自动显示：') + '</div>' + sc.map(function(f){ return '<div class="popt dis"><span>' + esc(T1(f.en, f.zh)) + '</span> <span class="note">' + esc(scopeText(reg, f)) + '</span></div>'; }).join('') : '') + '</div><div class="pfoot"><button type="button" class="lnk" data-act="colsReset">' + L('Reset to default', '恢复默认') + '</button><button type="button" class="btn sm" data-act="popClose">' + L('Done', '完成') + '</button></div>';
   openPick('menu', {reg:reg.id, html:html}, anchor);
 }
 document.addEventListener('click', function(e){ var el = e.target.closest && e.target.closest('[data-act="colsReset"]'); if(!el) return; delete S.rcols[S.reg]; saveUI(); closePop(); renderMain(); });
@@ -356,6 +359,8 @@ function fmSet(d, el){
   else if(k === 'list'){ delete f.def; f.list = el.value || undefined; if(!f.list && !f.opts) f.opts = []; renderModal(); }
   else if(k === 'autoA' || k === 'autoB'){ f.auto = f.auto || {op:'pct'}; f.auto[k === 'autoA' ? 'a' : 'b'] = el.value; if(!f.auto.a || !f.auto.b){ if(!f.auto.a && !f.auto.b) delete f.auto; } }
   else if(k === 'calcOp' || k === 'calcA' || k === 'calcB'){ f.calc = f.calc || {}; f.calc[k === 'calcOp' ? 'op' : k === 'calcA' ? 'a' : 'b'] = el.value; }
+  else if(k === 'scn' || k === 'sct'){ var sv = p.slice(2).join(':'), sc = f.scope && typeof f.scope === 'object' ? f.scope : {}, arr = (sc[k === 'scn' ? 'nodes' : 'types'] = Array.isArray(sc[k === 'scn' ? 'nodes' : 'types']) ? sc[k === 'scn' ? 'nodes' : 'types'] : []), si = arr.indexOf(sv);   /* v3.6: the part of the register a field belongs to */
+    if(el.checked && si < 0) arr.push(sv); if(!el.checked && si >= 0) arr.splice(si, 1); f.scope = sc; if(!scopeOf(f)) delete f.scope; }
   else if(k === 'link'){ var rid = p.slice(2).join(':'), l = f.link || [], i = l.indexOf(rid); if(el.checked && i < 0) l.push(rid); if(!el.checked && i >= 0) l.splice(i, 1); f.link = l; }
 }
 
@@ -384,7 +389,7 @@ document.addEventListener('change', function(e){
   if(el.id === 'bulkField'){ S.bulkF = el.value || null; renderMain(); return; }
   if(el.id === 'selall'){ S.sel = {}; if(el.checked) (O_VIS[reg.id] ? O_VIS[reg.id].map(getRec).filter(Boolean) : filteredRecs(reg)).forEach(function(r){ S.sel[r.id] = true; }); renderMain(); return; }   // in the outline: the items in open folders
   if(el.classList.contains('rowsel')){ S.sel[el.dataset.id] = el.checked; S.bulkDel = false; renderMain(); return; }
-  if(el.dataset.colk){ var cur = tableCols(reg).map(function(f){ return f.key; }), k = el.dataset.colk, i = cur.indexOf(k); if(el.checked && i < 0) cur.push(k); if(!el.checked && i >= 0) cur.splice(i, 1); var ord = dataFields(reg).map(function(f){ return f.key; }); cur.sort(function(a, b){ return ord.indexOf(a) - ord.indexOf(b); }); S.rcols[S.reg] = cur; saveUI(); renderMain(); return; }
+  if(el.dataset.colk){ var cur = tableCols(reg).filter(function(f){ return !scopeOf(f); }).map(function(f){ return f.key; }), k = el.dataset.colk, i = cur.indexOf(k); if(el.checked && i < 0) cur.push(k); if(!el.checked && i >= 0) cur.splice(i, 1); var ord = dataFields(reg).map(function(f){ return f.key; }); cur.sort(function(a, b){ return ord.indexOf(a) - ord.indexOf(b); }); S.rcols[S.reg] = cur; saveUI(); renderMain(); return; }
   if(el.dataset.act === 'extTog' && rec){ setRec(rec, {ext:el.checked}, {silent:true}); return; }
   if(el.dataset.act === 'asDocTog' && rec){ setRec(rec, {asDoc:el.checked || null}, {silent:true}); return; }   // v3.4.7: a heading item counted as a document too
   if(el.dataset.act === 'kindSet' && rec){ setRec(rec, {itemKind:KIND_SET.indexOf(el.value) >= 0 ? el.value : null}); return; }   // v3.5: this item's kind, apart from its Type
@@ -405,6 +410,8 @@ document.addEventListener('change', function(e){
     else if(q3[1] === 'multi'){ c.multi = el.checked; } else if(q3[1] === 'optsTxt'){ c.opts = splitList(el.value, /\s*[,，;；]\s*/).map(function(x, i){ return O(x, x, '', COLORS[(i + 1) % COLORS.length]); }); } return; }
   if((d = el.dataset.rs)){ S.modal.d[d] = el.type === 'checkbox' ? el.checked : el.value; if(d === 'vis') renderModal(); return; }
   if(el.dataset.imap != null){ S.modal.map[+el.dataset.imap] = el.value; renderModal(); return; }
+  if(el.dataset.imnt != null){ var nx = (S.modal.nf || {})[+el.dataset.imnt]; if(nx) nx.t = el.value; renderModal(); return; }   // v3.6: type of a new field
+  if(el.id === 'impScope'){ S.modal.nfAll = !el.checked; renderModal(); return; }
   if(el.id === 'impMatch'){ S.modal.matchKey = el.value; renderModal(); return; }
   if(el.id === 'impFile' && el.files && el.files[0]){ impFile(el.files[0]); return; }
   if(el.id === 'nrVis' || el.id === 'nrSec'){ S.modal[el.id === 'nrVis' ? 'vis' : 'sec'] = el.value; return; }

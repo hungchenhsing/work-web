@@ -312,7 +312,8 @@ function fieldManager(m){
       (f.type === 'select' ? '<input type="checkbox" data-fm="' + i + ':multi"' + (f.multi ? ' checked' : '') + (!f.multi && (d.roles.status === f.key || d.roles.kind === f.key) ? ' disabled title="' + esc(T('The status (or kind) takes one value', '状态（或类别）只能有一个值')) + '"' : '') + ' aria-label="' + esc(T('Several values: ', '多选：') + T1(f.en || f.key, f.zh)) + '" title="' + esc(T('Allow several values', '允许多选')) + '">' : f.type === 'sub' && (f.cols || []).some(function(c){ return c.multi; }) ? '<span class="note" title="' + esc(T('Some sub-table columns take several values', '部分子表列允许多选')) + '">' + L('cols', '列') + '</span>' : '<span></span>') +
       (f.type === 'section' ? '<span></span><span></span>' : '<input type="checkbox" data-fm="' + i + ':show"' + (!f.hide ? ' checked' : '') + ' aria-label="Table">' + (isLk(f) ? '<span title="' + esc(T('Lookups are never shown to the Owner', '取值字段不对业主显示')) + '">—</span>' : '<input type="checkbox" data-fm="' + i + ':ext"' + (f.ext ? ' checked' : '') + ' aria-label="Owner">')) +
       '<span class="nowrap"><button type="button" class="btn sm' + (x ? ' on' : '') + '" data-act="fmExp" data-v="' + i + '">' + L('More', '更多') + ' ' + (x ? '▴' : '▾') + '</button><button type="button" class="ib" data-act="fmDel" data-v="' + i + '" title="' + esc(T('Remove field', '删除字段')) + '">' + uic('trash', 14) + '</button></span></div>';
-    if(x) h += '<div class="fmx">' + fieldExtra(reg, f, i, d, ls, regs) + '</div>';
+    if(x) h += '<div class="fmx">' + fieldExtra(reg, f, i, d, ls, regs) + scopeEditor(f, i, d) + '</div>';
+    else if(scopeOf(f) && f.type !== 'section') h += '<div class="fmsc note">' + L('Only for: ', '只用于：') + esc(scopeDraftText(f, d)) + '</div>';
   });
   h += '</div><div class="row" style="margin-top:10px"><select class="in" id="fmNewType" aria-label="' + esc(T('Type of the new field', '新字段类型')) + '">' + typeOpts('') + '</select><input class="in" id="fmNewName" placeholder="' + esc(T('New field name', '新字段名称')) + '" data-fk="fmNewName"><button type="button" class="btn" data-act="fmAdd">' + uic('plus', 13) + ' ' + L('Add field', '添加字段') + '</button></div>';
   // roles
@@ -353,6 +354,26 @@ function fieldExtra(reg, f, i, d, ls, regs){
       '<label class="fl">A<select class="in" data-fm="' + i + ':calcA"><option value=""></option>' + cand.map(function(x){ return '<option value="' + esc(x.key) + '"' + (c.a === x.key ? ' selected' : '') + '>' + esc(T1(x.en, x.zh)) + '</option>'; }).join('') + '</select></label><label class="fl">B<select class="in" data-fm="' + i + ':calcB"><option value=""></option>' + cand.map(function(x){ return '<option value="' + esc(x.key) + '"' + (c.b === x.key ? ' selected' : '') + '>' + esc(T1(x.en, x.zh)) + '</option>'; }).join('') + '</select></label>'; }
   if(f.type === 'link') h += '<div class="fl full">' + L('Can link to (none ticked = any register)', '可关联的台账（都不勾 = 任意台账）') + '<div class="row">' + regs.map(function(r){ return '<label class="chk"><input type="checkbox" data-fm="' + i + ':link:' + esc(r.id) + '"' + ((f.link || []).indexOf(r.id) >= 0 ? ' checked' : '') + '>' + esc(regName(r)) + '</label>'; }).join('') + '</div></div>';
   if(f.type === 'sub') h += '<div class="fl full"><button type="button" class="btn sm" data-act="colsOpen" data-v="' + i + '">' + L('Edit sub-table columns', '编辑子表列') + ' (' + (f.cols || []).length + ')</button></div>';
+  return h + '</div>';
+}
+/* v3.6 · which part of the register a field belongs to: packages (with what is under them) and/or Types; none = all */
+function scopeDraftText(f, d){
+  var s = scopeOf(f); if(!s) return '';
+  var tf = d.fields.filter(function(x){ return x.key === d.roles.tree; })[0], kf = d.fields.filter(function(x){ return x.key === d.roles.kind; })[0];
+  return s.nodes.map(function(id){ var n = tf && treeNode(tf, id); return n ? treeLabel(n) : ''; }).concat(s.types.map(function(v){ var o = kf && (kf.opts || []).filter(function(x){ return x.v === v; })[0]; return o ? nm(o) : ''; })).filter(Boolean).join(' · ');
+}
+function scopeEditor(f, i, d){
+  if(f.type === 'section') return '';
+  var roleOf = Object.keys(d.roles || {}).filter(function(r){ return d.roles[r] === f.key; })[0];
+  var tf = d.fields.filter(function(x){ return x.key === d.roles.tree && x.type === 'tree'; })[0], kf = d.fields.filter(function(x){ return x.key === d.roles.kind && x.type === 'select' && !x.list; })[0];
+  if(!tf && !kf) return '';
+  var h = '<div class="fsc"><span class="flab">' + L('Applies to', '适用于') + '</span>';
+  if(roleOf) return h + '<p class="note">' + L('A field with a use (title, dates, status, package, Type…) applies to every item.', '有用途的字段（标题、日期、状态、文件包、类型…）适用于所有事项。') + '</p></div>';
+  var s = scopeOf(f) || {nodes:[], types:[]};
+  h += '<p class="note">' + L('Nothing ticked: every item. Tick packages and/or Types to keep this field to that part of the register — it then shows in the details of those items only, and as a column when you pick that package (or filter to them).', '都不勾 = 所有事项。勾选文件包和/或类型，此字段就只属于这部分：只在这些事项的详情里出现；选到该文件包（或筛选到它们）时自动成为表格的列。') + '</p>';
+  if(tf){ var rows = []; treeDfs(tf, function(n, dep){ if(dep <= 1) rows.push('<label class="chk" style="padding-left:' + (dep * 18) + 'px"><input type="checkbox" data-fm="' + i + ':scn:' + esc(n.id) + '"' + (s.nodes.indexOf(n.id) >= 0 ? ' checked' : '') + '>' + esc(treeLabel(n)) + '</label>'); });
+    h += '<div class="fl full"><span class="flab">' + L(tf.en, tf.zh) + '</span><div class="scbox">' + rows.join('') + '</div></div>'; }
+  if(kf) h += '<div class="fl full"><span class="flab">' + L(kf.en, kf.zh) + '</span><div class="row">' + (kf.opts || []).map(function(o){ return '<label class="chk"><input type="checkbox" data-fm="' + i + ':sct:' + esc(o.v) + '"' + (s.types.indexOf(o.v) >= 0 ? ' checked' : '') + '>' + esc(nm(o) || o.v) + '</label>'; }).join('') + '</div></div>';
   return h + '</div>';
 }
 /* v3.3 · the value a new item starts with */

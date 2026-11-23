@@ -28,6 +28,7 @@ function shareRoles(d){ return shareIsObj(d.roles) ? d.roles : {}; }
 function shareField(f){
   var o = {}; SHARE_FIELD_KEYS.forEach(function(k){ o[k] = shareCl(f[k]); });
   ['auto', 'calc'].forEach(function(k){ var a = f[k]; o[k] = shareIsObj(a) ? shareObj({op:shareCl(a.op), a:shareCl(a.a), b:shareCl(a.b)}) : null; });
+  o.scope = shareIsObj(f.scope) ? shareObj({nodes:shareCl(f.scope.nodes), types:shareCl(f.scope.types)}) : null;   /* v3.6: the part of the register a field belongs to */
   return shareObj(o);
 }
 /* which fields of a register go out. strict (register views): External fields plus No. and title only;
